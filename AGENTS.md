@@ -61,3 +61,17 @@ After relevant changes:
 5. Report the commands run and their results.
 
 Do not claim that a feature works unless it was tested, or clearly identify what still requires an interactive Blender test.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the five default canonical labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
