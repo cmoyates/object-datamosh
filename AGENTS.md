@@ -54,11 +54,22 @@ src/object_datamosh
 
 After relevant changes:
 
-1. Run the pure Python unit tests.
-2. Run the Blender background smoke test.
-3. Validate the Blender extension.
-4. Build the installation ZIP.
-5. Report the commands run and their results.
+1. Run the static type checker from the repository root with `uv run ty check`.
+2. Run the pure Python unit tests.
+3. Run the Blender background smoke test.
+4. Validate the Blender extension.
+5. Build the installation ZIP.
+6. Report the commands run and their results.
+
+`ty` is the project's only static type checker. It checks authored Python under `src` and
+`tests`; generated files, build output, virtual environments, and extension distribution
+artifacts are excluded in `pyproject.toml`.
+
+Blender's `bpy` module is available only inside Blender. Keep Blender-dependent modules outside
+`src/object_datamosh/core`, and do not globally disable unresolved-import diagnostics. Prefer
+development-only Blender 5.0 stubs when compatible stubs are available; otherwise suppress only
+the unresolved `bpy` import in the Blender integration modules that require it and document the
+limitation.
 
 Do not claim that a feature works unless it was tested, or clearly identify what still requires an interactive Blender test.
 

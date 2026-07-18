@@ -18,23 +18,60 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "mypy>=2.3.0",
     "pytest>=9.1.1",
     "ruff>=0.15.22",
+    "ty>=0.0.61",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
-    # pycodestyle
-    "E",
-    # Pyflakes
-    "F",
-    # pyupgrade
-    "UP",
-    # flake8-bugbear
-    "B",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
+  "E",   # pycodestyle errors
+  "F",   # Pyflakes
+  "I",   # import sorting
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.ty]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = [
+  ".venv",
+  "**/__pycache__",
+  "**/*.egg-info",
+  "build",
+  "dist",
+  "*.zip",
+]
+respect-ignore-files = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--import-mode=importlib",
+]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "unit: fast isolated tests",
+  "integration: tests that touch filesystem, database, subprocesses, or external services",
+  "slow: tests that are useful but too slow for every edit loop",
 ]
