@@ -25,6 +25,11 @@ from bpy.types import (
     Scene,
 )
 
+from .compositor_setup import (
+    has_object_index_setup,
+    restore_object_index_passes,
+    setup_object_index_passes,
+)
 from .core.contracts import FeedbackSettings, MatteSource, MotionChannels
 from .core.paths import SequencePaths
 
@@ -172,6 +177,79 @@ class ODM_OT_use_active_object(Operator):
         return {"FINISHED"}
 
 
+class ODM_OT_setup_object_index(Operator):
+    """Configure owned compositor outputs for the selected target object."""
+
+    bl_idname = "object_datamosh.setup_object_index"
+    bl_label = "Setup Object Index"
+    bl_description = "Configure non-destructive Object Index, vector, and beauty outputs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        if context.scene is None or context.view_layer is None:
+            return False
+        return settings_for_scene(context.scene).target_object is not None
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        view_layer = context.view_layer
+        if scene is None or view_layer is None:
+            self.report({"ERROR"}, "An active scene and view layer are required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        target_object = settings.target_object
+        if target_object is None:
+            message = "Choose a target object before setting up Object Index passes"
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        try:
+            setup = setup_object_index_passes(
+                scene,
+                view_layer,
+                target_object,
+                sequence_paths_for_scene(scene),
+            )
+        except (RuntimeError, TypeError, ValueError) as error:
+            settings.status = str(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        message = f"Object Index setup ready (pass {setup.pass_index})"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
+class ODM_OT_restore_object_index(Operator):
+    """Remove owned compositor setup and restore changed pass settings."""
+
+    bl_idname = "object_datamosh.restore_object_index"
+    bl_label = "Restore Object Index Setup"
+    bl_description = "Remove Object Datamosh nodes and restore prior pass settings"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return context.scene is not None and has_object_index_setup(context.scene)
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            self.report({"ERROR"}, "An active scene is required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        if not restore_object_index_passes(scene):
+            message = "No Object Datamosh Object Index setup was found"
+            settings.status = message
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        message = "Object Index setup restored"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_PT_sidebar(Panel):
     """Object Datamosh controls in the 3D View sidebar."""
 
@@ -220,6 +298,10 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         matte.prop(settings, "external_matte_directory")
     elif settings.matte_source == "CRYPTOMATTE":
         matte.label(text="Experimental; decoding is not yet available", icon="INFO")
+    else:
+        row = matte.row(align=True)
+        row.operator(ODM_OT_setup_object_index.bl_idname)
+        row.operator(ODM_OT_restore_object_index.bl_idname)
 
     feedback = layout.box()
     feedback.label(text="Feedback")
@@ -240,7 +322,13 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     layout.label(text=f"Status: {settings.status}")
 
 
-_CLASSES = (ODM_Settings, ODM_OT_use_active_object, ODM_PT_sidebar)
+_CLASSES = (
+    ODM_Settings,
+    ODM_OT_use_active_object,
+    ODM_OT_setup_object_index,
+    ODM_OT_restore_object_index,
+    ODM_PT_sidebar,
+)
 
 
 def _owns_scene_settings_property() -> bool:
