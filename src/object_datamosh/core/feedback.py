@@ -207,7 +207,7 @@ def process_frame(
         warped_invalid, _ = bilinear_sample(
             invalid_covered_history.astype(np.float32), sample_x, sample_y
         )
-        covered = valid & (warped_matte > 1e-6) & (warped_invalid == 0.0)
+        covered = valid & (warped_matte > 0.0) & (warped_invalid == 0.0)
         safe_matte = np.where(covered, warped_matte, 1.0)
         warped_history = warped_premultiplied / safe_matte[..., None]
         blend = (settings.persistence * matte * warped_matte * covered * ~refreshed)[..., None]

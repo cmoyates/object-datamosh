@@ -520,6 +520,33 @@ def test_out_of_bounds_warped_history_falls_back_to_clean_beauty() -> None:
     np.testing.assert_array_equal(output, beauty)
 
 
+@pytest.mark.parametrize("displacement", [0.0, 0.5])
+def test_positive_low_coverage_history_is_preserved(displacement: float) -> None:
+    beauty = _rgba(1, 2, 0.0)
+    previous = FeedbackState(
+        _rgba(1, 2, 1.0),
+        np.full((1, 2), 1e-7, dtype=np.float32),
+        frame_number=1,
+    )
+    motion = _motion(1, 2)
+    motion[0, 1, 0] = displacement
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=np.array([[0.0, 1.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_allclose(output[0, 1], np.full(4, 1e-7, dtype=np.float32), rtol=1e-6)
+
+
 def test_premultiplied_history_prevents_background_color_from_bleeding_at_matte_edge() -> None:
     beauty = _rgba(1, 2, 0.0)
     history = _rgba(1, 2, 100.0)
