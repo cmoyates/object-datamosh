@@ -71,13 +71,15 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
 - **Feedback settings:** immutable `FeedbackSettings` contains all sidebar feedback controls and
   validates probabilities, block size, and non-negative motion controls.
 - **Matte providers:** `ObjectIndexMatteProvider` resolves rendered Object Index mattes;
-  `ExternalMatteProvider` resolves a numbered external sequence. The
+  `ExternalMatteProvider` safely resolves a numbered external sequence without allowing its
+  filename pattern to escape the selected directory. The
   `CryptomatteMatteProvider` contract intentionally fails with a clear `NotImplementedError`:
   decoding remains experimental and is not part of the MVP.
 - **Image I/O:** `ImageSequenceIO` is the processing boundary. `BlenderImageIO` is its Blender
   implementation and reads/writes full-float RGBA OpenEXR using temporary `ODM_` Image
-  data-blocks. It removes those data-blocks and restores temporary render image settings in
-  `finally` paths.
+  data-blocks. Matte files use scalar coverage from the EXR red channel; `read_mask` returns that
+  channel as a contiguous `(height, width)` `float32` array. The implementation removes temporary
+  data-blocks and restores render image settings in `finally` paths.
 - **Ownership:** extension-created data uses the `ODM_` prefix and the
   `object_datamosh_owned` custom-property tag. Helpers live in
   `object_datamosh.core.ownership`.

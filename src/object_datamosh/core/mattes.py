@@ -1,7 +1,8 @@
 """Matte source contracts for sequence processing."""
 
 from dataclasses import dataclass
-from pathlib import Path
+from numbers import Integral
+from pathlib import Path, PureWindowsPath
 from typing import Protocol
 
 from .paths import SequencePaths
@@ -35,8 +36,16 @@ class ExternalMatteProvider:
     extension: str = ".exr"
     padding: int = 4
 
+    def __post_init__(self) -> None:
+        _validate_filename_part("prefix", self.prefix)
+        _validate_filename_part("extension", self.extension)
+        if not self.extension.startswith("."):
+            raise ValueError("extension must start with a dot")
+        _validate_padding(self.padding)
+
     def path_for_frame(self, frame: int, sequence: SequencePaths) -> Path:
         del sequence
+        _validate_frame(frame)
         return self.directory / f"{self.prefix}{frame:0{self.padding}d}{self.extension}"
 
 
@@ -46,3 +55,22 @@ class ObjectIndexMatteProvider:
 
     def path_for_frame(self, frame: int, sequence: SequencePaths) -> Path:
         return sequence.frame(frame).matte
+
+
+def _validate_filename_part(name: str, value: str) -> None:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    if "/" in value or "\\" in value or PureWindowsPath(value).drive or value in {".", ".."}:
+        raise ValueError(f"{name} must be a single filename component")
+
+
+def _validate_frame(frame: int) -> None:
+    if isinstance(frame, bool) or not isinstance(frame, Integral):
+        raise TypeError("frame must be an integer")
+
+
+def _validate_padding(padding: int) -> None:
+    if isinstance(padding, bool) or not isinstance(padding, Integral):
+        raise TypeError("padding must be an integer")
+    if padding < 0:
+        raise ValueError("padding must not be negative")

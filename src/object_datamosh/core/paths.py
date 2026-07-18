@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from numbers import Integral
 from pathlib import Path
 
 
@@ -24,6 +25,9 @@ class SequencePaths:
     warning: str | None = None
     frame_padding: int = 4
 
+    def __post_init__(self) -> None:
+        _validate_padding(self.frame_padding)
+
     @classmethod
     def from_blend_file(
         cls,
@@ -43,6 +47,7 @@ class SequencePaths:
         return cls(root=root, frame_padding=frame_padding)
 
     def frame(self, frame: int) -> FramePaths:
+        _validate_frame(frame)
         token = f"{frame:0{self.frame_padding}d}"
         paths = FramePaths(
             frame=frame,
@@ -60,3 +65,15 @@ class SequencePaths:
             paths.processed,
         )
         return paths
+
+
+def _validate_frame(frame: int) -> None:
+    if isinstance(frame, bool) or not isinstance(frame, Integral):
+        raise TypeError("frame must be an integer")
+
+
+def _validate_padding(padding: int) -> None:
+    if isinstance(padding, bool) or not isinstance(padding, Integral):
+        raise TypeError("frame_padding must be an integer")
+    if padding < 0:
+        raise ValueError("frame_padding must not be negative")

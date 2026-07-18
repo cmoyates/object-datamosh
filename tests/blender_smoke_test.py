@@ -164,6 +164,10 @@ def main() -> None:
     external_image_path = Path(bpy.app.tempdir) / "external_matte.exr"
     shutil.copyfile(image_path, external_image_path)
     assert np.allclose(image_io.read_rgba(external_image_path), expected, atol=1e-6)
+    actual_mask = image_io.read_mask(external_image_path)
+    assert actual_mask.dtype == np.float32
+    assert actual_mask.shape == expected.shape[:2]
+    assert np.allclose(actual_mask, expected[..., 0], atol=1e-6)
     assert image_path.is_file()
     assert np.allclose(actual, expected, atol=1e-6), (actual, expected)
     assert len(bpy.data.images) == images_before

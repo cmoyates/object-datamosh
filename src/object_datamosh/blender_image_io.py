@@ -14,7 +14,7 @@ from uuid import uuid4
 import bpy
 import numpy as np
 
-from .core.contracts import FloatImage
+from .core.contracts import FloatImage, FloatMask
 from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
@@ -51,6 +51,12 @@ class BlenderImageIO:
             return pixels.reshape((height, width, 4))
         finally:
             bpy.data.images.remove(image)
+
+    def read_mask(self, path: str | Path) -> FloatMask:
+        """Read scalar matte coverage from the EXR red channel."""
+        image_path = Path(path)
+        logging.getLogger(__name__).info("Reading red-channel matte coverage: %s", image_path)
+        return np.ascontiguousarray(self.read_rgba(image_path)[..., 0], dtype=np.float32)
 
     def write_rgba(self, path: str | Path, pixels: FloatImage) -> None:
         image_path = Path(path)

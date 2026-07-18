@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -28,6 +29,21 @@ def test_sequence_paths_use_a_safe_temporary_root_for_an_unanchored_blend(
 
     assert paths.root == tmp_path / "ODM_object_datamosh_unsaved"
     assert paths.warning == "Save the blend file to use a project-relative output directory."
+
+
+@pytest.mark.parametrize("padding", [-1, 1.5, True])
+def test_sequence_paths_reject_invalid_frame_padding(tmp_path: Path, padding: object) -> None:
+    error_type = ValueError if padding == -1 else TypeError
+    with pytest.raises(error_type, match="frame_padding"):
+        SequencePaths(root=tmp_path, frame_padding=cast(Any, padding))
+
+
+@pytest.mark.parametrize("frame", [1.5, True])
+def test_sequence_paths_require_integral_frame_numbers(tmp_path: Path, frame: object) -> None:
+    paths = SequencePaths(root=tmp_path)
+
+    with pytest.raises(TypeError, match="frame must be an integer"):
+        paths.frame(cast(Any, frame))
 
 
 def test_frame_path_resolution_logs_frame_pass_and_path_details(

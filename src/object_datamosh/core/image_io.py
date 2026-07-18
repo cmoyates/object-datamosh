@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from .contracts import FloatImage
+from .contracts import FloatImage, FloatMask
 
 
 class ImageSequenceIO(Protocol):
@@ -11,6 +11,10 @@ class ImageSequenceIO(Protocol):
 
     def read_rgba(self, path: str | Path) -> FloatImage:
         """Read ``path`` as ``(height, width, 4)`` float32 RGBA."""
+        ...
+
+    def read_mask(self, path: str | Path) -> FloatMask:
+        """Read the red channel of ``path`` as ``(height, width)`` float32 coverage."""
         ...
 
     def write_rgba(self, path: str | Path, pixels: FloatImage) -> None:
