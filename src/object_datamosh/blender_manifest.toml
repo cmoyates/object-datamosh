@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "object_datamosh"
+version = "0.1.0"
+name = "Object Datamosh"
+tagline = "Create object-localized temporal feedback effects"
+maintainer = "cmoyates"
+type = "add-on"
+
+blender_version_min = "5.0.0"
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Render"]
+
+[permissions]
+files = "Read and write image sequences in selected directories"
