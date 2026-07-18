@@ -308,6 +308,21 @@ def test_diffusion_is_deterministic_from_seed_frame_and_block_coordinates() -> N
     assert not np.array_equal(first[2:4, 2:4], first[2:4, 4:6])
 
 
+@pytest.mark.parametrize("shape", [(0, 2, 4), (2, 0, 4)])
+def test_process_frame_rejects_empty_frame_dimensions(shape: tuple[int, int, int]) -> None:
+    height, width, _channels = shape
+
+    with pytest.raises(ValueError, match="frame dimensions must be nonzero"):
+        process_frame(
+            beauty=np.empty(shape, dtype=np.float32),
+            motion=np.empty(shape, dtype=np.float32),
+            matte=np.empty((height, width), dtype=np.float32),
+            previous_state=None,
+            frame_number=1,
+            settings=FeedbackSettings(),
+        )
+
+
 def test_process_frame_requires_float32_motion() -> None:
     with pytest.raises(TypeError, match="motion must use float32"):
         process_frame(
@@ -551,6 +566,32 @@ def test_odd_resolution_with_partial_blocks_preserves_shape_and_float32() -> Non
     assert output.dtype == np.float32
     np.testing.assert_allclose(output, _rgba(height, width, 0.45), atol=1e-7)
     assert state.history_matte.shape == (79, 101)
+
+
+def test_extreme_quantization_and_diffusion_remain_numerically_safe() -> None:
+    beauty = _rgba(2, 2, 0.25)
+    previous = FeedbackState(_rgba(2, 2, 1.0), np.ones((2, 2), dtype=np.float32), frame_number=1)
+    motion = _motion(2, 2)
+    motion[..., 0] = np.finfo(np.float32).max
+
+    with np.errstate(over="raise", invalid="raise"):
+        output, state = process_frame(
+            beauty=beauty,
+            motion=motion,
+            matte=np.ones((2, 2), dtype=np.float32),
+            previous_state=previous,
+            frame_number=2,
+            settings=FeedbackSettings(
+                persistence=1.0,
+                block_size=1,
+                motion_clamp=float(np.finfo(np.float32).max),
+                motion_quantization=1e300,
+                diffusion=1e300,
+            ),
+        )
+
+    assert np.all(np.isfinite(output))
+    assert np.all(np.isfinite(state.history))
 
 
 def test_refresh_probability_one_uses_clean_beauty_for_every_block() -> None:
