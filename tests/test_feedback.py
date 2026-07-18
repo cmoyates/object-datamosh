@@ -248,6 +248,28 @@ def test_block_motion_uses_matte_weighted_representative_and_expands_to_edge_blo
     np.testing.assert_array_equal(output[0, 2], beauty[0, 2])
 
 
+def test_numpy_integer_seed_and_frame_are_supported() -> None:
+    previous = FeedbackState(_rgba(2, 2, 1.0), np.ones((2, 2), dtype=np.float32), frame_number=1)
+
+    output, state = process_frame(
+        beauty=_rgba(2, 2, 0.0),
+        motion=_motion(2, 2),
+        matte=np.ones((2, 2), dtype=np.float32),
+        previous_state=previous,
+        frame_number=np.int64(2),  # ty: ignore[invalid-argument-type]
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            diffusion=0.25,
+            refresh_probability=0.5,
+            seed=np.int64(7),  # ty: ignore[invalid-argument-type]
+        ),
+    )
+
+    assert output.shape == (2, 2, 4)
+    assert state.frame_number == 2
+
+
 def test_diffusion_is_deterministic_from_seed_frame_and_block_coordinates() -> None:
     scalar = np.fromfunction(lambda y, x: y * 10 + x, (8, 8), dtype=np.float32).astype(np.float32)
     history = np.repeat(scalar[..., None], 4, axis=2)
@@ -569,6 +591,28 @@ def test_premultiplied_history_prevents_background_color_from_bleeding_at_matte_
     )
 
     np.testing.assert_allclose(output[0, 1], np.full(4, 0.5, dtype=np.float32))
+
+
+def test_block_size_larger_than_frame_does_not_expand_allocation() -> None:
+    beauty = _rgba(1, 2, 0.0)
+    previous = FeedbackState(_rgba(1, 2, 1.0), np.ones((1, 2), dtype=np.float32), frame_number=1)
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=_motion(1, 2),
+        matte=np.ones((1, 2), dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1_000_000_000,
+            diffusion=0.1,
+            refresh_probability=0.5,
+        ),
+    )
+
+    assert output.shape == beauty.shape
+    assert np.all(np.isfinite(output))
 
 
 def test_odd_resolution_with_partial_blocks_preserves_shape_and_float32() -> None:

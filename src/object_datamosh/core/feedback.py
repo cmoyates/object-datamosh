@@ -44,8 +44,10 @@ def _unit_random_grid(
     """Map deterministic integer block coordinates to floats in ``[0, 1)``."""
     block_y = np.arange(block_rows, dtype=np.uint64)[:, None]
     block_x = np.arange(block_columns, dtype=np.uint64)[None, :]
-    value = np.full((block_rows, block_columns), seed & _UINT64_MASK, dtype=np.uint64)
-    value ^= np.uint64((frame_number * 0xD6E8FEB86659FD93) & _UINT64_MASK)
+    seed_value = int(seed)
+    frame_value = int(frame_number)
+    value = np.full((block_rows, block_columns), seed_value & _UINT64_MASK, dtype=np.uint64)
+    value ^= np.uint64((frame_value * 0xD6E8FEB86659FD93) & _UINT64_MASK)
     value ^= block_y * np.uint64(0xA5A3564E27F8862F)
     value ^= block_x * np.uint64(0x9E3779B97F4A7C15)
     value ^= np.uint64((stream * 0x94D049BB133111EB) & _UINT64_MASK)
@@ -166,7 +168,8 @@ def process_frame(
         )
         scales = np.minimum(settings.motion_gain, clamp_scales)
         displacement = (decoded_motion * scales[..., None]).astype(np.float32)
-        displacement = _block_reduce_expand(displacement, matte, settings.block_size)
+        effective_block_size = min(settings.block_size, max(matte.shape))
+        displacement = _block_reduce_expand(displacement, matte, effective_block_size)
         smallest_float32 = float(np.nextafter(np.float32(0.0), np.float32(1.0)))
         if settings.motion_quantization >= smallest_float32:
             step = settings.motion_quantization
@@ -175,7 +178,7 @@ def process_frame(
             displacement = np.clip(quantized, -float32_limit, float32_limit).astype(np.float32)
         displacement, refreshed = _apply_block_randomness(
             displacement,
-            settings.block_size,
+            effective_block_size,
             settings.diffusion,
             settings.refresh_probability,
             settings.seed,
