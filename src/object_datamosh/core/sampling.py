@@ -17,8 +17,15 @@ def bilinear_sample(
     where the complete sample lies inside the image; invalid samples are zero and never wrap to an
     opposite edge.
     """
+    for name, array in (("image", image), ("sample_x", sample_x), ("sample_y", sample_y)):
+        if not isinstance(array, np.ndarray):
+            raise TypeError(f"{name} must be a NumPy array")
+        if array.dtype != np.float32:
+            raise TypeError(f"{name} must use float32")
     if image.ndim not in (2, 3):
         raise ValueError("image must be 2D or have a channel dimension")
+    if image.shape[0] == 0 or image.shape[1] == 0:
+        raise ValueError("image dimensions must be nonzero")
     if sample_x.shape != sample_y.shape:
         raise ValueError("sample_x and sample_y must have matching shapes")
 

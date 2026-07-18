@@ -294,6 +294,33 @@ def test_process_frame_requires_float32_motion() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("argument", "value", "message"),
+    [
+        ("frame_number", 1.5, "frame_number must be an integer"),
+        ("frame_number", True, "frame_number must be an integer"),
+        ("settings", object(), "settings must be a FeedbackSettings value"),
+        ("force_reset", 1, "force_reset must be a boolean"),
+    ],
+)
+def test_process_frame_validates_scalar_contracts(
+    argument: str, value: object, message: str
+) -> None:
+    arguments: dict[str, object] = {
+        "beauty": _rgba(1, 1, 0.0),
+        "motion": _motion(1, 1),
+        "matte": np.ones((1, 1), dtype=np.float32),
+        "previous_state": None,
+        "frame_number": 1,
+        "settings": FeedbackSettings(),
+        "force_reset": False,
+    }
+    arguments[argument] = value
+
+    with pytest.raises(TypeError, match=message):
+        process_frame(**arguments)  # type: ignore[arg-type]
+
+
 def test_forced_reset_discards_available_history() -> None:
     beauty = _rgba(2, 2, 0.2)
     previous = FeedbackState(_rgba(2, 2, 1.0), np.ones((2, 2), dtype=np.float32), frame_number=1)
@@ -347,6 +374,57 @@ def test_non_finite_warped_history_falls_back_to_clean_beauty() -> None:
 
     np.testing.assert_array_equal(output[0, 0], beauty[0, 0])
     np.testing.assert_array_equal(output[0, 1], previous.history[0, 1])
+
+
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+def test_fractional_sample_rejects_invalid_covered_history(invalid_value: float) -> None:
+    beauty = _rgba(1, 2, 0.25)
+    history = _rgba(1, 2, 1.0)
+    history[0, 0, 0] = invalid_value
+    previous = FeedbackState(history, np.ones((1, 2), dtype=np.float32), frame_number=1)
+    motion = _motion(1, 2)
+    motion[0, 1, 0] = 0.5
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=np.array([[0.0, 1.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 1], beauty[0, 1])
+
+
+def test_fractional_sample_rejects_invalid_history_matte() -> None:
+    beauty = _rgba(1, 2, 0.25)
+    previous = FeedbackState(
+        _rgba(1, 2, 1.0),
+        np.array([[2.0, 1.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    motion = _motion(1, 2)
+    motion[0, 1, 0] = 0.5
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=np.array([[0.0, 1.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 1], beauty[0, 1])
 
 
 def test_out_of_bounds_warped_history_falls_back_to_clean_beauty() -> None:

@@ -1,5 +1,7 @@
 """Pure NumPy hard-localized temporal feedback processing."""
 
+from numbers import Integral
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -108,6 +110,12 @@ def process_frame(
     force_reset: bool = False,
 ) -> tuple[FloatImage, FeedbackState]:
     """Process one frame and return its RGBA output plus state for the next frame."""
+    if isinstance(frame_number, bool) or not isinstance(frame_number, Integral):
+        raise TypeError("frame_number must be an integer")
+    if not isinstance(settings, FeedbackSettings):
+        raise TypeError("settings must be a FeedbackSettings value")
+    if not isinstance(force_reset, bool):
+        raise TypeError("force_reset must be a boolean")
     _validate_inputs(beauty, motion, matte, previous_state)
     if previous_state is None or force_reset:
         output = beauty.copy()
@@ -140,20 +148,31 @@ def process_frame(
         sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
         sample_x -= displacement[..., 0]
         sample_y -= displacement[..., 1]
-        history_pixel_valid = (
-            np.all(np.isfinite(previous_state.history), axis=-1)
-            & np.isfinite(previous_state.history_matte)
-            & (previous_state.history_matte > 0.0)
+        history_matte_valid = (
+            np.isfinite(previous_state.history_matte)
+            & (previous_state.history_matte >= 0.0)
             & (previous_state.history_matte <= 1.0)
         )
-        valid_history_matte = np.where(
-            history_pixel_valid, previous_state.history_matte, 0.0
-        ).astype(np.float32, copy=False)
-        safe_history = np.where(history_pixel_valid[..., None], previous_state.history, 0.0)
+        history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
+        history_covered = (
+            history_matte_valid
+            & history_color_valid
+            & (previous_state.history_matte > 0.0)
+        )
+        invalid_covered_history = ~history_matte_valid | (
+            (previous_state.history_matte > 0.0) & ~history_color_valid
+        )
+        valid_history_matte = np.where(history_covered, previous_state.history_matte, 0.0).astype(
+            np.float32, copy=False
+        )
+        safe_history = np.where(history_covered[..., None], previous_state.history, 0.0)
         premultiplied = safe_history * valid_history_matte[..., None]
         warped_premultiplied, valid = bilinear_sample(premultiplied, sample_x, sample_y)
         warped_matte, _ = bilinear_sample(valid_history_matte, sample_x, sample_y)
-        covered = valid & (warped_matte > 1e-6)
+        warped_invalid, _ = bilinear_sample(
+            invalid_covered_history.astype(np.float32), sample_x, sample_y
+        )
+        covered = valid & (warped_matte > 1e-6) & (warped_invalid <= 1e-6)
         safe_matte = np.where(covered, warped_matte, 1.0)
         warped_history = warped_premultiplied / safe_matte[..., None]
         blend = (settings.persistence * matte * warped_matte * covered * ~refreshed)[..., None]
