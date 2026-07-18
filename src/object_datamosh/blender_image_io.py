@@ -41,6 +41,7 @@ class BlenderImageIO:
 
     def write_rgba(self, path: str | Path, pixels: FloatImage) -> None:
         image_path = Path(path)
+        _validate_exr_path(image_path)
         _validate_rgba(pixels)
         image_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -87,6 +88,11 @@ class BlenderImageIO:
                 settings.color_depth,
                 settings.exr_codec,
             ) = original
+
+
+def _validate_exr_path(path: Path) -> None:
+    if path.suffix.lower() != ".exr":
+        raise ValueError(f"BlenderImageIO writes OpenEXR data and requires an .exr path: {path}")
 
 
 def _validate_rgba(pixels: FloatImage) -> None:

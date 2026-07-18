@@ -33,20 +33,20 @@ class SequencePaths:
     ) -> "SequencePaths":
         if not str(blend_file):
             return cls(
-                root=Path(temp_directory) / "object_datamosh_unsaved",
+                root=Path(temp_directory) / "ODM_object_datamosh_unsaved",
                 warning="Save the blend file to use a project-relative output directory.",
                 frame_padding=frame_padding,
             )
         blend_path = Path(blend_file)
-        root = blend_path.parent / f"{blend_path.stem}_object_datamosh"
+        root = blend_path.parent / f"ODM_{blend_path.stem}_object_datamosh"
         return cls(root=root, frame_padding=frame_padding)
 
     def frame(self, frame: int) -> FramePaths:
         token = f"{frame:0{self.frame_padding}d}"
         return FramePaths(
             frame=frame,
-            beauty=self.root / "raw" / "beauty" / f"beauty_{token}.exr",
-            vector=self.root / "raw" / "vector" / f"vector_{token}.exr",
-            matte=self.root / "raw" / "matte" / f"matte_{token}.exr",
-            processed=self.root / "processed" / f"processed_{token}.exr",
+            beauty=self.root / "raw" / "beauty" / f"ODM_beauty_{token}.exr",
+            vector=self.root / "raw" / "vector" / f"ODM_vector_{token}.exr",
+            matte=self.root / "raw" / "matte" / f"ODM_matte_{token}.exr",
+            processed=self.root / "processed" / f"ODM_processed_{token}.exr",
         )

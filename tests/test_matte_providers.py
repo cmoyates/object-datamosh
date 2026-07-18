@@ -15,7 +15,7 @@ def test_object_index_provider_uses_the_rendered_matte_for_each_frame(tmp_path: 
     provider = ObjectIndexMatteProvider()
 
     assert provider.path_for_frame(3, sequence) == (
-        tmp_path / "output" / "raw" / "matte" / "matte_0003.exr"
+        tmp_path / "output" / "raw" / "matte" / "ODM_matte_0003.exr"
     )
 
 

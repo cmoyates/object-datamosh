@@ -28,10 +28,12 @@ from bpy.types import (
 from .core.contracts import FeedbackSettings, MatteSource, MotionChannels
 from .core.paths import SequencePaths
 
+_SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
+
 
 def settings_for_scene(scene: Scene) -> ODM_Settings:
     """Return the dynamically registered settings attached to ``scene``."""
-    return cast(ODM_Settings, cast(Any, scene).object_datamosh)
+    return cast(ODM_Settings, getattr(scene, _SCENE_SETTINGS_ATTRIBUTE))
 
 
 def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
@@ -58,7 +60,9 @@ def sequence_paths_for_scene(scene: Scene) -> SequencePaths:
     """Derive safe sequence paths from Blender's current file state."""
     settings = settings_for_scene(scene)
     if settings.output_directory:
-        return SequencePaths(root=Path(bpy.path.abspath(settings.output_directory)))
+        output_root = Path(bpy.path.abspath(settings.output_directory))
+        if output_root.is_absolute():
+            return SequencePaths(root=output_root)
     return SequencePaths.from_blend_file(
         bpy.data.filepath,
         temp_directory=bpy.app.tempdir,
@@ -224,21 +228,37 @@ class ODM_PT_sidebar(Panel):
 _CLASSES = (ODM_Settings, ODM_OT_use_active_object, ODM_PT_sidebar)
 
 
+def _owns_scene_settings_property() -> bool:
+    scene_type = cast(Any, Scene)
+    deferred_property = getattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE, None)
+    keywords = getattr(deferred_property, "keywords", {})
+    return keywords.get("type") is ODM_Settings
+
+
 def register() -> None:
-    """Register classes and scene properties idempotently."""
+    """Register classes and the owned scene property idempotently."""
+    scene_type = cast(Any, Scene)
+    if hasattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE) and not _owns_scene_settings_property():
+        raise RuntimeError(
+            f"Scene.{_SCENE_SETTINGS_ATTRIBUTE} already exists and is not owned by Object Datamosh"
+        )
+
     for cls in _CLASSES:
         if not getattr(cls, "is_registered", False):
             bpy.utils.register_class(cls)
-    scene_type = cast(Any, Scene)
-    if not hasattr(scene_type, "object_datamosh"):
-        scene_type.object_datamosh = PointerProperty(type=ODM_Settings)
+    if not hasattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE):
+        setattr(
+            scene_type,
+            _SCENE_SETTINGS_ATTRIBUTE,
+            PointerProperty(type=ODM_Settings),
+        )
 
 
 def unregister() -> None:
     """Remove only data registered by this extension, idempotently."""
     scene_type = cast(Any, Scene)
-    if hasattr(scene_type, "object_datamosh"):
-        del scene_type.object_datamosh
+    if _owns_scene_settings_property():
+        delattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE)
     for cls in reversed(_CLASSES):
         if getattr(cls, "is_registered", False):
             bpy.utils.unregister_class(cls)

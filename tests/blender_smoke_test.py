@@ -33,7 +33,7 @@ from object_datamosh.ui import (  # noqa: E402
 def main() -> None:
     object_datamosh.register()
     object_datamosh.register()
-    assert hasattr(bpy.types.Scene, "object_datamosh")
+    assert hasattr(bpy.types.Scene, "ODM_settings")
     panel_type = cast(Any, bpy.types).ODM_PT_sidebar
     assert panel_type.bl_category == "Object Datamosh"
 
@@ -55,8 +55,12 @@ def main() -> None:
     assert settings.target_object == active_object
 
     unsaved_paths = sequence_paths_for_scene(scene)
-    assert unsaved_paths.root == Path(bpy.app.tempdir) / "object_datamosh_unsaved"
+    assert unsaved_paths.root == Path(bpy.app.tempdir) / "ODM_object_datamosh_unsaved"
     assert unsaved_paths.warning is not None
+    settings.output_directory = "//ODM_relative_output"
+    relative_unsaved_paths = sequence_paths_for_scene(scene)
+    assert relative_unsaved_paths.root == unsaved_paths.root
+    assert relative_unsaved_paths.warning is not None
     settings.output_directory = str(Path(bpy.app.tempdir) / "ODM_custom_output")
     custom_paths = sequence_paths_for_scene(scene)
     assert custom_paths.root == Path(bpy.app.tempdir) / "ODM_custom_output"
@@ -74,6 +78,12 @@ def main() -> None:
         image_settings.exr_codec,
     )
     image_io.write_rgba(image_path, expected)
+    try:
+        image_io.write_rgba(image_path.with_suffix(".png"), expected)
+    except ValueError as error:
+        assert "requires an .exr path" in str(error)
+    else:
+        raise AssertionError("BlenderImageIO accepted a non-EXR output path")
     actual = image_io.read_rgba(image_path)
     assert image_path.is_file()
     assert np.allclose(actual, expected, atol=1e-6), (actual, expected)
@@ -87,7 +97,27 @@ def main() -> None:
 
     object_datamosh.unregister()
     object_datamosh.unregister()
-    assert not hasattr(bpy.types.Scene, "object_datamosh")
+    assert not hasattr(bpy.types.Scene, "ODM_settings")
+
+    object_datamosh.register()
+    object_datamosh.unregister()
+    assert not hasattr(bpy.types.Scene, "ODM_settings")
+
+    scene_type = cast(Any, bpy.types.Scene)
+    scene_type.ODM_settings = bpy.props.StringProperty(name="Foreign property")
+    try:
+        try:
+            object_datamosh.register()
+        except RuntimeError as error:
+            assert "is not owned by Object Datamosh" in str(error)
+        else:
+            raise AssertionError("Registration accepted a foreign Scene.ODM_settings property")
+        assert hasattr(scene_type, "ODM_settings")
+        object_datamosh.unregister()
+        assert hasattr(scene_type, "ODM_settings")
+    finally:
+        del scene_type.ODM_settings
+
     print("Object Datamosh Blender smoke test passed")
 
 

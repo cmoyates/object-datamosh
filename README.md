@@ -34,14 +34,15 @@ The sidebar currently provides:
 - a status field and an explicit warning when the blend file has not been saved.
 
 The target assignment operator has a useful poll: it is available only when an active object
-exists. Register and unregister are idempotent, including repeated development reloads.
+exists. Repeated register/unregister calls and registration cycles are idempotent.
 
 ## Output directory contract
 
 For a saved file such as `/projects/shot.blend`, the derived root is
-`/projects/shot_object_datamosh`. An explicit sidebar output directory replaces this root. For an
-unsaved blend file, Object Datamosh safely falls back to Blender's temporary directory at
-`object_datamosh_unsaved` and displays this warning:
+`/projects/ODM_shot_object_datamosh`. An explicit absolute sidebar output directory replaces this
+root. A Blender-relative override (`//...`) is only accepted when the blend file gives it a safe
+anchor. For an unsaved blend file, Object Datamosh falls back to Blender's temporary directory at
+`ODM_object_datamosh_unsaved` and displays this warning:
 
 > Save the blend file to use a project-relative output directory.
 
@@ -50,10 +51,10 @@ A frame uses four-digit padding by default and resolves to:
 ```text
 <root>/
 ├── raw/
-│   ├── beauty/beauty_0001.exr
-│   ├── vector/vector_0001.exr
-│   └── matte/matte_0001.exr
-└── processed/processed_0001.exr
+│   ├── beauty/ODM_beauty_0001.exr
+│   ├── vector/ODM_vector_0001.exr
+│   └── matte/ODM_matte_0001.exr
+└── processed/ODM_processed_0001.exr
 ```
 
 `SequencePaths` and `FramePaths` in `object_datamosh.core.paths` are the single shared naming
