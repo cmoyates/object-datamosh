@@ -41,10 +41,14 @@ exists. Repeated register/unregister calls and registration cycles are idempoten
 For a saved file such as `/projects/shot.blend`, the derived root is
 `/projects/ODM_shot_object_datamosh`. An explicit absolute sidebar output directory replaces this
 root. A Blender-relative override (`//...`) is only accepted when the blend file gives it a safe
-anchor. For an unsaved blend file, Object Datamosh falls back to Blender's temporary directory at
-`ODM_object_datamosh_unsaved` and displays this warning:
+anchor. An unsaved blend file always displays a warning: with no absolute override, Object
+Datamosh falls back to Blender's temporary directory at `ODM_object_datamosh_unsaved` and shows:
 
 > Save the blend file to use a project-relative output directory.
+
+With an explicit absolute override, it keeps that safe root and instead shows:
+
+> Blend file is unsaved; using the explicit absolute output directory.
 
 A frame uses four-digit padding by default and resolves to:
 

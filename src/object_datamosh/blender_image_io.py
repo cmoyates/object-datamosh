@@ -125,6 +125,8 @@ def _validate_exr_path(path: Path) -> None:
 
 
 def _validate_rgba(pixels: FloatImage) -> None:
+    if not isinstance(pixels, np.ndarray):
+        raise TypeError("pixels must be a NumPy array")
     if pixels.dtype != np.float32:
         raise TypeError("pixels must use float32")
     if pixels.ndim != 3 or pixels.shape[2] != 4:

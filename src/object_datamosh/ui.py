@@ -62,7 +62,10 @@ def sequence_paths_for_scene(scene: Scene) -> SequencePaths:
     if settings.output_directory:
         output_root = Path(bpy.path.abspath(settings.output_directory))
         if output_root.is_absolute():
-            return SequencePaths(root=output_root)
+            warning = None
+            if not bpy.data.filepath:
+                warning = "Blend file is unsaved; using the explicit absolute output directory."
+            return SequencePaths(root=output_root, warning=warning)
     return SequencePaths.from_blend_file(
         bpy.data.filepath,
         temp_directory=bpy.app.tempdir,

@@ -125,7 +125,9 @@ def main() -> None:
     settings.output_directory = str(Path(bpy.app.tempdir) / "ODM_custom_output")
     custom_paths = sequence_paths_for_scene(scene)
     assert custom_paths.root == Path(bpy.app.tempdir) / "ODM_custom_output"
-    assert custom_paths.warning is None
+    assert custom_paths.warning == (
+        "Blend file is unsaved; using the explicit absolute output directory."
+    )
 
     saved_blend = Path(bpy.app.tempdir) / "ODM_smoke.blend"
     bpy.ops.wm.save_as_mainfile(filepath=str(saved_blend))
@@ -146,6 +148,12 @@ def main() -> None:
         image_settings.exr_codec,
     )
     image_io.write_rgba(image_path, expected)
+    try:
+        image_io.write_rgba(image_path, cast(Any, []))
+    except TypeError as error:
+        assert str(error) == "pixels must be a NumPy array"
+    else:
+        raise AssertionError("BlenderImageIO accepted a non-array pixel value")
     try:
         image_io.write_rgba(image_path.with_suffix(".png"), expected)
     except ValueError as error:
