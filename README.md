@@ -2,8 +2,9 @@
 
 Object Datamosh is a modern Blender extension for building object-localized temporal feedback
 workflows. The current MVP targets and has been tested with **Blender 5.0.0**. It provides the
-user interface, shared contracts, pure NumPy hard-localized feedback core, and a non-destructive
-Object Index compositor setup; it does not yet render or process full image sequences.
+user interface, shared contracts, pure NumPy hard-localized feedback core, a non-destructive
+Object Index compositor setup, and sequential raw-pass rendering. Processing rendered sequences
+through the feedback core is not yet implemented.
 
 The installable extension source is `src/object_datamosh` and uses
 `blender_manifest.toml`. There is no legacy `bl_info` declaration.
@@ -28,7 +29,8 @@ The sidebar currently provides:
 - a target-object picker, **Use Active Object**, **Setup Object Index**, and
   **Restore Object Index Setup** actions;
 - the active view-layer name;
-- sequence start/end frames and an optional output-directory override;
+- sequence start/end frames, an optional output-directory override, a conservative raw-output
+  overwrite toggle, and **Render Raw Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
   refresh-probability, and deterministic-seed controls; and
@@ -118,6 +120,37 @@ The Blender 5.0.0 smoke render uses Cycles because the tested Eevee configuratio
 Object Index socket. Engine-specific pass availability should be confirmed before production
 rendering; setup itself does not change the user's render engine.
 
+## Render raw passes
+
+Choose the target and run **Setup Object Index**, set the sequence range and output directory, then
+click **Render Raw Passes**. The action renders one frame at a time through Blender and writes
+separate beauty, vector, and Object Index matte sequences under `raw/`. On the tested Blender
+5.0.0 configuration, the emitted names are:
+
+```text
+raw/beauty/ODM_beauty_0001.exr
+raw/vector/ODM_vector_0001.exr
+raw/matte/ODM_matte_0001.exr
+```
+
+The files are scene-linear, ZIP-compressed, full-float RGBA OpenEXR. Rendering inspects each pass
+directory after every frame and returns the paths Blender actually emitted through `FramePaths`;
+it does not hand later orchestration an unverified filename assumption. The public
+`render_raw_passes` service returns a `RawRenderResult` containing those frames in strict order.
+It does not invoke feedback processing.
+
+Existing files in the configured range stop the action before rendering unless **Overwrite Raw
+Passes** is explicitly enabled. Rendering temporarily retargets only the extension-owned File
+Output nodes. Their prior directories and filename patterns, along with the scene's current frame,
+are restored after success, failure, or cancellation. Progress always closes. Cancellation is
+observed between frames, so already completed files form a bounded recovery point; the extension
+does not delete them. Resolve the cause and rerun with overwrite enabled only when replacing those
+raw files is intended.
+
+Object Index remains render-engine dependent. Use Cycles for the documented Blender 5.0.0 path,
+or verify that the chosen engine exposes and emits Image, Vector, and Object Index before a
+production render. A missing pass fails with the pass name and inspected directory.
+
 ## Hard-localized feedback semantics
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
@@ -153,7 +186,8 @@ next frame, or request a reset when history must be discarded.
 Blender sidebar / operators
         │
         ├── Object Index setup/restore ───────────────── owned compositor nodes
-        ├── SequencePaths + matte-provider contracts ── future render/process services
+        ├── Render Raw Passes ────────────────────────── sequential Blender render service
+        ├── SequencePaths + matte-provider contracts ── render/process boundaries
         │
         ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
         │
@@ -194,8 +228,8 @@ third-party runtime dependency.
 
 ## Current limitations
 
-- Full frame-range raw rendering and sequence processing are intentionally deferred to subsequent
-  implementation tickets. The pure frame processor does not read or write image files.
+- Raw rendering is implemented, but processed sequence orchestration is deferred to a subsequent
+  ticket. The pure frame processor does not read or write image files.
 - Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
   mode and sequence-level reset/recovery policy are deferred to later tickets.
 - Object Index is the MVP selected-object matte. External mattes follow the documented
@@ -203,6 +237,7 @@ third-party runtime dependency.
   is not implemented. Object Index availability remains render-engine dependent.
 - The background smoke test verifies registration, the complete emitted sidebar control surface,
   target assignment and status, path derivation, setup idempotency, cleanup/restoration, unrelated
-  node survival, a tiny Cycles beauty/vector/matte render, float EXR round-tripping, temporary image
-  cleanup, and render-setting restoration. Visual node layout, sidebar polish, and interactive
-  control behavior still require a manual foreground Blender check.
+  node survival, the raw-render operator, collision refusal, bounded cancellation, a two-frame
+  Cycles beauty/vector/matte render, emitted filename discovery, full-float EXR contracts, temporary
+  image cleanup, and render-setting restoration. Visual node layout, sidebar polish, interactive
+  cancellation, and control behavior still require a manual foreground Blender check.

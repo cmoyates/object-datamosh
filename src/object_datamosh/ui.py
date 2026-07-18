@@ -32,6 +32,7 @@ from .compositor_setup import (
 )
 from .core.contracts import FeedbackSettings, MatteSource, MotionChannels
 from .core.paths import SequencePaths
+from .raw_render import RawRenderCancelled, render_raw_passes
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 
@@ -91,6 +92,11 @@ class ODM_Settings(PropertyGroup):
         subtype="DIR_PATH",
         options={"PATH_SUPPORTS_BLEND_RELATIVE"},
         default="",
+    )
+    overwrite_raw: BoolProperty(  # ty: ignore[invalid-type-form]
+        name="Overwrite Raw Passes",
+        description="Allow Render Raw Passes to replace files for the configured frame range",
+        default=False,
     )
     matte_source: EnumProperty(  # ty: ignore[invalid-type-form]
         name="Matte Source",
@@ -221,6 +227,74 @@ class ODM_OT_setup_object_index(Operator):
         return {"FINISHED"}
 
 
+class _WindowManagerProgress:
+    """Adapt Blender's window-manager progress API to the raw-render service."""
+
+    def __init__(self, window_manager: Any) -> None:
+        self._window_manager = window_manager
+
+    def begin(self, total: int) -> None:
+        self._window_manager.progress_begin(0, total)
+
+    def update(self, completed: int) -> None:
+        self._window_manager.progress_update(completed)
+
+    def end(self) -> None:
+        self._window_manager.progress_end()
+
+
+class ODM_OT_render_raw_passes(Operator):
+    """Render the configured frame range to separate raw EXR pass sequences."""
+
+    bl_idname = "object_datamosh.render_raw_passes"
+    bl_label = "Render Raw Passes"
+    bl_description = "Render beauty, vector, and Object Index matte EXR sequences"
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        if context.scene is None or context.view_layer is None:
+            return False
+        settings = settings_for_scene(context.scene)
+        return (
+            settings.target_object is not None
+            and settings.frame_start <= settings.frame_end
+            and has_object_index_setup(context.scene)
+        )
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        view_layer = context.view_layer
+        if scene is None or view_layer is None:
+            self.report({"ERROR"}, "An active scene and view layer are required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        settings.status = "Rendering raw passes..."
+        try:
+            result = render_raw_passes(
+                scene,
+                view_layer,
+                sequence_paths_for_scene(scene),
+                frame_start=settings.frame_start,
+                frame_end=settings.frame_end,
+                overwrite=settings.overwrite_raw,
+                progress=_WindowManagerProgress(context.window_manager),
+            )
+        except RawRenderCancelled as error:
+            message = str(error)
+            settings.status = message
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except (FileExistsError, RuntimeError, TypeError, ValueError) as error:
+            message = str(error)
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        message = f"Rendered {len(result.frames)} raw frame(s)"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_OT_restore_object_index(Operator):
     """Remove owned compositor setup and restore changed pass settings."""
 
@@ -285,6 +359,8 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     row.prop(settings, "frame_start")
     row.prop(settings, "frame_end")
     sequence.prop(settings, "output_directory")
+    sequence.prop(settings, "overwrite_raw")
+    sequence.operator(ODM_OT_render_raw_passes.bl_idname)
     sequence.label(text=f"Output: {paths.root}")
     if paths.warning:
         warning = sequence.row()
@@ -326,6 +402,7 @@ _CLASSES = (
     ODM_Settings,
     ODM_OT_use_active_object,
     ODM_OT_setup_object_index,
+    ODM_OT_render_raw_passes,
     ODM_OT_restore_object_index,
     ODM_PT_sidebar,
 )
