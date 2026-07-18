@@ -6,6 +6,8 @@ This module owns only tagged ``ODM_`` nodes and restores the pass state it chang
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -240,6 +242,57 @@ def has_object_index_setup(scene: Scene) -> bool:
     if tree is None:
         return False
     return _setup_frame(tree) is not None
+
+
+@contextmanager
+def temporary_raw_output_paths(
+    scene: Scene, view_layer: ViewLayer, paths: SequencePaths
+) -> Iterator[None]:
+    """Point owned raw outputs at ``paths`` and restore their prior paths afterward."""
+    tree = (
+        scene.compositing_node_group
+        if hasattr(scene, "compositing_node_group")
+        else cast(Any, scene).node_tree
+    )
+    if tree is None:
+        raise RuntimeError("Set up Object Index passes before rendering raw passes")
+    frame = _setup_frame(tree)
+    if frame is None:
+        raise RuntimeError("Set up Object Index passes before rendering raw passes")
+    if frame.get("view_layer_name") != view_layer.name:
+        raise RuntimeError(
+            "Object Index passes are set up for another view layer; restore and set them up again"
+        )
+
+    outputs = (
+        (_BEAUTY_OUTPUT_NAME, paths.root / "raw" / "beauty", "ODM_beauty_"),
+        (_VECTOR_OUTPUT_NAME, paths.root / "raw" / "vector", "ODM_vector_"),
+        (_MATTE_OUTPUT_NAME, paths.root / "raw" / "matte", "ODM_matte_"),
+    )
+    configured: list[tuple[Any, str, str]] = []
+    try:
+        for role, directory, prefix in outputs:
+            node: Any | None = None
+            for candidate in tree.nodes:
+                output = cast(Any, candidate)
+                if (
+                    is_owned(output)
+                    and output.get(_SETUP_TAG) == _SETUP_TAG_VALUE
+                    and output.get(_NODE_ROLE_TAG) == role
+                    and output.bl_idname == "CompositorNodeOutputFile"
+                ):
+                    node = output
+                    break
+            if node is None:
+                raise RuntimeError(f"Object Index setup is missing its owned output: {role}")
+            configured.append((node, node.directory, node.file_name))
+            node.directory = str(directory)
+            node.file_name = f"{prefix}{'#' * paths.frame_padding}"
+        yield
+    finally:
+        for node, directory, file_name in configured:
+            node.directory = directory
+            node.file_name = file_name
 
 
 def restore_object_index_passes(scene: Scene) -> bool:

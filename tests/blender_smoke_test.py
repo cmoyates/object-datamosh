@@ -31,6 +31,10 @@ from object_datamosh.compositor_setup import (  # noqa: E402
 )
 from object_datamosh.core.contracts import FeedbackSettings  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
+from object_datamosh.raw_render import (  # noqa: E402
+    RawRenderCancelled,
+    render_raw_passes,
+)
 from object_datamosh.ui import (  # noqa: E402
     _draw_sidebar,
     feedback_settings_for_scene,
@@ -72,6 +76,22 @@ def exr_contract(path: Path) -> tuple[tuple[int, int], tuple[int, ...]]:
         (maximum_y - minimum_y + 1, maximum_x - minimum_x + 1),
         tuple(pixel_types),
     )
+
+
+class ProgressRecorder:
+    """Render-progress boundary recorder used by the raw-render smoke checks."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, int]] = []
+
+    def begin(self, total: int) -> None:
+        self.events.append(("begin", total))
+
+    def update(self, completed: int) -> None:
+        self.events.append(("update", completed))
+
+    def end(self) -> None:
+        self.events.append(("end", 0))
 
 
 class LayoutRecorder:
@@ -135,6 +155,7 @@ def main() -> None:
         "frame_start",
         "frame_end",
         "output_directory",
+        "overwrite_raw",
         "matte_source",
         "external_matte_directory",
         "persistence",
@@ -156,6 +177,7 @@ def main() -> None:
         "object_datamosh.use_active_object",
         "object_datamosh.setup_object_index",
         "object_datamosh.restore_object_index",
+        "object_datamosh.render_raw_passes",
     }
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
@@ -302,16 +324,92 @@ def main() -> None:
     assert user_tree.nodes.get("ODM_Object_Index_Setup") is None
 
     with tempfile.TemporaryDirectory(prefix="ODM_compositor_smoke_") as temp_directory:
-        render_paths = SequencePaths(Path(temp_directory))
-        setup_object_index_passes(scene, view_layer, target_object, render_paths)
+        temp_root = Path(temp_directory)
+        operator_root = temp_root / "operator"
+        settings.output_directory = str(operator_root)
+        settings.frame_start = 1
+        settings.frame_end = 1
+        settings.overwrite_raw = False
         render = scene.render
         render.engine = "CYCLES"
         render.resolution_x = 16
         render.resolution_y = 12
         render.resolution_percentage = 100
-        scene.frame_set(1)
-        bpy.ops.render.render()
-        emitted_paths = render_paths.frame(1)
+        assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
+        assert object_datamosh_ops.render_raw_passes() == {"FINISHED"}
+        assert settings.status == "Rendered 1 raw frame(s)"
+        assert SequencePaths(operator_root).frame(1).beauty.is_file()
+        assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
+
+        configured_paths = SequencePaths(temp_root / "configured")
+        render_paths = SequencePaths(temp_root / "rendered")
+        setup_object_index_passes(scene, view_layer, target_object, configured_paths)
+        original_frame = scene.frame_current
+        beauty_node = scene.compositing_node_group.nodes.get("ODM_Beauty_Output")
+        assert beauty_node is not None
+        wrong_layer = scene.view_layers.new("ODM_Wrong_Raw_View_Layer")
+        wrong_layer_progress = ProgressRecorder()
+        try:
+            try:
+                render_raw_passes(
+                    scene,
+                    wrong_layer,
+                    SequencePaths(temp_root / "wrong_layer"),
+                    frame_start=1,
+                    frame_end=1,
+                    progress=wrong_layer_progress,
+                )
+            except RuntimeError as error:
+                assert "set up for another view layer" in str(error)
+            else:
+                raise AssertionError("Raw rendering accepted a view layer other than its setup")
+        finally:
+            scene.view_layers.remove(wrong_layer)
+        assert wrong_layer_progress.events == []
+        assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
+
+        camera = scene.camera
+        failure_progress = ProgressRecorder()
+        scene.camera = None
+        try:
+            try:
+                render_raw_passes(
+                    scene,
+                    view_layer,
+                    SequencePaths(temp_root / "failed"),
+                    frame_start=1,
+                    frame_end=1,
+                    progress=failure_progress,
+                )
+            except RuntimeError as error:
+                assert "Cannot render, no camera" in str(error)
+            else:
+                raise AssertionError("Raw rendering succeeded without a scene camera")
+        finally:
+            scene.camera = camera
+        assert failure_progress.events == [("begin", 1), ("end", 0)]
+        assert scene.frame_current == original_frame
+        assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
+
+        progress = ProgressRecorder()
+        result = render_raw_passes(
+            scene,
+            view_layer,
+            render_paths,
+            frame_start=1,
+            frame_end=2,
+            progress=progress,
+        )
+        assert result.frames == (render_paths.frame(1), render_paths.frame(2))
+        assert scene.frame_current == original_frame
+        assert progress.events == [
+            ("begin", 2),
+            ("update", 1),
+            ("update", 2),
+            ("end", 0),
+        ]
+        assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
+        emitted_paths = result.frames[0]
         actual_outputs = (
             emitted_paths.beauty,
             emitted_paths.vector,
@@ -324,7 +422,48 @@ def main() -> None:
             ((12, 16), (2, 2, 2, 2)),
             ((12, 16), (2, 2, 2, 2)),
         )
-        print("Object Index smoke outputs:", ", ".join(path.name for path in actual_outputs))
+        try:
+            render_raw_passes(
+                scene,
+                view_layer,
+                render_paths,
+                frame_start=1,
+                frame_end=2,
+            )
+        except FileExistsError as error:
+            assert "overwrite is disabled" in str(error)
+        else:
+            raise AssertionError("Raw rendering overwrote existing outputs without permission")
+
+        cancelled_paths = SequencePaths(temp_root / "cancelled")
+        cancel_progress = ProgressRecorder()
+        try:
+            render_raw_passes(
+                scene,
+                view_layer,
+                cancelled_paths,
+                frame_start=1,
+                frame_end=2,
+                progress=cancel_progress,
+                should_cancel=lambda: ("update", 1) in cancel_progress.events,
+            )
+        except RawRenderCancelled as error:
+            assert error.completed_frames == (cancelled_paths.frame(1),)
+        else:
+            raise AssertionError("Raw rendering ignored cancellation between frames")
+        assert cancel_progress.events == [("begin", 2), ("update", 1), ("end", 0)]
+        assert scene.frame_current == original_frame
+        assert cancelled_paths.frame(1).beauty.is_file()
+        assert not cancelled_paths.frame(2).beauty.exists()
+        assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
+        print(
+            "Object Index smoke outputs:",
+            ", ".join(
+                path.name
+                for frame in result.frames
+                for path in (frame.beauty, frame.vector, frame.matte)
+            ),
+        )
         restore_object_index_passes(scene)
 
     scene.compositing_node_group = None
