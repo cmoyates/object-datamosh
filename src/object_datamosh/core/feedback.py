@@ -96,6 +96,8 @@ def _validate_inputs(
         raise ValueError("matte must match beauty shape (height, width)")
     if np.any((matte < 0.0) | (matte > 1.0)):
         raise ValueError("matte coverage must be between 0 and 1")
+    if previous_state is not None and not isinstance(previous_state, FeedbackState):
+        raise TypeError("previous_state must be a FeedbackState value or None")
     if previous_state is not None and previous_state.history.shape != beauty.shape:
         raise ValueError("previous state dimensions must match the current frame")
 
@@ -121,17 +123,23 @@ def process_frame(
         output = beauty.copy()
     else:
         channels = (0, 1) if settings.motion_channels is MotionChannels.RG else (2, 3)
-        displacement = motion[..., channels].astype(np.float32, copy=True)
-        displacement *= settings.motion_gain
+        decoded_motion = motion[..., channels].astype(np.float64)
         if settings.reverse_motion:
-            displacement *= -1.0
+            decoded_motion *= -1.0
         if settings.flip_x:
-            displacement[..., 0] *= -1.0
+            decoded_motion[..., 0] *= -1.0
         if settings.flip_y:
-            displacement[..., 1] *= -1.0
-        lengths = np.linalg.norm(displacement, axis=-1)
-        scales = np.minimum(1.0, settings.motion_clamp / np.maximum(lengths, 1e-12))
-        displacement *= scales[..., None]
+            decoded_motion[..., 1] *= -1.0
+        lengths = np.linalg.norm(decoded_motion, axis=-1)
+        representable_clamp = min(settings.motion_clamp, np.finfo(np.float32).max)
+        clamp_scales = np.divide(
+            representable_clamp,
+            lengths,
+            out=np.full_like(lengths, np.inf),
+            where=lengths > 0.0,
+        )
+        scales = np.minimum(settings.motion_gain, clamp_scales)
+        displacement = (decoded_motion * scales[..., None]).astype(np.float32)
         displacement = _block_reduce_expand(displacement, matte, settings.block_size)
         if settings.motion_quantization > 0.0:
             step = settings.motion_quantization
@@ -155,9 +163,7 @@ def process_frame(
         )
         history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
         history_covered = (
-            history_matte_valid
-            & history_color_valid
-            & (previous_state.history_matte > 0.0)
+            history_matte_valid & history_color_valid & (previous_state.history_matte > 0.0)
         )
         invalid_covered_history = ~history_matte_valid | (
             (previous_state.history_matte > 0.0) & ~history_color_valid
@@ -172,7 +178,7 @@ def process_frame(
         warped_invalid, _ = bilinear_sample(
             invalid_covered_history.astype(np.float32), sample_x, sample_y
         )
-        covered = valid & (warped_matte > 1e-6) & (warped_invalid <= 1e-6)
+        covered = valid & (warped_matte > 1e-6) & (warped_invalid == 0.0)
         safe_matte = np.where(covered, warped_matte, 1.0)
         warped_history = warped_premultiplied / safe_matte[..., None]
         blend = (settings.persistence * matte * warped_matte * covered * ~refreshed)[..., None]

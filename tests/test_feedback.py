@@ -195,6 +195,32 @@ def test_motion_decode_controls_choose_the_documented_source_pixel(
     np.testing.assert_allclose(output[3, 3], np.full(4, expected, dtype=np.float32))
 
 
+def test_motion_gain_and_clamp_are_overflow_safe() -> None:
+    beauty = _rgba(1, 3, 0.0)
+    history = _rgba(1, 3, 0.0)
+    history[0, 0] = 1.0
+    previous = FeedbackState(history, np.ones((1, 3), dtype=np.float32), frame_number=1)
+    motion = _motion(1, 3)
+    motion[0, 1, 0] = np.finfo(np.float32).max
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=np.array([[0.0, 1.0, 0.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            motion_gain=1e300,
+            motion_clamp=1.0,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 1], np.ones(4, dtype=np.float32))
+
+
 def test_block_motion_uses_matte_weighted_representative_and_expands_to_edge_blocks() -> None:
     beauty = _rgba(1, 3, 0.0)
     history = _rgba(1, 3, 0.0)
@@ -299,6 +325,11 @@ def test_process_frame_requires_float32_motion() -> None:
     [
         ("frame_number", 1.5, "frame_number must be an integer"),
         ("frame_number", True, "frame_number must be an integer"),
+        (
+            "previous_state",
+            object(),
+            "previous_state must be a FeedbackState value or None",
+        ),
         ("settings", object(), "settings must be a FeedbackSettings value"),
         ("force_reset", 1, "force_reset must be a boolean"),
     ],
@@ -384,6 +415,30 @@ def test_fractional_sample_rejects_invalid_covered_history(invalid_value: float)
     previous = FeedbackState(history, np.ones((1, 2), dtype=np.float32), frame_number=1)
     motion = _motion(1, 2)
     motion[0, 1, 0] = 0.5
+
+    output, _state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=np.array([[0.0, 1.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 1], beauty[0, 1])
+
+
+def test_tiny_fractional_contribution_from_invalid_history_is_rejected() -> None:
+    beauty = _rgba(1, 2, 0.25)
+    history = _rgba(1, 2, 1.0)
+    history[0, 0, 0] = np.nan
+    previous = FeedbackState(history, np.ones((1, 2), dtype=np.float32), frame_number=1)
+    motion = _motion(1, 2)
+    motion[0, 1, 0] = 1e-7
 
     output, _state = process_frame(
         beauty=beauty,
