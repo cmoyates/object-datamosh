@@ -1,9 +1,9 @@
 # Object Datamosh
 
 Object Datamosh is a modern Blender extension for building object-localized temporal feedback
-workflows. The current MVP shell targets and has been tested with **Blender 5.0.0**. It establishes
-the user interface and shared contracts that rendering and feedback processing will use; it does
-not yet configure compositor passes, render sequences, or process feedback.
+workflows. The current MVP targets and has been tested with **Blender 5.0.0**. It provides the
+user interface, shared contracts, and pure NumPy hard-localized feedback core; it does not yet
+configure compositor passes or render and process image sequences.
 
 The installable extension source is `src/object_datamosh` and uses
 `blender_manifest.toml`. There is no legacy `bl_info` declaration.
@@ -72,6 +72,11 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   mattes are `float32` arrays shaped `(height, width)`.
 - **Feedback state:** `FeedbackState` carries RGBA history, selected-object matte history, and the
   frame number. It validates dtype, channel count, and matching dimensions.
+- **Sampling:** `bilinear_sample` samples scalar or channel images in pixel coordinates, returns an
+  in-bounds validity mask, and returns zero rather than wrapping for invalid coordinates.
+- **Frame processing:** `process_frame` accepts beauty, motion, current matte, optional prior state,
+  frame number, settings, and an optional forced-reset flag. It returns the processed float32 RGBA
+  image and the next `FeedbackState` without importing Blender APIs or using global RNG state.
 - **Feedback settings:** immutable `FeedbackSettings` contains all sidebar feedback controls and
   validates probabilities, block size, and non-negative motion controls.
 - **Matte providers:** `ObjectIndexMatteProvider` resolves rendered Object Index mattes;
@@ -91,6 +96,35 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
 `object_datamosh.ui.feedback_settings_for_scene` copies Blender properties into the pure settings
 contract, preventing Blender-facing services from redefining feedback options.
 
+## Hard-localized feedback semantics
+
+Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
+the current frame. For a current pixel `(x, y)`, the processor therefore samples history at
+`(x - displacement_x, y - displacement_y)`. RG maps R to X and G to Y; BA maps B to X and A to Y.
+**Reverse Motion** negates both components, while **Flip X** and **Flip Y** negate individual axes.
+These overrides are intentionally exposed because pass conventions must be checked with the
+manual calibration workflow planned for a later ticket.
+
+The processor applies motion gain, direction/axis overrides, and a direction-preserving magnitude
+clamp. It computes a current-matte-weighted mean vector for each block, including partial blocks at
+odd image edges, then expands that representative vector over the block. A positive quantization
+value rounds each component to the nearest multiple of that value; zero disables quantization.
+Diffusion adds an independent per-block X/Y offset in `[-Diffusion, +Diffusion]`. Refresh selects
+whole blocks to use clean beauty. Both choices are deterministic hashes of seed, frame number, and
+block coordinates and do not touch NumPy's global random state.
+
+A missing prior state or **Force Reset** initializes history from clean beauty. Otherwise, warped
+history color is sampled premultiplied by its selected-object matte and is accepted only where the
+sample coordinate and warped history matte are valid. Persistence is multiplied by current and
+warped matte coverage; refresh makes that weight zero. Consequently pixels outside the current
+matte equal clean beauty exactly, and unselected background color cannot enter history at a matte
+edge. This is hard localization only: selected-object trails beyond the current silhouette are not
+implemented yet.
+
+All inputs are finite NumPy `float32` arrays. Beauty and motion are `(height, width, 4)`; matte is
+`(height, width)` coverage in `[0, 1]`. Processing is sequential: pass the returned state to the
+next frame, or request a reset when history must be discarded.
+
 ## Architecture
 
 ```text
@@ -98,7 +132,7 @@ Blender sidebar / operators
         │
         ├── SequencePaths + matte-provider contracts ── future render/process services
         │
-        ├── FeedbackSettings / FeedbackState ────────── future NumPy feedback core
+        ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
         │
         └── ImageSequenceIO ─────────────────────────── BlenderImageIO (bpy)
 
@@ -136,8 +170,10 @@ third-party runtime dependency.
 
 ## Current limitations
 
-- Compositor setup, raw rendering, temporal feedback mathematics, and sequence processing are
-  intentionally deferred to subsequent implementation tickets.
+- Compositor setup, raw rendering, and sequence processing are intentionally deferred to
+  subsequent implementation tickets. The pure frame processor does not read or write image files.
+- Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
+  mode and sequence-level reset/recovery policy are deferred to later tickets.
 - Object Index is the planned MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
   is not implemented.
