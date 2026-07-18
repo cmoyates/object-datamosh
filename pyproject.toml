@@ -1,16 +1,13 @@
 [project]
 name = "object-datamosh"
 version = "0.1.0"
-description = "Add your description here"
+description = "Object-localized temporal feedback extension for Blender"
 readme = "README.md"
 authors = [
     { name = "cmoyates", email = "cmoyates@gmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = []
-
-[project.scripts]
-object-datamosh = "object_datamosh:main"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
@@ -18,6 +15,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "fake-bpy-module-5-0>=20260128",
+    "numpy>=1.26",
     "pytest>=9.1.1",
     "ruff>=0.15.22",
     "ty>=0.0.61",
@@ -46,7 +45,7 @@ line-ending = "auto"
 [tool.ty]
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.11"
 
 [tool.ty.src]
 include = ["src", "tests"]
