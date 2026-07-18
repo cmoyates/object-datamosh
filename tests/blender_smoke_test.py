@@ -194,6 +194,35 @@ def main() -> None:
     scene.compositing_node_group = user_tree
     user_node = user_tree.nodes.new("CompositorNodeBlur")
     user_node.name = "User Node"
+
+    other_scene = bpy.data.scenes.new("ODM_Other_Scene")
+    try:
+        other_view_layer = other_scene.view_layers[0]
+        try:
+            setup_object_index_passes(scene, other_view_layer, target_object, saved_relative_paths)
+        except ValueError as error:
+            assert "View layer must belong" in str(error)
+        else:
+            raise AssertionError("Object Index setup accepted another scene's view layer")
+        assert len(user_tree.nodes) == 1
+    finally:
+        bpy.data.scenes.remove(other_scene)
+
+    conflicting_node = user_tree.nodes.new("CompositorNodeRLayers")
+    conflicting_node.name = "ODM_Render_Layers"
+    try:
+        setup_object_index_passes(scene, view_layer, target_object, saved_relative_paths)
+    except RuntimeError as error:
+        assert "node name is already in use" in str(error)
+    else:
+        raise AssertionError("Object Index setup accepted a conflicting user node name")
+    assert target_object.pass_index == original_pass_index
+    assert view_layer.use_pass_vector == original_vector_state
+    assert view_layer.use_pass_object_index == original_object_index_state
+    assert user_tree.nodes.get("ODM_Object_Index_Setup") is None
+    assert user_tree.nodes.get("ODM_Render_Layers") == conflicting_node
+    user_tree.nodes.remove(conflicting_node)
+
     setup = setup_object_index_passes(scene, view_layer, target_object, saved_relative_paths)
     assert setup.pass_index > 0
     assert target_object.pass_index == setup.pass_index
@@ -209,6 +238,22 @@ def main() -> None:
     )
     assert len(user_tree.nodes) == 7
     assert len(user_tree.links) == 4
+    alternate_view_layer = scene.view_layers.new("ODM_Alternate_View_Layer")
+    try:
+        assert not alternate_view_layer.use_pass_vector
+        assert not alternate_view_layer.use_pass_object_index
+        try:
+            setup_object_index_passes(
+                scene, alternate_view_layer, target_object, saved_relative_paths
+            )
+        except RuntimeError as error:
+            assert "restore it before changing view layer" in str(error)
+        else:
+            raise AssertionError("Object Index setup accepted a different view layer")
+        assert not alternate_view_layer.use_pass_vector
+        assert not alternate_view_layer.use_pass_object_index
+    finally:
+        scene.view_layers.remove(alternate_view_layer)
     alternate_target = scene.objects.get("Camera")
     assert alternate_target is not None
     alternate_pass_index = alternate_target.pass_index
@@ -226,12 +271,26 @@ def main() -> None:
     assert len(user_tree.nodes) == 7
     assert len(user_tree.links) == 4
 
+    renamed_frame = user_tree.nodes.get("ODM_Object_Index_Setup")
+    renamed_render_layers = user_tree.nodes.get("ODM_Render_Layers")
+    assert renamed_frame is not None
+    assert renamed_render_layers is not None
+    renamed_frame.name = "User Renamed ODM Frame"
+    renamed_render_layers.name = "User Renamed ODM Render Layers"
+    assert (
+        setup_object_index_passes(scene, view_layer, target_object, saved_relative_paths) == setup
+    )
+    assert len(user_tree.nodes) == 7
+    assert user_tree.nodes.get("ODM_Object_Index_Setup") == renamed_frame
+    assert user_tree.nodes.get("ODM_Render_Layers") == renamed_render_layers
+
     assert restore_object_index_passes(scene)
     assert target_object.pass_index == original_pass_index
     assert view_layer.use_pass_vector == original_vector_state
     assert view_layer.use_pass_object_index == original_object_index_state
     assert scene.compositing_node_group == user_tree
     assert user_tree.nodes.get("User Node") == user_node
+    assert len(user_tree.nodes) == 1
     assert all(user_tree.nodes.get(name) is None for name in setup.node_names)
     assert not restore_object_index_passes(scene)
 
