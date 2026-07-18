@@ -347,6 +347,27 @@ def main() -> None:
         original_frame = scene.frame_current
         beauty_node = scene.compositing_node_group.nodes.get("ODM_Beauty_Output")
         assert beauty_node is not None
+        wrong_layer = scene.view_layers.new("ODM_Wrong_Raw_View_Layer")
+        wrong_layer_progress = ProgressRecorder()
+        try:
+            try:
+                render_raw_passes(
+                    scene,
+                    wrong_layer,
+                    SequencePaths(temp_root / "wrong_layer"),
+                    frame_start=1,
+                    frame_end=1,
+                    progress=wrong_layer_progress,
+                )
+            except RuntimeError as error:
+                assert "set up for another view layer" in str(error)
+            else:
+                raise AssertionError("Raw rendering accepted a view layer other than its setup")
+        finally:
+            scene.view_layers.remove(wrong_layer)
+        assert wrong_layer_progress.events == []
+        assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
+
         camera = scene.camera
         failure_progress = ProgressRecorder()
         scene.camera = None

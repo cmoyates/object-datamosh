@@ -104,7 +104,7 @@ def render_raw_passes(
     rendered: list[FramePaths] = []
     progress_started = False
     try:
-        with temporary_raw_output_paths(scene, paths):
+        with temporary_raw_output_paths(scene, view_layer, paths):
             if progress is not None:
                 progress.begin(total)
                 progress_started = True

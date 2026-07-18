@@ -245,15 +245,24 @@ def has_object_index_setup(scene: Scene) -> bool:
 
 
 @contextmanager
-def temporary_raw_output_paths(scene: Scene, paths: SequencePaths) -> Iterator[None]:
+def temporary_raw_output_paths(
+    scene: Scene, view_layer: ViewLayer, paths: SequencePaths
+) -> Iterator[None]:
     """Point owned raw outputs at ``paths`` and restore their prior paths afterward."""
     tree = (
         scene.compositing_node_group
         if hasattr(scene, "compositing_node_group")
         else cast(Any, scene).node_tree
     )
-    if tree is None or _setup_frame(tree) is None:
+    if tree is None:
         raise RuntimeError("Set up Object Index passes before rendering raw passes")
+    frame = _setup_frame(tree)
+    if frame is None:
+        raise RuntimeError("Set up Object Index passes before rendering raw passes")
+    if frame.get("view_layer_name") != view_layer.name:
+        raise RuntimeError(
+            "Object Index passes are set up for another view layer; restore and set them up again"
+        )
 
     outputs = (
         (_BEAUTY_OUTPUT_NAME, paths.root / "raw" / "beauty", "ODM_beauty_"),
