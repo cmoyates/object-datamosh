@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent-Ready Issue Resolution Workflow Plan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f3ed;
+      --surface: #fffdf7;
+      --text: #20231f;
+      --muted: #62685f;
+      --border: #d8d4c9;
+      --accent: #245c4d;
+      --accent-soft: #dcebe4;
+      --warning: #7a4b10;
+      --warning-soft: #f6e8ce;
+      --code: #ece9e0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171a18;
+        --surface: #202420;
+        --text: #edf0eb;
+        --muted: #abb3aa;
+        --border: #3c433d;
+        --accent: #8bc7b2;
+        --accent-soft: #253f36;
+        --warning: #f1bd72;
+        --warning-soft: #49361e;
+        --code: #2b302c;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3rem 0 5rem;
+    }
+
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin: 0 0 0.75rem; font-size: clamp(2rem, 5vw, 3.5rem); }
+    h2 { margin-top: 2.5rem; }
+    a { color: var(--accent); }
+    code {
+      padding: 0.12rem 0.35rem;
+      border-radius: 0.25rem;
+      background: var(--code);
+    }
+
+    .lede {
+      max-width: 76ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.1rem;
+    }
+
+    .status, .card, .diagram {
+      border: 1px solid var(--border);
+      border-radius: 0.8rem;
+      background: var(--surface);
+    }
+
+    .status {
+      margin-top: 1.5rem;
+      padding: 1rem 1.2rem;
+      border-left: 0.35rem solid var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .diagram {
+      margin-top: 1.5rem;
+      padding: 1.25rem;
+      overflow-x: auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .card { padding: 1.1rem 1.25rem; }
+    .card h3 { margin-top: 0; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+    }
+
+    th, td {
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { background: var(--accent-soft); }
+    .small { color: var(--muted); font-size: 0.92rem; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Agent-Ready Issue Resolution Workflow</h1>
+    <p class="lede">
+      A sequential, dependency-aware workflow that implements each eligible GitHub issue,
+      reviews and repairs its pull request until clean, merges it, and returns the repository
+      to an updated <code>main</code> before selecting the next issue.
+    </p>
+    <div class="status">
+      <strong>Plan status:</strong> draft only. The workflow has not been run. Deterministic
+      Git and GitHub transitions described below must be implemented and validated before the
+      first execution.
+    </div>
+  </header>
+
+  <section aria-labelledby="graph-title">
+    <h2 id="graph-title">Workflow graph</h2>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TD
+    START([Start on clean, updated main]) --> FRONTIER[Query open eligible issues and native blocking relationships]
+    FRONTIER --> READY{Unblocked issue available?}
+    READY -- No open eligible issues --> DONE([All eligible issues complete])
+    READY -- Issues remain but all blocked --> STOP_BLOCKED([Stop and report blocked frontier])
+    READY -- Yes --> CLAIM[Claim selected issue]
+
+    CLAIM --> PREP[Deterministic transition: update main and create agent/issue-N]
+    PREP --> IMPL[Implementation agent: $tdd issue_url]
+    IMPL --> IMPL_OK{Implementation and checks pass?}
+    IMPL_OK -- No --> STOP_FAIL([Stop without closing issue])
+    IMPL_OK -- Yes --> OPEN_PR[Deterministic transition: commit, push, and open PR to main]
+
+    OPEN_PR --> REVIEW[Review agent: thermo-nuclear review plus code-review]
+    REVIEW --> FINDINGS{Actionable findings?}
+    FINDINGS -- Yes --> FIX[Review agent fixes, tests, commits, and pushes]
+    FIX --> REVIEW
+    FINDINGS -- No --> VERIFY[Run complete repository verification]
+    VERIFY --> VERIFY_OK{Code-caused failures?}
+    VERIFY_OK -- Yes --> FIX
+    VERIFY_OK -- No --> MERGE[Deterministic transition: merge approved PR]
+
+    MERGE --> SYNC[Deterministic transition: checkout main, pull --ff-only, verify clean]
+    SYNC --> CLOSED{Issue closed?}
+    CLOSED -- No --> CLOSE[Close issue with PR and verification summary]
+    CLOSED -- Yes --> FRONTIER
+    CLOSE --> FRONTIER
+      </pre>
+    </div>
+  </section>
+
+  <section aria-labelledby="ownership-title">
+    <h2 id="ownership-title">Separation of responsibilities</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Workflow control plane</h3>
+        <p>Owns ordering, stop conditions, structured handoffs, and the outer issue loop.</p>
+        <ul>
+          <li>Select only eligible issues with no open native blockers.</li>
+          <li>Process one issue at a time.</li>
+          <li>Do not advance after a failed implementation or review.</li>
+          <li>Re-query the dependency frontier after every merge.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h3>Deterministic transition helper</h3>
+        <p>Owns repeatable Git and GitHub state transitions rather than delegating decisions to prose prompts.</p>
+        <ul>
+          <li>Create <code>agent/issue-&lt;number&gt;</code> from updated <code>main</code>.</li>
+          <li>Push and open exactly one PR targeting <code>main</code>.</li>
+          <li>Merge only after the review gate reports clean.</li>
+          <li>Restore updated <code>main</code> and assert a clean tree.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h3>Implementation agent</h3>
+        <p>Owns behavior changes through the TDD loop, not repository lifecycle decisions.</p>
+        <ul>
+          <li>Read the issue title, body, labels, and comments.</li>
+          <li>Use confirmed public test seams.</li>
+          <li>Work red → green in vertical slices.</li>
+          <li>Run relevant checks and report exact results.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h3>Review agent</h3>
+        <p>Owns the review/fix loop on an already-created PR, not PR creation or merging.</p>
+        <ul>
+          <li>Review standards and specification separately.</li>
+          <li>Fix every actionable finding and push the fix.</li>
+          <li>Repeat a fresh review until no findings remain.</li>
+          <li>Run the complete required verification suite.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="prompts-title">
+    <h2 id="prompts-title">Prompt boundaries</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Prompt</th>
+          <th>Contents</th>
+          <th>Explicitly excluded</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Shared implementation</td>
+          <td><code>$tdd ${issue_url}</code></td>
+          <td>Branch creation, PR creation, review, merge, and return to <code>main</code>.</td>
+        </tr>
+        <tr>
+          <td>Shared review</td>
+          <td><code>$thermo-nuclear-code-quality-review $code-review</code></td>
+          <td>PR creation, merge decisions outside the clean-review gate, and repository reset.</td>
+        </tr>
+        <tr>
+          <td>Per issue</td>
+          <td>Optional <code>common</code>, <code>implementation</code>, and <code>review</code> additions keyed by issue number.</td>
+          <td>Instructions that weaken repository rules, safety gates, tests, or verification.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="selection-title">
+    <h2 id="selection-title">Issue selection and dependency policy</h2>
+    <ol>
+      <li>Read open issues through <code>gh</code>, excluding pull requests.</li>
+      <li>Use issues labelled <code>ready for agent</code>, case-insensitively. If no open issue has that label, treat all open issues as eligible under the repository's current policy.</li>
+      <li>Read GitHub's native <code>issue_dependencies_summary.blocked_by</code> value; do not infer dependencies from issue numbers.</li>
+      <li>Choose only an issue with zero open blockers.</li>
+      <li>Prefer an issue that blocks another eligible issue, then use the lowest issue number as the deterministic tie-breaker.</li>
+      <li>Recompute the frontier after each completed issue because merging and closing can unlock the next issue.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="gates-title">
+    <h2 id="gates-title">Safety and completion gates</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Before implementation</h3>
+        <ul>
+          <li>No unrelated tracked or untracked work.</li>
+          <li><code>main</code> fast-forwards successfully.</li>
+          <li>The issue is open, eligible, unblocked, and claimed.</li>
+          <li>TDD seams are already established; otherwise stop for user confirmation.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>Before merge</h3>
+        <ul>
+          <li>A fresh review reports zero actionable findings.</li>
+          <li>The PR contains only the selected issue's changes.</li>
+          <li>The feature branch and working tree are clean.</li>
+          <li>Required checks pass, or an external environment limitation is precisely documented.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>Before next issue</h3>
+        <ul>
+          <li>The PR merge is confirmed.</li>
+          <li>The issue is confirmed closed.</li>
+          <li>Local <code>main</code> matches the updated remote via fast-forward pull.</li>
+          <li>The working tree is clean.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="verification-title">
+    <h2 id="verification-title">Required verification</h2>
+    <p>The final clean review must run and report the repository's complete verification sequence:</p>
+    <ol>
+      <li><code>uv run ty check</code></li>
+      <li>Pure Python unit tests</li>
+      <li>Blender background smoke test using <code>BLENDER_BIN</code></li>
+      <li>Blender extension validation</li>
+      <li>Installation ZIP build</li>
+    </ol>
+    <p class="small">A feature must not be reported as working unless tested. Interactive Blender behavior that remains untested must be identified explicitly.</p>
+  </section>
+
+  <section aria-labelledby="failure-title">
+    <h2 id="failure-title">Failure behavior and bounded execution</h2>
+    <ul>
+      <li>Stop immediately on dirty-state conflicts, failed state transitions, unresolved code failures, malformed agent output, or a review that cannot reach clean.</li>
+      <li>Never merge or close an issue with known actionable findings.</li>
+      <li>Return completed issue numbers, PR URLs, commits, review rounds, findings fixed, and exact verification results.</li>
+      <li>The workflow engine allows at most 32 agent calls. The design should keep deterministic transitions outside additional model calls so the current ten-issue batch fits safely.</li>
+      <li>If a per-run issue limit is reached, return <code>batch-limit-reached</code>; a later run resumes naturally because merged issues are closed.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="implementation-title">
+    <h2 id="implementation-title">Work remaining before execution</h2>
+    <ol>
+      <li>Implement the idempotent deterministic Git/GitHub transition helper.</li>
+      <li>Connect the workflow stages to that helper without adding model calls for mechanical operations.</li>
+      <li>Finish the per-issue prompt-template map.</li>
+      <li>Validate workflow-script parsing and helper dry-run/error paths.</li>
+      <li>Review the final plan and prompts with the user.</li>
+      <li>Run only after explicit approval.</li>
+    </ol>
+    <p class="small">Current draft workflow source: <code>workflows/resolve-ready-issues.js</code>.</p>
+  </section>
+</main>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "strict",
+    theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral",
+    flowchart: { curve: "basis", htmlLabels: true }
+  });
+</script>
+</body>
+</html>

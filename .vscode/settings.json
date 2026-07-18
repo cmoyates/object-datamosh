@@ -8,5 +8,6 @@
     }
   },
 
-  "ty.importStrategy": "fromEnvironment"
+  "ty.importStrategy": "fromEnvironment",
+  "js/ts.experimental.useTsgo": false
 }
