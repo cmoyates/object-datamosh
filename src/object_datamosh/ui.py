@@ -81,6 +81,7 @@ class ODM_Settings(PropertyGroup):
         name="Output Directory",
         description="Leave empty to derive a directory beside the saved blend file",
         subtype="DIR_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
         default="",
     )
     matte_source: EnumProperty(  # ty: ignore[invalid-type-form]
@@ -155,10 +156,16 @@ class ODM_OT_use_active_object(Operator):
         scene = context.scene
         active_object = context.active_object
         if scene is None or active_object is None:
-            self.report({"ERROR"}, "An active object is required")
+            message = "An active object is required"
+            if scene is not None:
+                settings_for_scene(scene).status = message
+            self.report({"ERROR"}, message)
             return {"CANCELLED"}
-        settings_for_scene(scene).target_object = active_object
-        self.report({"INFO"}, f"Target set to {active_object.name}")
+        settings = settings_for_scene(scene)
+        settings.target_object = active_object
+        message = f"Target set to {active_object.name}"
+        settings.status = message
+        self.report({"INFO"}, message)
         return {"FINISHED"}
 
 
@@ -176,53 +183,58 @@ class ODM_PT_sidebar(Panel):
         scene = context.scene
         if layout is None or scene is None:
             return
-        settings = settings_for_scene(scene)
-        paths = sequence_paths_for_scene(scene)
+        _draw_sidebar(layout, context, scene)
 
-        target = layout.box()
-        target.label(text="Target")
-        target.prop(settings, "target_object")
-        target.operator(ODM_OT_use_active_object.bl_idname)
-        view_layer_name = context.view_layer.name if context.view_layer is not None else "None"
-        target.label(text=f"View Layer: {view_layer_name}")
 
-        sequence = layout.box()
-        sequence.label(text="Sequence")
-        row = sequence.row(align=True)
-        row.prop(settings, "frame_start")
-        row.prop(settings, "frame_end")
-        sequence.prop(settings, "output_directory")
-        sequence.label(text=f"Output: {paths.root}")
-        if paths.warning:
-            warning = sequence.row()
-            warning.alert = True
-            warning.label(text=paths.warning, icon="ERROR")
+def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
+    """Emit the complete sidebar surface through Blender's layout interface."""
+    settings = settings_for_scene(scene)
+    paths = sequence_paths_for_scene(scene)
 
-        matte = layout.box()
-        matte.label(text="Matte")
-        matte.prop(settings, "matte_source")
-        if settings.matte_source == "EXTERNAL":
-            matte.prop(settings, "external_matte_directory")
-        elif settings.matte_source == "CRYPTOMATTE":
-            matte.label(text="Experimental; decoding is not yet available", icon="INFO")
+    target = layout.box()
+    target.label(text="Target")
+    target.prop(settings, "target_object")
+    target.operator(ODM_OT_use_active_object.bl_idname)
+    view_layer_name = context.view_layer.name if context.view_layer is not None else "None"
+    target.label(text=f"View Layer: {view_layer_name}")
 
-        feedback = layout.box()
-        feedback.label(text="Feedback")
-        feedback.prop(settings, "persistence")
-        feedback.prop(settings, "block_size")
-        feedback.prop(settings, "motion_channels")
-        feedback.prop(settings, "reverse_motion")
-        axis = feedback.row(align=True)
-        axis.prop(settings, "flip_x")
-        axis.prop(settings, "flip_y")
-        feedback.prop(settings, "motion_gain")
-        feedback.prop(settings, "motion_clamp")
-        feedback.prop(settings, "motion_quantization")
-        feedback.prop(settings, "diffusion")
-        feedback.prop(settings, "refresh_probability")
-        feedback.prop(settings, "seed")
+    sequence = layout.box()
+    sequence.label(text="Sequence")
+    row = sequence.row(align=True)
+    row.prop(settings, "frame_start")
+    row.prop(settings, "frame_end")
+    sequence.prop(settings, "output_directory")
+    sequence.label(text=f"Output: {paths.root}")
+    if paths.warning:
+        warning = sequence.row()
+        warning.alert = True
+        warning.label(text=paths.warning, icon="ERROR")
 
-        layout.label(text=f"Status: {settings.status}")
+    matte = layout.box()
+    matte.label(text="Matte")
+    matte.prop(settings, "matte_source")
+    if settings.matte_source == "EXTERNAL":
+        matte.prop(settings, "external_matte_directory")
+    elif settings.matte_source == "CRYPTOMATTE":
+        matte.label(text="Experimental; decoding is not yet available", icon="INFO")
+
+    feedback = layout.box()
+    feedback.label(text="Feedback")
+    feedback.prop(settings, "persistence")
+    feedback.prop(settings, "block_size")
+    feedback.prop(settings, "motion_channels")
+    feedback.prop(settings, "reverse_motion")
+    axis = feedback.row(align=True)
+    axis.prop(settings, "flip_x")
+    axis.prop(settings, "flip_y")
+    feedback.prop(settings, "motion_gain")
+    feedback.prop(settings, "motion_clamp")
+    feedback.prop(settings, "motion_quantization")
+    feedback.prop(settings, "diffusion")
+    feedback.prop(settings, "refresh_probability")
+    feedback.prop(settings, "seed")
+
+    layout.label(text=f"Status: {settings.status}")
 
 
 _CLASSES = (ODM_Settings, ODM_OT_use_active_object, ODM_PT_sidebar)

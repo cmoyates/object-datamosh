@@ -135,6 +135,7 @@ third-party runtime dependency.
 - Object Index is the planned MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
   is not implemented.
-- The background smoke test verifies registration, properties, target assignment, path derivation,
-  float EXR round-tripping, temporary image cleanup, and render-setting restoration. Visual panel
-  layout and interaction still require a manual interactive Blender check.
+- The background smoke test verifies registration, the complete emitted sidebar control surface,
+  target assignment and status, path derivation, float EXR round-tripping, temporary image cleanup,
+  and render-setting restoration. Visual polish and interactive control behavior still require a
+  manual foreground Blender check.

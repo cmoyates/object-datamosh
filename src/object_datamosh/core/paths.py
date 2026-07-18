@@ -1,5 +1,6 @@
 """Deterministic paths shared by rendering and sequence processing."""
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,22 +32,31 @@ class SequencePaths:
         temp_directory: str | Path,
         frame_padding: int = 4,
     ) -> "SequencePaths":
-        if not str(blend_file):
+        blend_path = Path(blend_file)
+        if not blend_path.is_absolute():
             return cls(
                 root=Path(temp_directory) / "ODM_object_datamosh_unsaved",
                 warning="Save the blend file to use a project-relative output directory.",
                 frame_padding=frame_padding,
             )
-        blend_path = Path(blend_file)
         root = blend_path.parent / f"ODM_{blend_path.stem}_object_datamosh"
         return cls(root=root, frame_padding=frame_padding)
 
     def frame(self, frame: int) -> FramePaths:
         token = f"{frame:0{self.frame_padding}d}"
-        return FramePaths(
+        paths = FramePaths(
             frame=frame,
             beauty=self.root / "raw" / "beauty" / f"ODM_beauty_{token}.exr",
             vector=self.root / "raw" / "vector" / f"ODM_vector_{token}.exr",
             matte=self.root / "raw" / "matte" / f"ODM_matte_{token}.exr",
             processed=self.root / "processed" / f"ODM_processed_{token}.exr",
         )
+        logging.getLogger(__name__).debug(
+            "Resolved frame %d paths: beauty=%s, vector=%s, matte=%s, processed=%s",
+            frame,
+            paths.beauty,
+            paths.vector,
+            paths.matte,
+            paths.processed,
+        )
+        return paths
