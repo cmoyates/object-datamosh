@@ -2,8 +2,8 @@
 
 Object Datamosh is a modern Blender extension for building object-localized temporal feedback
 workflows. The current MVP targets and has been tested with **Blender 5.0.0**. It provides the
-user interface, shared contracts, and pure NumPy hard-localized feedback core; it does not yet
-configure compositor passes or render and process image sequences.
+user interface, shared contracts, pure NumPy hard-localized feedback core, and a non-destructive
+Object Index compositor setup; it does not yet render or process full image sequences.
 
 The installable extension source is `src/object_datamosh` and uses
 `blender_manifest.toml`. There is no legacy `bl_info` declaration.
@@ -25,7 +25,8 @@ not enabled automatically. The panel is in **3D View → Sidebar → Object Data
 
 The sidebar currently provides:
 
-- a target-object picker and **Use Active Object** action;
+- a target-object picker, **Use Active Object**, **Setup Object Index**, and
+  **Restore Object Index Setup** actions;
 - the active view-layer name;
 - sequence start/end frames and an optional output-directory override;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
@@ -96,6 +97,27 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
 `object_datamosh.ui.feedback_settings_for_scene` copies Blender properties into the pure settings
 contract, preventing Blender-facing services from redefining feedback options.
 
+## Object Index compositor setup
+
+Choose a target and click **Setup Object Index**. The setup assigns the lowest available nonzero
+Object Index to that object, enables Vector and Object Index passes on the active view layer, and
+adds one tagged `ODM_Object_Index_Setup` frame containing deterministic Render Layers, ID Mask,
+and beauty/vector/matte File Output nodes. The Render Layers **Object Index** output (called
+`IndexOB` in older Blender terminology) feeds the ID Mask, whose index is the assigned target
+index. Output nodes write full-float scene-linear OpenEXR files using the shared `SequencePaths`
+layout and four-digit frame token by default.
+
+Setup is idempotent for the same target. If another target is already configured, restore first;
+this prevents an abandoned pass-index change. **Restore Object Index Setup** removes only tagged
+owned nodes and restores the target's prior pass index plus the view layer's prior Vector and
+Object Index pass-enable values. Existing compositor node trees and unrelated nodes or links are
+left in place. When a scene had no compositor tree, setup creates a tagged `ODM_` tree and cleanup
+removes it only if it remains empty. The service does not touch a user output/composite path.
+
+The Blender 5.0.0 smoke render uses Cycles because the tested Eevee configuration did not emit its
+Object Index socket. Engine-specific pass availability should be confirmed before production
+rendering; setup itself does not change the user's render engine.
+
 ## Hard-localized feedback semantics
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
@@ -130,6 +152,7 @@ next frame, or request a reset when history must be discarded.
 ```text
 Blender sidebar / operators
         │
+        ├── Object Index setup/restore ───────────────── owned compositor nodes
         ├── SequencePaths + matte-provider contracts ── future render/process services
         │
         ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
@@ -139,9 +162,10 @@ Blender sidebar / operators
 object_datamosh.core: NumPy + Python only; never imports bpy
 ```
 
-No background thread calls Blender APIs. Runtime state belongs to Blender scenes or returned
-immutable values; there is no mutable module-level runtime state. The extension does not delete,
-disconnect, or replace user compositor nodes and does not permanently alter render settings.
+No background thread calls Blender APIs. Runtime state belongs to Blender scenes, tagged Blender
+data, or returned immutable values; there is no mutable module-level runtime state. Setup and
+cleanup never delete, disconnect, or replace unrelated compositor nodes and restore pass settings
+that they change.
 
 ## Development and verification
 
@@ -170,14 +194,15 @@ third-party runtime dependency.
 
 ## Current limitations
 
-- Compositor setup, raw rendering, and sequence processing are intentionally deferred to
-  subsequent implementation tickets. The pure frame processor does not read or write image files.
+- Full frame-range raw rendering and sequence processing are intentionally deferred to subsequent
+  implementation tickets. The pure frame processor does not read or write image files.
 - Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
   mode and sequence-level reset/recovery policy are deferred to later tickets.
-- Object Index is the planned MVP selected-object matte. External mattes follow the documented
+- Object Index is the MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
-  is not implemented.
+  is not implemented. Object Index availability remains render-engine dependent.
 - The background smoke test verifies registration, the complete emitted sidebar control surface,
-  target assignment and status, path derivation, float EXR round-tripping, temporary image cleanup,
-  and render-setting restoration. Visual polish and interactive control behavior still require a
-  manual foreground Blender check.
+  target assignment and status, path derivation, setup idempotency, cleanup/restoration, unrelated
+  node survival, a tiny Cycles beauty/vector/matte render, float EXR round-tripping, temporary image
+  cleanup, and render-setting restoration. Visual node layout, sidebar polish, and interactive
+  control behavior still require a manual foreground Blender check.

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import shutil
+import struct
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,13 +25,53 @@ if str(SOURCE_ROOT) not in sys.path:
 
 import object_datamosh  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
+from object_datamosh.compositor_setup import (  # noqa: E402
+    restore_object_index_passes,
+    setup_object_index_passes,
+)
 from object_datamosh.core.contracts import FeedbackSettings  # noqa: E402
+from object_datamosh.core.paths import SequencePaths  # noqa: E402
 from object_datamosh.ui import (  # noqa: E402
     _draw_sidebar,
     feedback_settings_for_scene,
     sequence_paths_for_scene,
     settings_for_scene,
 )
+
+
+def exr_contract(path: Path) -> tuple[tuple[int, int], tuple[int, ...]]:
+    """Read dimensions and channel pixel types from an OpenEXR header."""
+    data = path.read_bytes()
+    assert data[:4] == b"v/1\x01"
+    position = 8
+    attributes: dict[str, bytes] = {}
+
+    def read_c_string() -> str:
+        nonlocal position
+        end = data.index(0, position)
+        value = data[position:end].decode("ascii")
+        position = end + 1
+        return value
+
+    while name := read_c_string():
+        read_c_string()  # Attribute type.
+        size = struct.unpack_from("<I", data, position)[0]
+        position += 4
+        attributes[name] = data[position : position + size]
+        position += size
+
+    minimum_x, minimum_y, maximum_x, maximum_y = struct.unpack("<4i", attributes["dataWindow"])
+    channel_list = attributes["channels"]
+    channel_position = 0
+    pixel_types: list[int] = []
+    while channel_list[channel_position]:
+        channel_position = channel_list.index(0, channel_position) + 1
+        pixel_types.append(struct.unpack_from("<i", channel_list, channel_position)[0])
+        channel_position += 16
+    return (
+        (maximum_y - minimum_y + 1, maximum_x - minimum_x + 1),
+        tuple(pixel_types),
+    )
 
 
 class LayoutRecorder:
@@ -108,12 +150,17 @@ def main() -> None:
         "refresh_probability",
         "seed",
     }
-    assert layout.operators == {"object_datamosh.use_active_object"}
+    settings.matte_source = "OBJECT_INDEX"
+    _draw_sidebar(layout, bpy.context, scene)
+    assert layout.operators == {
+        "object_datamosh.use_active_object",
+        "object_datamosh.setup_object_index",
+        "object_datamosh.restore_object_index",
+    }
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
     assert any(label.startswith("Status: ") for label in layout.labels)
     assert "Save the blend file to use a project-relative output directory." in layout.labels
-    settings.matte_source = "OBJECT_INDEX"
 
     unsaved_paths = sequence_paths_for_scene(scene)
     assert unsaved_paths.root == Path(bpy.app.tempdir) / "ODM_object_datamosh_unsaved"
@@ -135,6 +182,100 @@ def main() -> None:
     saved_relative_paths = sequence_paths_for_scene(scene)
     assert saved_relative_paths.root == saved_blend.parent / "ODM_relative_output"
     assert saved_relative_paths.warning is None
+
+    view_layer = bpy.context.view_layer
+    assert view_layer is not None
+    target_object = settings.target_object
+    assert target_object is not None
+    original_pass_index = target_object.pass_index
+    original_vector_state = view_layer.use_pass_vector
+    original_object_index_state = view_layer.use_pass_object_index
+    user_tree = bpy.data.node_groups.new("User Compositor", "CompositorNodeTree")
+    scene.compositing_node_group = user_tree
+    user_node = user_tree.nodes.new("CompositorNodeBlur")
+    user_node.name = "User Node"
+    setup = setup_object_index_passes(scene, view_layer, target_object, saved_relative_paths)
+    assert setup.pass_index > 0
+    assert target_object.pass_index == setup.pass_index
+    assert view_layer.use_pass_vector
+    assert view_layer.use_pass_object_index
+    assert setup.node_names == (
+        "ODM_Object_Index_Setup",
+        "ODM_Render_Layers",
+        "ODM_ID_Mask",
+        "ODM_Beauty_Output",
+        "ODM_Vector_Output",
+        "ODM_Matte_Output",
+    )
+    assert len(user_tree.nodes) == 7
+    assert len(user_tree.links) == 4
+    alternate_target = scene.objects.get("Camera")
+    assert alternate_target is not None
+    alternate_pass_index = alternate_target.pass_index
+    try:
+        setup_object_index_passes(scene, view_layer, alternate_target, saved_relative_paths)
+    except RuntimeError as error:
+        assert "restore it before changing target" in str(error)
+    else:
+        raise AssertionError("Object Index setup accepted a different target without restoration")
+    assert alternate_target.pass_index == alternate_pass_index
+    repeated_setup = setup_object_index_passes(
+        scene, view_layer, target_object, saved_relative_paths
+    )
+    assert repeated_setup == setup
+    assert len(user_tree.nodes) == 7
+    assert len(user_tree.links) == 4
+
+    assert restore_object_index_passes(scene)
+    assert target_object.pass_index == original_pass_index
+    assert view_layer.use_pass_vector == original_vector_state
+    assert view_layer.use_pass_object_index == original_object_index_state
+    assert scene.compositing_node_group == user_tree
+    assert user_tree.nodes.get("User Node") == user_node
+    assert all(user_tree.nodes.get(name) is None for name in setup.node_names)
+    assert not restore_object_index_passes(scene)
+
+    assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
+    assert settings.status.startswith("Object Index setup ready")
+    assert user_tree.nodes.get("ODM_Object_Index_Setup") is not None
+    assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
+    assert settings.status == "Object Index setup restored"
+    assert user_tree.nodes.get("ODM_Object_Index_Setup") is None
+
+    with tempfile.TemporaryDirectory(prefix="ODM_compositor_smoke_") as temp_directory:
+        render_paths = SequencePaths(Path(temp_directory))
+        setup_object_index_passes(scene, view_layer, target_object, render_paths)
+        render = scene.render
+        render.engine = "CYCLES"
+        render.resolution_x = 16
+        render.resolution_y = 12
+        render.resolution_percentage = 100
+        scene.frame_set(1)
+        bpy.ops.render.render()
+        emitted_paths = render_paths.frame(1)
+        actual_outputs = (
+            emitted_paths.beauty,
+            emitted_paths.vector,
+            emitted_paths.matte,
+        )
+        assert all(path.is_file() for path in actual_outputs), actual_outputs
+        output_contracts = tuple(exr_contract(path) for path in actual_outputs)
+        assert output_contracts == (
+            ((12, 16), (2, 2, 2, 2)),
+            ((12, 16), (2, 2, 2, 2)),
+            ((12, 16), (2, 2, 2, 2)),
+        )
+        print("Object Index smoke outputs:", ", ".join(path.name for path in actual_outputs))
+        restore_object_index_passes(scene)
+
+    scene.compositing_node_group = None
+    setup_object_index_passes(scene, view_layer, target_object, saved_relative_paths)
+    owned_tree = scene.compositing_node_group
+    assert owned_tree is not None
+    owned_tree_name = owned_tree.name
+    assert restore_object_index_passes(scene)
+    assert scene.compositing_node_group is None
+    assert bpy.data.node_groups.get(owned_tree_name) is None
 
     image_io = BlenderImageIO()
     image_path = Path(bpy.app.tempdir) / "ODM_image_io_smoke.exr"
