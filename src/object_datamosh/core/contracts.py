@@ -1,7 +1,9 @@
 """Pure-Python contracts shared by the Blender integration and processing core."""
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
+from numbers import Integral, Real
 
 import numpy as np
 from numpy.typing import NDArray
@@ -38,6 +40,10 @@ class FeedbackState:
     frame_number: int
 
     def __post_init__(self) -> None:
+        if not isinstance(self.history, np.ndarray):
+            raise TypeError("history must be a NumPy array")
+        if not isinstance(self.history_matte, np.ndarray):
+            raise TypeError("history_matte must be a NumPy array")
         if self.history.dtype != np.float32:
             raise TypeError("history must use float32")
         if self.history_matte.dtype != np.float32:
@@ -46,6 +52,8 @@ class FeedbackState:
             raise ValueError("history must have shape (height, width, 4)")
         if self.history_matte.shape != self.history.shape[:2]:
             raise ValueError("history_matte must have shape (height, width)")
+        if isinstance(self.frame_number, bool) or not isinstance(self.frame_number, Integral):
+            raise TypeError("frame_number must be an integer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +75,27 @@ class FeedbackSettings:
     matte_source: MatteSource = MatteSource.OBJECT_INDEX
 
     def __post_init__(self) -> None:
+        for name in (
+            "persistence",
+            "motion_gain",
+            "motion_clamp",
+            "motion_quantization",
+            "diffusion",
+            "refresh_probability",
+        ):
+            _require_finite_number(name, getattr(self, name))
+        if isinstance(self.block_size, bool) or not isinstance(self.block_size, Integral):
+            raise TypeError("block_size must be an integer")
+        if isinstance(self.seed, bool) or not isinstance(self.seed, Integral):
+            raise TypeError("seed must be an integer")
+        if not isinstance(self.motion_channels, MotionChannels):
+            raise TypeError("motion_channels must be a MotionChannels value")
+        if not isinstance(self.matte_source, MatteSource):
+            raise TypeError("matte_source must be a MatteSource value")
+        for name in ("reverse_motion", "flip_x", "flip_y"):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be a boolean")
+
         if not 0.0 <= self.persistence <= 1.0:
             raise ValueError("persistence must be between 0 and 1")
         if self.block_size < 1:
@@ -81,3 +110,10 @@ class FeedbackSettings:
             raise ValueError("diffusion must not be negative")
         if not 0.0 <= self.refresh_probability <= 1.0:
             raise ValueError("refresh_probability must be between 0 and 1")
+
+
+def _require_finite_number(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a number")
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")

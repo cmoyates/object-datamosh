@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
@@ -27,6 +29,31 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
 def test_feedback_settings_reject_values_outside_probability_range() -> None:
     with pytest.raises(ValueError, match="persistence must be between 0 and 1"):
         FeedbackSettings(persistence=1.1)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "persistence",
+        "motion_gain",
+        "motion_clamp",
+        "motion_quantization",
+        "diffusion",
+        "refresh_probability",
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_feedback_settings_reject_non_finite_float_controls(field: str, value: float) -> None:
+    arguments: dict[str, Any] = {field: value}
+
+    with pytest.raises(ValueError, match=rf"{field} must be finite"):
+        FeedbackSettings(**arguments)
+
+
+@pytest.mark.parametrize("value", [1.5, True])
+def test_feedback_settings_require_an_integral_non_boolean_block_size(value: object) -> None:
+    with pytest.raises(TypeError, match="block_size must be an integer"):
+        FeedbackSettings(block_size=cast(Any, value))
 
 
 def test_feedback_state_accepts_scene_linear_float32_rgba_history() -> None:
