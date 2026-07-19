@@ -850,7 +850,7 @@ def register() -> None:
 
 
 def unregister() -> None:
-    """Remove only data registered by this extension, idempotently."""
+    """Remove only data registered by this extension when no modal handler owns its classes."""
     if _active_operation_runtime() is not None:
         raise RuntimeError("Cannot unregister Object Datamosh while an operation is active")
     scene_type = cast(Any, Scene)

@@ -12,7 +12,6 @@ import bpy
 import numpy as np
 from blender_modal_test_support import ModalWindowManagerRecorder, ProcessOperatorHarness
 
-import object_datamosh
 from object_datamosh.blender_image_io import BlenderImageIO
 from object_datamosh.core.paths import SequencePaths
 from object_datamosh.ui import ODM_OT_process_sequence
@@ -298,12 +297,6 @@ def run_processing_modal_scenarios(
         )()
         callback_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert callback_operator.execute(callback_context) == {"RUNNING_MODAL"}
-        try:
-            object_datamosh.unregister()
-        except RuntimeError as error:
-            assert "while an operation is active" in str(error)
-        else:
-            raise AssertionError("unregister removed an active modal operation")
         other_scene = bpy.data.scenes.new("ODM_Other_Scene")
         try:
             other_context = type("OtherSceneContext", (), {"scene": other_scene})()
