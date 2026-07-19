@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation, verification tooling, tests, and evidence only)
 
-Foreground UI probe and release-gate revision: `70f5a3ee07baeb83e573b66f97e3fb42e0974172`
+Foreground UI probe and release-gate revision: `b6e040151200e3cf7be8c5079876ce29ef187e0e`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -144,7 +144,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (747 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (722 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
@@ -173,7 +173,7 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 207 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 212 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -181,8 +181,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-e2a6437ffe39.zip` (53,328 bytes), SHA-256
-`e2a6437ffe3973093967291727c996b65e66d804597f2673cafd8c148040d468`.
+The installation archive is `dist/object_datamosh-0.1.0-945e98e8cc2d.zip` (53,328 bytes), SHA-256
+`945e98e8cc2d10ed9e647f14b54e798a7285f1737306f56f185ce47c93a0e15d`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
@@ -194,6 +194,8 @@ root where the release gate ran.
   interactive observations, cancellation/recovery results, and the remaining UI limitation.
 - `pyproject.toml` — includes authored foreground-probe Python in the `ty` boundary.
 - `scripts/issue26_foreground_probe.py` — runs the foreground Blender assertions and writes evidence.
+- `scripts/issue26_evidence.py` — validates raw render intervals for both completion and direct
+  cancellation callbacks.
 - `scripts/run_issue26_foreground_probe.sh` — launches the probe and sends real raw/processing
   Escape events through macOS System Events.
 - `scripts/issue26_release_gates.py` — executes and receipts static, pure-Python, Blender background,
@@ -207,5 +209,6 @@ tested revision, exit status, bounded output, digest, byte counts, timeout, and 
 A fixed last-failure receipt is written before any failed run stops.
 - `docs/evidence/issue-26-release-gates.json` — atomically references the successful per-gate
   receipts and retains foreground-receipt identity plus ZIP metadata.
+- `tests/test_issue26_evidence.py` — covers completion and direct-cancellation render intervals.
 - `tests/test_issue26_release_gates.py` — verifies identity comparison and detects a real mid-run
   project-file edit in a temporary Git repository.
