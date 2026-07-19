@@ -55,7 +55,7 @@ class ExistingPassModalController:
             total_work=total_work,
         )
         recovery_frame = session.recovery_frame
-        current_frame = recovery_frame or session.current_frame
+        current_frame = session.current_frame if recovery_frame is None else recovery_frame
         status = (
             f"Restoring resume history at frame {recovery_frame}"
             if recovery_frame is not None
@@ -108,7 +108,9 @@ class ExistingPassModalController:
             )
 
         recovering_history = session.recovery_frame is not None
-        frame_number = session.recovery_frame or session.current_frame
+        frame_number = (
+            session.current_frame if session.recovery_frame is None else session.recovery_frame
+        )
         completed_before = len(session.completed_frames)
         retained_before = len(session.retained_frames)
         try:

@@ -593,17 +593,17 @@ def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     paths = SequencePaths(tmp_path)
     matte = np.ones((1, 2), dtype=np.float32)
     images: dict[Path, np.ndarray] = {}
-    for frame_number in (1, 2, 3):
+    for frame_number in (0, 1, 2):
         frame = paths.frame(frame_number)
-        images[frame.beauty] = _rgba(frame_number / 4.0)
+        images[frame.beauty] = _rgba((frame_number + 1) / 4.0)
         images[frame.vector] = _rgba(0.0)
         images[frame.matte] = matte
     io = MemoryImageIO(images)
     settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
     interrupted = ProcessingSession.create(
         paths,
-        frame_start=1,
-        frame_end=3,
+        frame_start=0,
+        frame_end=2,
         matte_provider=ObjectIndexMatteProvider(),
         settings=settings,
         image_io=io,
@@ -614,8 +614,8 @@ def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     io.reads.clear()
     resumed = ProcessingSession.create(
         paths,
-        frame_start=1,
-        frame_end=3,
+        frame_start=0,
+        frame_end=2,
         matte_provider=ObjectIndexMatteProvider(),
         settings=settings,
         image_io=io,
@@ -623,16 +623,16 @@ def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     )
 
     assert io.reads == []
-    assert resumed.recovery_frame == 1
+    assert resumed.recovery_frame == 0
     resumed.process_next_frame()
-    assert resumed.recovery_frame == 2
-    assert paths.frame(3).processed not in io.written
+    assert resumed.recovery_frame == 1
+    assert paths.frame(2).processed not in io.written
     resumed.process_next_frame()
     assert resumed.recovery_frame is None
     assert not resumed.is_finished
     resumed.process_next_frame()
     assert resumed.is_finished
-    assert resumed.result.frames == (paths.frame(3).processed,)
+    assert resumed.result.frames == (paths.frame(2).processed,)
 
 
 def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_frame(
