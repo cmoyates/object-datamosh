@@ -227,6 +227,23 @@ def verified_cancel_button_coordinate() -> tuple[int, int]:
     return coordinate
 
 
+def move_pointer_to_viewport() -> None:
+    for area in _context.screen.areas:
+        if area.type != "VIEW_3D":
+            continue
+        for region in area.regions:
+            if region.type == "WINDOW":
+                viewport = cast(SidebarRegion, region)
+                _context.window.event_simulate(
+                    type="MOUSEMOVE",
+                    value="NOTHING",
+                    x=viewport.x + viewport.width // 2,
+                    y=viewport.y + viewport.height // 2,
+                )
+                return
+    raise RuntimeError("No 3D View window region is available")
+
+
 _production_sidebar_draw = ODM_PT_sidebar.draw
 
 
@@ -640,6 +657,7 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         cycles.samples = 64
         scene.render.resolution_x = 1024
         scene.render.resolution_y = 1024
+        move_pointer_to_viewport()
         start_combined("raw-escape-cancel", end=100)
 
 
@@ -751,6 +769,7 @@ def _handle_processing_resume(item: Snapshot, active: bool) -> None:
         process_root = ROOT / "processing-escape"
         shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
         state.transition(ProbeStage.PROCESSING_ESCAPE_CANCEL)
+        move_pointer_to_viewport()
         start_existing("processing-escape")
         emit("processing_escape_ready")
 
