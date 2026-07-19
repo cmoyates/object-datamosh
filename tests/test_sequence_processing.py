@@ -1,11 +1,21 @@
+import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from object_datamosh.core.contracts import FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import SequencePaths
-from object_datamosh.sequence_processing import SequenceProcessingCancelled, process_sequence
+from object_datamosh.sequence_processing import (
+    MissingHistoryPolicy,
+    ResolutionChangePolicy,
+    SequenceProcessingCancelled,
+    SequenceRunMode,
+    parse_reset_frames,
+    process_sequence,
+    sequence_manifest_path,
+)
 
 
 class ProgressRecorder:
@@ -42,11 +52,19 @@ class MemoryImageIO:
             raise FileNotFoundError(path) from None
 
     def write_rgba(self, path: str | Path, pixels: np.ndarray) -> None:
-        self.written[Path(path)] = pixels.copy()
+        resolved = Path(path)
+        self.written[resolved] = pixels.copy()
+        self.images[resolved] = pixels.copy()
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.touch()
 
 
 def _rgba(value: float) -> np.ndarray:
     return np.full((1, 2, 4), value, dtype=np.float32)
+
+
+def test_reset_expression_is_parsed_deterministically() -> None:
+    assert parse_reset_frames(" 8, 3,8, 5 ") == frozenset({3, 5, 8})
 
 
 def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> None:
@@ -93,6 +111,66 @@ def test_process_sequence_initializes_then_carries_feedback_in_frame_order(tmp_p
     assert result.frames == (first.processed, second.processed)
     np.testing.assert_array_equal(io.written[first.processed], _rgba(0.25))
     np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
+
+
+def test_process_sequence_applies_explicit_resets_and_always_resets_first_frame(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    first = paths.frame(1)
+    second = paths.frame(2)
+    matte = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(
+        {
+            first.beauty: _rgba(0.75),
+            first.vector: _rgba(0.0),
+            first.matte: matte,
+            second.beauty: _rgba(0.25),
+            second.vector: _rgba(0.0),
+            second.matte: matte,
+        }
+    )
+
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=io,
+        reset_frames=parse_reset_frames("2"),
+    )
+
+    np.testing.assert_array_equal(io.written[first.processed], _rgba(0.75))
+    np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
+
+
+def test_resolution_change_resets_history_when_configured(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    first = paths.frame(1)
+    second = paths.frame(2)
+    io = MemoryImageIO(
+        {
+            first.beauty: _rgba(0.75),
+            first.vector: _rgba(0.0),
+            first.matte: np.ones((1, 2), dtype=np.float32),
+            second.beauty: np.full((2, 2, 4), 0.25, dtype=np.float32),
+            second.vector: np.zeros((2, 2, 4), dtype=np.float32),
+            second.matte: np.ones((2, 2), dtype=np.float32),
+        }
+    )
+
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=io,
+        resolution_change=ResolutionChangePolicy.RESET,
+    )
+
+    np.testing.assert_array_equal(io.written[second.processed], io.images[second.beauty])
 
 
 def test_process_sequence_reports_the_missing_pass_and_frame(tmp_path: Path) -> None:
@@ -185,6 +263,168 @@ def test_process_sequence_honors_cancellation_between_complete_frames(tmp_path: 
     assert tuple(io.written) == (first.processed,)
     assert second.processed not in io.written
     assert progress.events == [("begin", 2), ("update", 1), ("end", 0)]
+
+
+def test_cancelled_sequence_resumes_from_its_last_complete_frame(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number, beauty_value in ((1, 0.75), (2, 0.0), (3, 0.0)):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(beauty_value)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    progress = ProgressRecorder()
+
+    try:
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=3,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(persistence=1.0, block_size=1),
+            image_io=io,
+            progress=progress,
+            should_cancel=lambda: ("update", 1) in progress.events,
+        )
+    except SequenceProcessingCancelled:
+        pass
+    else:
+        raise AssertionError("processing ignored cancellation")
+
+    io.written.clear()
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
+    assert paths.frame(1).processed not in io.written
+    np.testing.assert_array_equal(io.written[paths.frame(3).processed], _rgba(0.75))
+
+
+def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(float(frame_number) / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    progress = ProgressRecorder()
+    with pytest.raises(SequenceProcessingCancelled):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=io,
+            progress=progress,
+            should_cancel=lambda: ("update", 1) in progress.events,
+        )
+
+    paths.frame(1).processed.unlink()
+    io.images.pop(paths.frame(1).processed)
+    io.written.clear()
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+        missing_history=MissingHistoryPolicy.RESET,
+    )
+
+    assert result.frames == (paths.frame(1).processed, paths.frame(2).processed)
+
+
+def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    matte = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: matte,
+        }
+    )
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=0.5),
+        image_io=io,
+    )
+
+    try:
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(persistence=0.75),
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
+    except ValueError as error:
+        assert str(error) == (
+            "Sequence recovery manifest is incompatible: settings_fingerprint changed"
+        )
+    else:
+        raise AssertionError("processing resumed outputs made with incompatible settings")
+
+
+def test_resume_rejects_discontinuous_completion_metadata(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2, 3):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(0.25)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+    manifest_path = sequence_manifest_path(paths)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["completed_frames"] = [1, 3]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="Sequence recovery manifest has discontinuous completed frames",
+    ):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=3,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
 
 
 def test_process_sequence_refuses_existing_processed_output_by_default(tmp_path: Path) -> None:

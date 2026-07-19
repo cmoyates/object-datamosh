@@ -40,7 +40,14 @@ from .core.mattes import (
 )
 from .core.paths import SequencePaths
 from .raw_render import RawRenderCancelled, render_raw_passes
-from .sequence_processing import SequenceProcessingCancelled, process_sequence
+from .sequence_processing import (
+    MissingHistoryPolicy,
+    ResolutionChangePolicy,
+    SequenceProcessingCancelled,
+    SequenceRunMode,
+    parse_reset_frames,
+    process_sequence,
+)
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 
@@ -108,8 +115,37 @@ class ODM_Settings(PropertyGroup):
     )
     overwrite_processed: BoolProperty(  # ty: ignore[invalid-type-form]
         name="Overwrite Processed Frames",
-        description="Allow processing to replace files for the configured frame range",
+        description="Allow Reprocess to replace the complete configured frame range",
         default=False,
+    )
+    sequence_run_mode: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Run Mode",
+        items=(
+            ("REPROCESS", "Reprocess", "Start at the first frame and replace the complete range"),
+            ("RESUME", "Resume", "Continue only from a compatible recovery manifest"),
+        ),
+        default="REPROCESS",
+    )
+    reset_frames: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Reset Frames",
+        description="Comma-separated frames that initialize clean history",
+        default="",
+    )
+    missing_history: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Missing History",
+        items=(
+            ("ERROR", "Stop", "Stop when recorded resume history is missing or invalid"),
+            ("RESET", "Reset", "Reprocess from missing or invalid history with a clean reset"),
+        ),
+        default="ERROR",
+    )
+    resolution_change: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Resolution Change",
+        items=(
+            ("ERROR", "Stop", "Stop before reusing history with different dimensions"),
+            ("RESET", "Reset", "Initialize clean history when dimensions change"),
+        ),
+        default="ERROR",
     )
     matte_source: EnumProperty(  # ty: ignore[invalid-type-form]
         name="Matte Source",
@@ -352,6 +388,10 @@ class ODM_OT_process_sequence(Operator):
                 settings=feedback_settings_for_scene(scene),
                 image_io=BlenderImageIO(),
                 overwrite=settings.overwrite_processed,
+                reset_frames=parse_reset_frames(settings.reset_frames),
+                resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                run_mode=SequenceRunMode(settings.sequence_run_mode),
+                missing_history=MissingHistoryPolicy(settings.missing_history),
                 progress=_WindowManagerProgress(context.window_manager),
             )
         except SequenceProcessingCancelled as error:
@@ -478,7 +518,13 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     sequence.prop(settings, "output_directory")
     sequence.prop(settings, "overwrite_raw")
     sequence.operator(ODM_OT_render_raw_passes.bl_idname)
-    sequence.prop(settings, "overwrite_processed")
+    sequence.prop(settings, "sequence_run_mode")
+    sequence.prop(settings, "reset_frames")
+    sequence.prop(settings, "resolution_change")
+    if settings.sequence_run_mode == "RESUME":
+        sequence.prop(settings, "missing_history")
+    else:
+        sequence.prop(settings, "overwrite_processed")
     sequence.operator(ODM_OT_process_sequence.bl_idname)
     sequence.label(text=f"Output: {paths.root}")
     if paths.warning:
