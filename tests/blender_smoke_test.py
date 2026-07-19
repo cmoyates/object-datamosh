@@ -181,11 +181,30 @@ def main() -> None:
         "object_datamosh.restore_object_index",
         "object_datamosh.render_raw_passes",
         "object_datamosh.process_sequence",
+        "object_datamosh.create_vector_calibration",
     }
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
     assert any(label.startswith("Status: ") for label in layout.labels)
     assert "Save the blend file to use a project-relative output directory." in layout.labels
+
+    scenes_before_calibration = set(bpy.data.scenes)
+    active_scene_before_calibration = bpy.context.scene
+    active_objects_before_calibration = tuple(scene.objects)
+    assert object_datamosh_ops.create_vector_calibration() == {"FINISHED"}
+    calibration_scenes = set(bpy.data.scenes) - scenes_before_calibration
+    assert len(calibration_scenes) == 1
+    calibration_scene = calibration_scenes.pop()
+    assert calibration_scene.name.startswith("ODM_Vector_Calibration")
+    calibration_settings = settings_for_scene(calibration_scene)
+    assert (
+        calibration_settings.target_object == calibration_scene.objects["ODM_Calibration_Rectangle"]
+    )
+    assert calibration_settings.frame_start == 1
+    assert calibration_settings.frame_end == 8
+    assert bpy.context.scene == active_scene_before_calibration
+    assert tuple(scene.objects) == active_objects_before_calibration
+    assert settings.status.startswith("Created ODM_Vector_Calibration")
 
     unsaved_paths = sequence_paths_for_scene(scene)
     assert unsaved_paths.root == Path(bpy.app.tempdir) / "ODM_object_datamosh_unsaved"
