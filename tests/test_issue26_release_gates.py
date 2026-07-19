@@ -366,16 +366,19 @@ def test_gate_kills_a_closed_output_descendant_before_it_can_mutate(tmp_path: Pa
 
 def test_gate_receipt_captures_a_launch_failure(tmp_path: Path) -> None:
     initialize_empty_repository(tmp_path)
+    staged: list[Any] = []
     result = run_gate(
         "missing",
         [str(tmp_path / "does-not-exist")],
         "missing executable",
         worktree=tmp_path,
         environment={},
+        stage_result=staged.append,
     )
 
     receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
 
+    assert staged == [result]
     assert result.exit_code == 127
     assert "FileNotFoundError" in result.launch_error
     assert receipt.is_file()

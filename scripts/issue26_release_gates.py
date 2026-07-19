@@ -247,8 +247,7 @@ def run_gate(
         )
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
-        signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
-        return GateResult(
+        result = GateResult(
             name=name,
             command=display,
             exit_code=127,
@@ -264,6 +263,12 @@ def run_gate(
             timeout_seconds=timeout_seconds,
             tracked_changes="",
         )
+        try:
+            if stage_result is not None:
+                stage_result(result)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
+        return result
     except BaseException:
         signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
         raise
@@ -664,7 +669,26 @@ def main() -> None:
         if arguments.update_evidence:
             shutil.rmtree(run_root, ignore_errors=True)
         raise
-    environment = gate_environment(run_root)
+    try:
+        environment = gate_environment(run_root)
+    except BaseException as error:
+        if arguments.update_evidence:
+            write_release_failure(
+                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
+                error,
+                identity=identity,
+                results=results,
+            )
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=REPO,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if arguments.update_evidence:
+            shutil.rmtree(run_root, ignore_errors=True)
+        raise
     quoted_blender = shlex.quote(str(blender_bin))
     specifications = [
         (
