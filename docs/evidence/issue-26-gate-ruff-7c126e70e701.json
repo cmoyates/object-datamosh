@@ -1,9 +1,10 @@
 {
   "gate": {
-    "command": "uv run ty check",
+    "command": "uv run ruff check .",
     "exit_code": 0,
     "launch_error": null,
-    "name": "ty",
+    "name": "ruff",
+    "output_error": null,
     "output_head": "All checks passed!\n",
     "output_retained_bytes": 19,
     "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
@@ -14,6 +15,6 @@
     "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "b6e040151200e3cf7be8c5079876ce29ef187e0e",
+  "git_head": "defe1aa907fb78c53b9bab521b47efd0d3cc1d8f",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
 }

@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation, verification tooling, tests, and evidence only)
 
-Foreground UI probe and release-gate revision: `b6e040151200e3cf7be8c5079876ce29ef187e0e`
+Foreground UI probe and release-gate revision: `defe1aa907fb78c53b9bab521b47efd0d3cc1d8f`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -144,7 +144,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (722 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (757 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
@@ -158,7 +158,7 @@ The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates
 code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
 machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
 `--update-evidence`. It validates the foreground result, trace digest, extension source tree, and
-probe/runner hashes, while retaining the foreground run's Git revision for provenance. It then
+probe/helper/runner hashes, while retaining the foreground run's Git revision for provenance. It then
 executes each gate from an isolated detached worktree. Each command
 stages a receipt with exit status, output digest, and up to 64 KiB complete output (or bounded
 32 KiB head plus 32 KiB tail) with explicit truncation metadata. Launch, timeout, command, and
@@ -173,16 +173,16 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 212 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 214 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
-| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render injection attempt, production Cancel-button and Blender ESC events, Resume, restart, production-panel redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
+| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render injection attempt, production Cancel-button and Blender ESC events, Resume, restart, production-panel redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, evidence helper, runner, and event-log digest |
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-945e98e8cc2d.zip` (53,328 bytes), SHA-256
-`945e98e8cc2d10ed9e647f14b54e798a7285f1737306f56f185ce47c93a0e15d`.
+The installation archive is `dist/object_datamosh-0.1.0-ba6731f4af7c.zip` (53,328 bytes), SHA-256
+`ba6731f4af7caa989fa33009dad2138619144ed17a1abd4a6a0b2c860455e9d9`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
