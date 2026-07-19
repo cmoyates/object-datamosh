@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from object_datamosh.core.contracts import FeedbackSettings
+from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import SequencePaths
 from object_datamosh.sequence_processing import (
@@ -143,6 +143,41 @@ def test_process_sequence_applies_explicit_resets_and_always_resets_first_frame(
 
     np.testing.assert_array_equal(io.written[first.processed], _rgba(0.75))
     np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
+
+
+def test_trail_sequence_carries_moving_mask_history_until_an_explicit_reset(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number, beauty_value, matte in (
+        (1, 1.0, np.array([[1.0, 0.0]], dtype=np.float32)),
+        (2, 0.0, np.array([[0.0, 1.0]], dtype=np.float32)),
+        (3, 0.25, np.array([[0.0, 1.0]], dtype=np.float32)),
+    ):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(beauty_value)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=1,
+        ),
+        image_io=io,
+        reset_frames=frozenset({3}),
+    )
+
+    np.testing.assert_allclose(io.written[paths.frame(2).processed][0, 0], np.full(4, 0.5))
+    np.testing.assert_array_equal(io.written[paths.frame(3).processed], _rgba(0.25))
 
 
 def test_resolution_change_resets_history_when_configured(tmp_path: Path) -> None:
@@ -307,6 +342,58 @@ def test_cancelled_sequence_resumes_from_its_last_complete_frame(tmp_path: Path)
     assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
     assert paths.frame(1).processed not in io.written
     np.testing.assert_array_equal(io.written[paths.frame(3).processed], _rgba(0.75))
+
+
+def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number, beauty_value, matte in (
+        (1, 1.0, np.array([[1.0, 0.0]], dtype=np.float32)),
+        (2, 0.0, np.array([[0.0, 1.0]], dtype=np.float32)),
+        (3, 0.0, np.array([[0.0, 1.0]], dtype=np.float32)),
+    ):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(beauty_value)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    progress = ProgressRecorder()
+    settings = FeedbackSettings(
+        mode=FeedbackMode.TRAIL,
+        trail_decay=0.5,
+        persistence=1.0,
+        block_size=1,
+    )
+
+    with pytest.raises(SequenceProcessingCancelled):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=3,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=settings,
+            image_io=io,
+            progress=progress,
+            should_cancel=lambda: ("update", 2) in progress.events,
+        )
+
+    io.written.clear()
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    np.testing.assert_allclose(
+        io.written[paths.frame(3).processed][0, 0],
+        np.full(4, 0.125, dtype=np.float32),
+    )
 
 
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(

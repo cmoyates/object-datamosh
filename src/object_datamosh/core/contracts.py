@@ -27,6 +27,13 @@ class MatteSource(StrEnum):
     CRYPTOMATTE = "CRYPTOMATTE"
 
 
+class FeedbackMode(StrEnum):
+    """How selected-object history is localized in later frames."""
+
+    HARD_LOCALIZED = "HARD_LOCALIZED"
+    TRAIL = "TRAIL"
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackState:
     """History carried between sequentially processed frames.
@@ -60,6 +67,8 @@ class FeedbackState:
 class FeedbackSettings:
     """Stable, Blender-independent controls for temporal feedback."""
 
+    mode: FeedbackMode = FeedbackMode.HARD_LOCALIZED
+    trail_decay: float = 0.85
     persistence: float = 0.85
     block_size: int = 16
     motion_channels: MotionChannels = MotionChannels.RG
@@ -76,6 +85,7 @@ class FeedbackSettings:
 
     def __post_init__(self) -> None:
         for name in (
+            "trail_decay",
             "persistence",
             "motion_gain",
             "motion_clamp",
@@ -88,6 +98,8 @@ class FeedbackSettings:
             raise TypeError("block_size must be an integer")
         if isinstance(self.seed, bool) or not isinstance(self.seed, Integral):
             raise TypeError("seed must be an integer")
+        if not isinstance(self.mode, FeedbackMode):
+            raise TypeError("mode must be a FeedbackMode value")
         if not isinstance(self.motion_channels, MotionChannels):
             raise TypeError("motion_channels must be a MotionChannels value")
         if not isinstance(self.matte_source, MatteSource):
@@ -96,6 +108,8 @@ class FeedbackSettings:
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be a boolean")
 
+        if not 0.0 <= self.trail_decay <= 1.0:
+            raise ValueError("trail_decay must be between 0 and 1")
         if not 0.0 <= self.persistence <= 1.0:
             raise ValueError("persistence must be between 0 and 1")
         if self.block_size < 1:

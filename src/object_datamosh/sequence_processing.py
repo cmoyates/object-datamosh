@@ -12,7 +12,7 @@ from typing import Protocol, cast
 
 import numpy as np
 
-from .core.contracts import FeedbackSettings, FeedbackState
+from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState
 from .core.feedback import process_frame
 from .core.image_io import ImageSequenceIO
 from .core.mattes import MatteProvider
@@ -137,11 +137,21 @@ def process_sequence(
             previous_number = completed[-1]
             previous_frame = paths.frame(previous_number)
             try:
-                previous_history = image_io.read_rgba(previous_frame.processed)
-                previous_matte = image_io.read_mask(
-                    matte_provider.path_for_frame(previous_number, paths)
-                )
-                state = FeedbackState(previous_history, previous_matte, previous_number)
+                if settings.mode is FeedbackMode.TRAIL:
+                    state = _restore_trail_state(
+                        completed,
+                        paths=paths,
+                        matte_provider=matte_provider,
+                        settings=settings,
+                        image_io=image_io,
+                        reset_frames=reset_frames,
+                    )
+                else:
+                    previous_history = image_io.read_rgba(previous_frame.processed)
+                    previous_matte = image_io.read_mask(
+                        matte_provider.path_for_frame(previous_number, paths)
+                    )
+                    state = FeedbackState(previous_history, previous_matte, previous_number)
                 if not np.all(np.isfinite(state.history)):
                     raise ValueError("history must contain only finite values")
                 if not np.all(np.isfinite(state.history_matte)) or np.any(
@@ -273,6 +283,42 @@ def process_sequence(
         if progress is not None and progress_started:
             progress.end()
     return SequenceProcessingResult(tuple(outputs))
+
+
+def _restore_trail_state(
+    completed: list[int],
+    *,
+    paths: SequencePaths,
+    matte_provider: MatteProvider,
+    settings: FeedbackSettings,
+    image_io: ImageSequenceIO,
+    reset_frames: frozenset[int],
+) -> FeedbackState:
+    """Rebuild trail coverage while trusting recorded processed color as history."""
+    state: FeedbackState | None = None
+    for frame_number in completed:
+        frame = paths.frame(frame_number)
+        history = image_io.read_rgba(frame.processed)
+        matte = image_io.read_mask(matte_provider.path_for_frame(frame_number, paths))
+        reset = (
+            state is None or frame_number in reset_frames or state.history.shape != history.shape
+        )
+        if reset:
+            state = FeedbackState(history, matte, frame_number)
+            continue
+        motion = image_io.read_rgba(frame.vector)
+        _output, next_state = process_frame(
+            history,
+            motion,
+            matte,
+            state,
+            frame_number,
+            settings,
+        )
+        state = FeedbackState(history, next_state.history_matte, frame_number)
+    if state is None:
+        raise ValueError("trail history requires at least one completed frame")
+    return state
 
 
 def _settings_fingerprint(settings: FeedbackSettings, matte_provider: MatteProvider) -> str:

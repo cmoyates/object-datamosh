@@ -137,6 +137,8 @@ def main() -> None:
     assert settings.matte_source == "OBJECT_INDEX"
     assert settings.target_object is None
     feedback_settings = feedback_settings_for_scene(scene)
+    assert feedback_settings.mode.value == "HARD_LOCALIZED"
+    assert abs(feedback_settings.trail_decay - FeedbackSettings().trail_decay) < 1e-6
     assert abs(feedback_settings.persistence - FeedbackSettings().persistence) < 1e-6
     assert feedback_settings.block_size == 16
     assert feedback_settings.motion_channels.value == "RG"
@@ -163,6 +165,8 @@ def main() -> None:
         "resolution_change",
         "matte_source",
         "external_matte_directory",
+        "feedback_mode",
+        "trail_decay",
         "persistence",
         "block_size",
         "motion_channels",

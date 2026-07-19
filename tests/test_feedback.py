@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from object_datamosh.core.contracts import FeedbackSettings, FeedbackState, MotionChannels
+from object_datamosh.core.contracts import (
+    FeedbackMode,
+    FeedbackSettings,
+    FeedbackState,
+    MotionChannels,
+)
 from object_datamosh.core.feedback import process_frame
 
 
@@ -423,6 +428,106 @@ def test_hard_localization_preserves_nonzero_clean_beauty_outside_current_matte(
 
     outside = matte == 0.0
     np.testing.assert_array_equal(output[outside], beauty[outside])
+
+
+def test_trail_mode_retains_decayed_selected_object_history_outside_current_matte() -> None:
+    beauty = _rgba(1, 3, 0.2)
+    history = _rgba(1, 3, 100.0)
+    history[0, 0] = 1.0
+    previous = FeedbackState(
+        history,
+        np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    current_matte = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+    motion = _motion(1, 3)
+    motion[0, 1, 0] = 1.0
+
+    output, state = process_frame(
+        beauty=beauty,
+        motion=motion,
+        matte=current_matte,
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_allclose(output[0, 0], np.full(4, 0.6, dtype=np.float32))
+    np.testing.assert_array_equal(output[0, 1], np.ones(4, dtype=np.float32))
+    np.testing.assert_array_equal(output[0, 2], beauty[0, 2])
+    np.testing.assert_array_equal(
+        state.history_matte,
+        np.array([[0.5, 1.0, 0.0]], dtype=np.float32),
+    )
+
+
+@pytest.mark.parametrize(
+    ("trail_decay", "expected_history", "expected_coverage"),
+    [(0.0, 0.2, 0.0), (1.0, 1.0, 1.0)],
+)
+def test_trail_decay_zero_clears_and_one_retains_selected_history(
+    trail_decay: float,
+    expected_history: float,
+    expected_coverage: float,
+) -> None:
+    previous = FeedbackState(
+        _rgba(1, 1, 1.0),
+        np.ones((1, 1), dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        beauty=_rgba(1, 1, 0.2),
+        motion=_motion(1, 1),
+        matte=np.zeros((1, 1), dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            trail_decay=trail_decay,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_allclose(output, _rgba(1, 1, expected_history))
+    np.testing.assert_array_equal(
+        state.history_matte,
+        np.full((1, 1), expected_coverage, dtype=np.float32),
+    )
+
+
+def test_invalid_warped_history_cannot_create_trail_coverage() -> None:
+    history = _rgba(1, 2, 1.0)
+    history[0, 0, 0] = np.nan
+    previous = FeedbackState(
+        history,
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    beauty = _rgba(1, 2, 0.25)
+
+    output, state = process_frame(
+        beauty=beauty,
+        motion=_motion(1, 2),
+        matte=np.zeros((1, 2), dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            trail_decay=1.0,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.zeros((1, 2), dtype=np.float32))
 
 
 def test_non_finite_warped_history_falls_back_to_clean_beauty() -> None:
