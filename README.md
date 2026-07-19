@@ -42,6 +42,146 @@ The sidebar currently provides:
 The target assignment operator has a useful poll: it is available only when an active object
 exists. Repeated register/unregister calls and registration cycles are idempotent.
 
+## Quick start: use Object Datamosh in Blender
+
+This is the shortest end-to-end workflow for rendering a scene and creating a processed Object
+Datamosh sequence. Object Datamosh writes image sequences; it does not replace the scene's render
+output or automatically connect the processed sequence to the compositor.
+
+### 1. Prepare the scene
+
+1. Save the `.blend` file. This gives the extension a stable project-relative output location.
+2. Open the **Render Properties** and select **Cycles**. Cycles is the tested Blender 5.0 path for
+   Image, Vector, and Object Index passes.
+3. Set the scene's resolution, camera, lighting, and animation as usual.
+4. In the timeline, identify the inclusive frame range you want to process.
+5. Select the object that should receive the localized feedback effect.
+
+Object Datamosh preserves the rest of the scene's compositor graph and restores the pass settings
+it changes. It does not hide objects, replace materials, or change the scene's render engine.
+
+### 2. Open the extension and choose the target
+
+1. In the **3D View**, press **N** to open the Sidebar.
+2. Select the **Object Datamosh** tab.
+3. In **Target**, click **Use Active Object**. Alternatively, choose an object directly with the
+   **Target Object** picker.
+4. Confirm that the displayed view layer is the one you intend to render.
+5. In **Matte**, leave **Object Index** selected and click **Setup Object Index**.
+
+Setup assigns the target a free nonzero Object Index and creates tagged `ODM_` compositor output
+nodes. It is safe to click again for the same target. To switch targets or view layers, click
+**Restore Object Index Setup** first and then perform setup again.
+
+### 3. Choose the range and output location
+
+In **Sequence**:
+
+1. Set **Start** and **End** to the inclusive animation range.
+2. Leave **Output Directory** empty to use the derived folder beside the saved `.blend` file, or
+   choose an explicit absolute directory.
+3. Leave both overwrite controls disabled for the first run. They are deliberate safeguards
+   against replacing existing EXRs.
+4. Leave **Run Mode** set to **Reprocess** for a new sequence.
+
+The resolved output root is displayed in the panel. For `shot.blend`, the default root is
+`ODM_shot_object_datamosh` beside the blend file. Ensure the destination has enough free space for
+three full-float raw EXR sequences plus one processed EXR sequence.
+
+### 4. Configure the effect
+
+A conservative first setup is:
+
+| Control | Starting value | Effect |
+|---|---:|---|
+| **Mode** | Hard Localized | Keeps the effect strictly inside the current target silhouette. |
+| **Persistence** | `0.85` | Higher values retain more prior-frame color. |
+| **Block Size** | `16` | Larger values produce broader block motion; smaller values retain detail. |
+| **Motion Channels** | RG | Tested Blender 5.0 Vector-pass channel pair. |
+| **Reverse Motion** | Enabled | Tested Blender 5.0 direction correction. |
+| **Motion Gain** | `1.0` | Scales the sampled displacement. |
+| **Motion Clamp** | `64` | Limits extreme displacement magnitude. |
+| **Motion Quantization** | `1` | Rounds motion into pixel-sized steps; `0` disables it. |
+| **Diffusion** | `0` | Increase for deterministic per-block motion jitter. |
+| **Refresh Probability** | `0` | Increase to restore random-looking blocks from clean beauty. |
+| **Seed** | Any fixed integer | Reproduces diffusion and refresh choices exactly. |
+
+For feedback that persists behind the moving object, choose **Trail** and begin with **Trail
+Decay** at `0.85`. Lower decay fades the trail sooner; `0` removes old trail coverage after one
+frame, while `1` retains reachable coverage without decay.
+
+Vector conventions can differ by Blender release, engine, and scene. If the result moves in the
+wrong direction or at the wrong scale, use **Create Vector Calibration Scene** and follow
+[Manual vector calibration](#manual-vector-calibration) before a long render.
+
+### 5. Render and process
+
+Click **Render and Process**. The extension will:
+
+1. render every frame's beauty, Vector, and Object Index matte passes;
+2. verify the actual files emitted for each frame;
+3. process those frames sequentially through temporal feedback; and
+4. write `processed/ODM_processed_<frame>.exr` plus a recovery manifest.
+
+Watch the panel's **Status** value and Blender's progress display. Cancellation is observed between
+frames. Completed raw and processed files are retained rather than deleted.
+
+For more control, click **Render Raw Passes** first, inspect the raw EXRs, and then click **Process
+Existing Passes**. This is also the appropriate path when adjusting feedback settings without
+rerendering the scene: keep the raw sequences, choose **Reprocess**, enable **Overwrite Processed
+Frames**, and process again.
+
+### 6. Inspect and use the result
+
+Processed frames are written under:
+
+```text
+<output root>/processed/ODM_processed_0001.exr
+```
+
+Open a frame or the numbered sequence in Blender's Image Editor to inspect it. To use it in a
+final Blender composite, add it as an image sequence in the Compositor and connect it where the
+processed beauty result belongs in your pipeline. Preserve a scene-linear workflow when applying
+view transforms or encoding a delivery format; the extension output is scene-linear full-float
+RGBA OpenEXR, not a display-referred movie.
+
+The extension does not delete raw or processed output. After confirming the result, archive or
+remove unwanted files yourself as a separate explicit action.
+
+### 7. Resume or restart an interrupted run
+
+- To continue the same processing range and settings, choose **Resume** and click **Process
+  Existing Passes**. The manifest identifies the last safe contiguous frame.
+- If the recorded history file is unavailable, **Missing History: Stop** preserves the failure for
+  diagnosis; **Reset** restarts from the recoverable boundary with clean history.
+- To intentionally regenerate the complete processed range, choose **Reprocess**, enable
+  **Overwrite Processed Frames**, and process again.
+- To intentionally rerender raw inputs, enable **Overwrite Raw Passes** before rendering. This is
+  independent of processed-output overwrite permission.
+
+Changing the frame range, matte source, or feedback settings makes an old resume manifest
+incompatible by design. Use a full reprocess in that case.
+
+### 8. Restore the temporary Object Index setup
+
+When the raw render is complete, click **Restore Object Index Setup** if you no longer need the
+extension's compositor outputs. This removes only tagged Object Datamosh nodes and restores the
+object's previous pass index and the view layer's previous pass-enable values. Rendered files are
+left untouched.
+
+### Process pass sequences rendered elsewhere
+
+To process compatible existing files without modifying the compositor:
+
+1. Arrange beauty and vector EXRs under the documented `raw/beauty` and `raw/vector` paths.
+2. For **Object Index**, also provide the expected `raw/matte` sequence. For **External Matte**,
+   choose a directory containing `matte_0001.exr`, `matte_0002.exr`, and so on.
+3. Set the matching frame range and output root in the panel.
+4. Configure feedback, select **Reprocess**, and click **Process Existing Passes**.
+
+**Setup Object Index is not required** for this processing-only workflow. Cryptomatte is visible as
+an experimental choice but is not implemented in the MVP.
+
 ## Output directory contract
 
 For a saved file such as `/projects/shot.blend`, the derived root is
