@@ -69,7 +69,6 @@ class ExistingPassModalController:
             status = f"Restoring resume history at frame {recovery_frame}"
         else:
             status = f"Processing frame {current_frame} of {session.frame_end}"
-        self._set_status(status)
         self._lifecycle.update(
             phase=OperationPhase.PROCESSING,
             current_frame=current_frame,
@@ -111,14 +110,12 @@ class ExistingPassModalController:
     def cancel(self) -> None:
         """Release resources when Blender cancels the operator externally."""
         message = "Cancelled by Blender"
-        self._set_status(message)
         if not self.finalize(OperationPhase.CANCELLED, message):
             self._operator.report({"ERROR"}, self._visible_status(message))
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Publish an initialization error through the same lifecycle finalizer."""
         message = f"Processing failed during initialization at frame {frame_number}: {error}"
-        self._set_status(message)
         self.finalize(OperationPhase.FAILED, message)
         self._operator.report({"ERROR"}, self._visible_status(message))
 
@@ -145,7 +142,6 @@ class ExistingPassModalController:
 
         if self.cancel_requested:
             message = f"Cancelled after {len(session.completed_frames)} frame(s)"
-            self._set_status(message)
             cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
             report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
             self._operator.report(report_level, self._visible_status(message))
@@ -174,7 +170,6 @@ class ExistingPassModalController:
                 self._publish_step(frame_number, status)
         except SequenceProcessingCancelled as error:
             message = f"Cancelled after {len(error.completed_frames)} frame(s)"
-            self._set_status(message)
             cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
             report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
             self._operator.report(report_level, self._visible_status(message))
@@ -189,7 +184,6 @@ class ExistingPassModalController:
         except Exception as error:
             return self._fail_step(frame_number, error)
         message = f"Processed {len(result.frames)} frame(s)"
-        self._set_status(message)
         if not self.finalize(OperationPhase.COMPLETED, message):
             self._operator.report({"ERROR"}, self._visible_status(message))
             return {"CANCELLED"}
@@ -200,7 +194,6 @@ class ExistingPassModalController:
         session = self._session
         if session is None:
             raise RuntimeError("the incremental session is unavailable")
-        self._set_status(status)
         self._lifecycle.update(
             phase=OperationPhase.PROCESSING,
             current_frame=frame_number,
@@ -211,7 +204,6 @@ class ExistingPassModalController:
     def _fail_step(self, frame_number: int, error: Exception) -> set[Any]:
         session = self._session
         message = f"Processing failed during processing at frame {frame_number}: {error}"
-        self._set_status(message)
         completed_work = 0
         if session is not None:
             completed_work = len(session.retained_frames)

@@ -467,31 +467,20 @@ def process_sequence(
         input_frames=input_frames,
     )
     progress_started = False
-    absolute_progress = (
-        settings.mode is FeedbackMode.TRAIL
-        and missing_history is MissingHistoryPolicy.RESET
-        and session.recovery_frame is not None
-    )
     try:
+        # Synchronous callers historically restored Resume history before opening output progress.
+        # Keep that contract while modal callers continue to advance recovery one timer step.
+        while session.recovery_frame is not None:
+            session.process_next_frame()
         if progress is not None:
             remaining = max(0, frame_end - session.current_frame + 1)
-            if absolute_progress:
-                # Deferred recovery can rewind to any recorded frame, so progress represents the
-                # trusted prefix across the configured range rather than only newly written files.
-                remaining = frame_end - frame_start + 1
             progress.begin(remaining)
             progress_started = True
-            if absolute_progress:
-                progress.update(len(session.retained_frames))
         while not session.is_finished:
             completed_before = len(session.completed_frames)
-            retained_before = len(session.retained_frames)
             session.process_next_frame()
-            if progress is not None:
-                if absolute_progress and len(session.retained_frames) != retained_before:
-                    progress.update(len(session.retained_frames))
-                elif not absolute_progress and len(session.completed_frames) > completed_before:
-                    progress.update(len(session.completed_frames))
+            if progress is not None and len(session.completed_frames) > completed_before:
+                progress.update(len(session.completed_frames))
         return session.result
     finally:
         if progress is not None and progress_started:

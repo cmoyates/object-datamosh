@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -69,8 +68,8 @@ def run_processing_modal_scenarios(
         assert runtime.completed_work == 0
         assert runtime.total_work == 2
         assert runtime.progress == 0.0
-        assert settings.status == "Processing frame 1 of 2"
-        assert runtime.status == settings.status
+        assert settings.status == "Processing existing passes..."
+        assert runtime.status == "Processing frame 1 of 2"
         assert modal_window_manager.events[:4] == [
             ("progress_begin", (0, 2)),
             ("timer_add", (0.1, modal_window)),
@@ -84,8 +83,11 @@ def run_processing_modal_scenarios(
         )()
         assert process_operator.modal(modal_context, foreign_timer_event) == {"PASS_THROUGH"}
         assert not first.processed.exists()
-        time.sleep(0.11)
-        timer_event = type("TimerEvent", (), {"type": "TIMER"})()
+        timer_event = type(
+            "TimerEvent",
+            (),
+            {"type": "TIMER", "timer": modal_window_manager.timer},
+        )()
         assert process_operator.modal(modal_context, timer_event) == {"RUNNING_MODAL"}
         assert first.processed.is_file()
         assert not second.processed.exists()
@@ -94,7 +96,7 @@ def run_processing_modal_scenarios(
         assert runtime.completed_work == 1
         assert runtime.progress == 0.5
         assert runtime.status == "Processed frame 1 of 2"
-        assert settings.status == runtime.status
+        assert settings.status == "Processing existing passes..."
         assert not object_datamosh_ops.process_sequence.poll()
 
         owned_timer_event = type(

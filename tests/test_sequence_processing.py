@@ -621,6 +621,7 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
         )
 
     io.written.clear()
+    resume_progress = ProgressRecorder()
     process_sequence(
         paths,
         frame_start=1,
@@ -629,8 +630,10 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
         settings=settings,
         image_io=io,
         run_mode=SequenceRunMode.RESUME,
+        progress=resume_progress,
     )
 
+    assert resume_progress.events == [("begin", 1), ("update", 1), ("end", 0)]
     np.testing.assert_allclose(
         io.written[paths.frame(3).processed][0, 0],
         np.full(4, 0.125, dtype=np.float32),
@@ -735,11 +738,9 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
 
     assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
     assert reset_progress.events == [
-        ("begin", 3),
-        ("update", 3),
+        ("begin", 2),
         ("update", 1),
         ("update", 2),
-        ("update", 3),
         ("end", 0),
     ]
     assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
