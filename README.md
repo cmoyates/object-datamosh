@@ -125,11 +125,10 @@ Click **Render and Process**. The extension will:
 3. process those frames sequentially through temporal feedback; and
 4. write `processed/ODM_processed_<frame>.exr` plus a recovery manifest.
 
-Watch the panel's **Status** value and Blender's progress display. **Render and Process** runs its
-combined workflow synchronously. For frame-boundary cancellation and visible per-frame progress,
-click **Render Raw Passes** first and then **Process Existing Passes**; each standalone operation
-yields to Blender between frames and responds to **Escape** or **Cancel** at its next safe boundary.
-An individual Blender frame render can still temporarily block the UI; see
+Watch the panel's phase-specific and overall progress plus Blender's progress display. **Render and
+Process** uses one modal workflow, yields between raw renders and processed frames, and responds to
+**Escape** or **Cancel** at its next safe boundary in either phase. An individual Blender frame
+render can still temporarily block the UI; see
 [the Blender 5 modal render investigation](docs/blender-5-modal-render-investigation.md). Completed
 raw and processed files are retained rather than deleted.
 
@@ -315,10 +314,12 @@ production render. A missing pass fails with the pass name and inspected directo
 
 ## Render and Process
 
-After Object Index setup, **Render and Process** runs the raw renderer to completion and then hands
-its exact discovered `FramePaths` to sequential processing. It never reconstructs raw input names
-for that handoff. Status changes from **Rendering raw passes...** to **Processing rendered
-passes...**, and a failure identifies the active phase.
+After Object Index setup, **Render and Process** uses one modal lifecycle to run the raw renderer
+and then hands its exact discovered `FramePaths` to incremental processing. It never reconstructs
+raw input names for that handoff. The sidebar changes from **Rendering Raw Passes** to **Processing
+Passes**, shows phase-specific and overall work, and identifies the exact phase and frame on failure.
+In Blender background mode, where no window event loop can deliver modal timers, the operator uses
+the equivalent synchronous composition while preserving the exact-path handoff and cleanup rules.
 
 Processing does not start if rendering fails or is cancelled. The raw renderer accepts only one
 newly emitted file per pass and frame, so an unchanged stale file or an incomplete frame fails the

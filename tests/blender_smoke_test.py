@@ -26,6 +26,7 @@ for import_root in (SOURCE_ROOT, TEST_ROOT):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
+from blender_combined_modal_smoke import run_combined_modal_scenario  # noqa: E402
 from blender_modal_test_support import LayoutRecorder  # noqa: E402
 from blender_processing_modal_smoke import run_processing_modal_scenarios  # noqa: E402
 from blender_raw_render_modal_smoke import run_raw_render_modal_scenarios  # noqa: E402
@@ -45,6 +46,7 @@ from object_datamosh.raw_render import (  # noqa: E402
 from object_datamosh.ui import (  # noqa: E402
     ODM_RuntimeState,
     _draw_sidebar,
+    _WindowManagerProgress,
     feedback_settings_for_scene,
     runtime_for_scene,
     sequence_paths_for_scene,
@@ -104,6 +106,19 @@ class ProgressRecorder:
 
 
 def main() -> None:
+    class FailingProgressUpdate:
+        def progress_update(self, completed: int) -> None:
+            raise RuntimeError("progress update failed")
+
+    failing_progress = _WindowManagerProgress(FailingProgressUpdate())
+    try:
+        failing_progress.update(1)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Window-manager progress failure did not propagate")
+    assert failing_progress.completed == 0
+
     object_datamosh.register()
     object_datamosh.register()
     assert hasattr(bpy.types.Scene, "ODM_settings")
@@ -122,6 +137,8 @@ def main() -> None:
         "frame_end",
         "completed_work",
         "total_work",
+        "phase_completed_work",
+        "phase_total_work",
         "progress",
         "status",
     ):
@@ -141,6 +158,8 @@ def main() -> None:
     assert runtime.frame_end == 0
     assert runtime.completed_work == 0
     assert runtime.total_work == 0
+    assert runtime.phase_completed_work == 0
+    assert runtime.phase_total_work == 0
     assert runtime.progress == 0.0
     assert runtime.status == "Ready"
     assert settings.matte_source == "OBJECT_INDEX"
@@ -207,7 +226,8 @@ def main() -> None:
     assert "Phase: Idle" in layout.labels
     assert "Frame Range: 0-0" in layout.labels
     assert "Current Frame: 0" in layout.labels
-    assert "Work: 0/0" in layout.labels
+    assert "Phase Work: 0/0" in layout.labels
+    assert "Overall Work: 0/0" in layout.labels
     assert "Progress: 0%" in layout.labels
     assert "Save the blend file to use a project-relative output directory." in layout.labels
 
@@ -218,6 +238,8 @@ def main() -> None:
     runtime.current_frame = 2
     runtime.completed_work = 1
     runtime.total_work = 4
+    runtime.phase_completed_work = 1
+    runtime.phase_total_work = 4
     runtime.progress = 0.25
     runtime.status = "Processing frame 2 of 4"
     active_layout = LayoutRecorder()
@@ -423,30 +445,50 @@ def main() -> None:
         assert settings.status == "Rendered 1 raw frame(s)"
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
 
-        combined_root = temp_root / "combined"
-        combined_paths = SequencePaths(combined_root)
-        settings.output_directory = str(combined_root)
-        settings.frame_start = 1
-        settings.frame_end = 2
-        settings.overwrite_raw = False
-        settings.overwrite_processed = False
+        combined_root = temp_root / "combined-modal"
         combined_images_before = len(bpy.data.images)
         combined_frame_before = scene.frame_current
         assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
-        assert object_datamosh_ops.render_and_process() == {"FINISHED"}
-        assert settings.status == "Render and Process complete: 2 frame(s)"
-        combined_inventory = tuple(
-            path
-            for frame in (combined_paths.frame(1), combined_paths.frame(2))
-            for path in (frame.beauty, frame.vector, frame.matte, frame.processed)
+        run_combined_modal_scenario(
+            scene,
+            settings,
+            runtime,
+            object_datamosh_ops,
+            combined_root,
         )
-        assert all(path.is_file() for path in combined_inventory), combined_inventory
         assert len(bpy.data.images) == combined_images_before
         assert scene.frame_current == combined_frame_before
+
+        background_combined_root = temp_root / "combined-background"
+        settings.output_directory = str(background_combined_root)
+        settings.overwrite_raw = False
+        settings.overwrite_processed = False
+        assert object_datamosh_ops.render_and_process() == {"FINISHED"}
+        background_paths = SequencePaths(background_combined_root)
+        background_inventory = tuple(
+            path
+            for frame in (background_paths.frame(1), background_paths.frame(2))
+            for path in (frame.beauty, frame.vector, frame.matte, frame.processed)
+        )
+        assert all(path.is_file() for path in background_inventory), background_inventory
+
+        background_failure_root = temp_root / "combined-background-failure"
+        settings.output_directory = str(background_failure_root)
+        settings.frame_end = 1
+        settings.matte_source = "CRYPTOMATTE"
+        try:
+            object_datamosh_ops.render_and_process()
+        except RuntimeError as error:
+            assert "failed during processing at frame 1" in str(error)
+        else:
+            raise AssertionError("Background processing failure did not reach Blender")
+        assert "failed during processing at frame 1" in settings.status
+        settings.frame_end = 2
+        settings.matte_source = "OBJECT_INDEX"
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
         print(
             "Render and Process outputs:",
-            ", ".join(path.name for path in combined_inventory),
+            ", ".join(path.name for path in background_inventory),
         )
 
         configured_paths = SequencePaths(temp_root / "configured")

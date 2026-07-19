@@ -227,9 +227,7 @@ class RawRenderSession:
         staged = self._staging_paths.frame(self.current_frame)
         if not self._overwrite:
             late_collisions = tuple(
-                path
-                for path in (expected.beauty, expected.vector, expected.matte)
-                if path.exists()
+                path for path in (expected.beauty, expected.vector, expected.matte) if path.exists()
             )
             if late_collisions:
                 preview = ", ".join(str(path) for path in late_collisions)
@@ -373,22 +371,44 @@ def render_raw_passes(
                 if "CANCELLED" in render_result:
                     raise RawRenderCancelled(session.completed_frames)
                 if "FINISHED" not in render_result:
-                    raise RuntimeError(
-                        f"Unexpected Blender render result: {sorted(render_result)}"
-                    )
+                    raise RuntimeError(f"Unexpected Blender render result: {sorted(render_result)}")
                 session.complete_frame(request)
+                if progress is not None:
+                    progress.update(len(session.completed_frames))
             except RawRenderCancelled:
                 raise
             except Exception as error:
                 raise RuntimeError(
                     f"Raw rendering failed at frame {affected_frame}: {error}"
                 ) from error
-            if progress is not None:
-                progress.update(len(session.completed_frames))
-        return session.result
-    finally:
+        result = session.result
+    except Exception as primary_error:
+        cleanup_errors: list[Exception] = []
         try:
             session.close()
-        finally:
-            if progress is not None and progress_started:
+        except Exception as cleanup_error:
+            cleanup_errors.append(cleanup_error)
+        if progress is not None and progress_started:
+            try:
                 progress.end()
+            except Exception as cleanup_error:
+                cleanup_errors.append(cleanup_error)
+        for cleanup_error in cleanup_errors:
+            primary_error.add_note(f"Raw-render cleanup also failed: {cleanup_error}")
+        raise
+
+    cleanup_errors = []
+    try:
+        session.close()
+    except Exception as cleanup_error:
+        cleanup_errors.append(cleanup_error)
+    if progress is not None and progress_started:
+        try:
+            progress.end()
+        except Exception as cleanup_error:
+            cleanup_errors.append(cleanup_error)
+    if len(cleanup_errors) == 1:
+        raise cleanup_errors[0]
+    if cleanup_errors:
+        raise RuntimeError("; ".join(str(error) for error in cleanup_errors))
+    return result

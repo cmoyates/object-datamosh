@@ -28,6 +28,8 @@ from bpy.types import (
 from .blender_image_io import BlenderImageIO
 from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
+from .combined_failures import CombinedRenderingFailure, render_with_frame_context
+from .combined_processing import CombinedProcessingConfiguration
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
@@ -45,15 +47,17 @@ from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, RawRenderSession, render_raw_passes
 from .raw_render_operation import RawRenderModalController
+from .render_and_process_operation import RenderAndProcessModalController
 from .sequence_processing import (
     MissingHistoryPolicy,
     ProcessingSession,
     ResolutionChangePolicy,
     SequenceProcessingCancelled,
+    SequenceProcessingFrameError,
     SequenceRunMode,
     parse_reset_frames,
-    process_sequence,
 )
+from .sidebar import draw_sidebar
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 _SCENE_RUNTIME_ATTRIBUTE = "ODM_runtime"
@@ -64,11 +68,20 @@ def _driver_namespace() -> dict[str, object]:
     return cast(dict[str, object], cast(Any, bpy.app).driver_namespace)
 
 
-def _active_modal_controller() -> ExistingPassModalController | RawRenderModalController | None:
+def _active_modal_controller() -> (
+    ExistingPassModalController | RawRenderModalController | RenderAndProcessModalController | None
+):
     controller = _driver_namespace().get(_ACTIVE_CONTROLLER_KEY)
     return (
         controller
-        if isinstance(controller, (ExistingPassModalController, RawRenderModalController))
+        if isinstance(
+            controller,
+            (
+                ExistingPassModalController,
+                RawRenderModalController,
+                RenderAndProcessModalController,
+            ),
+        )
         else None
     )
 
@@ -157,6 +170,12 @@ class ODM_RuntimeState(PropertyGroup):
     )
     total_work: IntProperty(  # ty: ignore[invalid-type-form]
         name="Total", default=0, min=0, options={"SKIP_SAVE"}
+    )
+    phase_completed_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Phase Completed", default=0, min=0, options={"SKIP_SAVE"}
+    )
+    phase_total_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Phase Total", default=0, min=0, options={"SKIP_SAVE"}
     )
     progress: FloatProperty(  # ty: ignore[invalid-type-form]
         name="Progress",
@@ -439,12 +458,14 @@ class _WindowManagerProgress:
 
     def __init__(self, window_manager: Any) -> None:
         self._window_manager = window_manager
+        self.completed = 0
 
     def begin(self, total: int) -> None:
         self._window_manager.progress_begin(0, total)
 
     def update(self, completed: int) -> None:
         self._window_manager.progress_update(completed)
+        self.completed = completed
 
     def end(self) -> None:
         self._window_manager.progress_end()
@@ -482,9 +503,7 @@ class ODM_OT_render_raw_passes(Operator):
             self.report({"ERROR"}, "An active scene and view layer are required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
-        if bpy.app.background and isinstance(
-            context.window_manager, bpy.types.WindowManager
-        ):
+        if bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager):
             # Registered background operators have no window event loop to deliver modal timers.
             # Deterministic smoke harnesses provide a recorder instead and exercise modal startup.
             progress = _WindowManagerProgress(context.window_manager)
@@ -564,11 +583,13 @@ def _matte_provider_for_settings(settings: ODM_Settings):
 
 
 class ODM_OT_render_and_process(Operator):
-    """Render the raw frame range and process only its discovered outputs."""
+    """Render and process the configured range through one modal lifecycle."""
 
     bl_idname = "object_datamosh.render_and_process"
     bl_label = "Render and Process"
     bl_description = "Render raw passes, then process exactly the completed rendered range"
+
+    _controller: RenderAndProcessModalController | None
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -582,6 +603,10 @@ class ODM_OT_render_and_process(Operator):
             and has_object_index_setup(context.scene)
         )
 
+    def invoke(self, context: Context, event: Any) -> set[Any]:
+        del event
+        return self.execute(context)
+
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
         view_layer = context.view_layer
@@ -590,6 +615,56 @@ class ODM_OT_render_and_process(Operator):
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
         paths = sequence_paths_for_scene(scene)
+        frame_start = settings.frame_start
+        frame_end = settings.frame_end
+        overwrite_raw = settings.overwrite_raw
+        try:
+            processing = CombinedProcessingConfiguration(
+                paths=paths,
+                frame_start=frame_start,
+                frame_end=frame_end,
+                matte_provider=_matte_provider_for_settings(settings),
+                feedback_settings=feedback_settings_for_scene(scene),
+                image_io=BlenderImageIO(scene),
+                overwrite=settings.overwrite_processed,
+                reset_frames=parse_reset_frames(settings.reset_frames),
+                resolution_change=ResolutionChangePolicy(settings.resolution_change),
+            )
+        except (TypeError, ValueError) as error:
+            message = (
+                f"Render and Process failed during initialization at frame {frame_start}: {error}"
+            )
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        if not (bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager)):
+            runtime = runtime_for_scene(scene)
+            controller = RenderAndProcessModalController(
+                self,
+                runtime,
+                settings,
+                adapter=BlenderRenderAdapter(runtime),
+                create_processing=processing.create_session,
+                on_cleanup=_clear_active_modal_controller,
+            )
+            self._controller = controller
+            _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
+            settings.status = "Initializing Render and Process..."
+            try:
+                render_session = RawRenderSession.create(
+                    scene,
+                    view_layer,
+                    paths,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    overwrite=overwrite_raw,
+                )
+                controller.start(context, render_session)
+            except Exception as error:
+                controller.fail_initialization(frame_start, error)
+                return {"CANCELLED"}
+            return {"RUNNING_MODAL"}
+
         progress = _WindowManagerProgress(context.window_manager)
         phase = RenderAndProcessPhase.RENDERING
 
@@ -603,32 +678,23 @@ class ODM_OT_render_and_process(Operator):
             )
 
         def render_phase():
-            return render_raw_passes(
-                scene,
-                view_layer,
-                paths,
-                frame_start=settings.frame_start,
-                frame_end=settings.frame_end,
-                overwrite=settings.overwrite_raw,
-                progress=progress,
+            return render_with_frame_context(
+                lambda: render_raw_passes(
+                    scene,
+                    view_layer,
+                    paths,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    overwrite=overwrite_raw,
+                    progress=progress,
+                ),
+                frame_start=frame_start,
+                frame_end=frame_end,
+                completed_count=lambda: progress.completed,
             )
 
         def process_phase(input_frames):
-            return process_sequence(
-                paths,
-                frame_start=settings.frame_start,
-                frame_end=settings.frame_end,
-                matte_provider=_matte_provider_for_settings(settings),
-                settings=feedback_settings_for_scene(scene),
-                image_io=BlenderImageIO(scene),
-                overwrite=settings.overwrite_processed,
-                reset_frames=parse_reset_frames(settings.reset_frames),
-                resolution_change=ResolutionChangePolicy(settings.resolution_change),
-                run_mode=SequenceRunMode.REPROCESS,
-                missing_history=MissingHistoryPolicy(settings.missing_history),
-                progress=progress,
-                input_frames=input_frames,
-            )
+            return processing.process(input_frames, progress)
 
         try:
             result = render_and_process(render_phase, process_phase, on_phase=update_phase)
@@ -636,6 +702,16 @@ class ODM_OT_render_and_process(Operator):
             message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
             settings.status = message
             self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except CombinedRenderingFailure as error:
+            message = f"Render and Process failed during rendering at frame {error.frame}: {error}"
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        except SequenceProcessingFrameError as error:
+            message = f"Render and Process failed during processing at frame {error.frame}: {error}"
+            settings.status = message
+            self.report({"ERROR"}, message)
             return {"CANCELLED"}
         except (
             FileExistsError,
@@ -654,6 +730,17 @@ class ODM_OT_render_and_process(Operator):
         settings.status = message
         self.report({"INFO"}, message)
         return {"FINISHED"}
+
+    def modal(self, context: Context, event: Any) -> set[Any]:
+        controller = self._controller
+        if controller is None:
+            self.report({"ERROR"}, "Render and Process failed: the modal controller is unavailable")
+            return {"CANCELLED"}
+        return controller.handle_event(event)
+
+    def cancel(self, context: Context) -> None:
+        if self._controller is not None:
+            self._controller.cancel()
 
 
 class ODM_OT_process_sequence(Operator):
@@ -820,88 +907,19 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     operation_active = runtime.active or _active_modal_controller() is not None
     paths = sequence_paths_for_scene(scene)
 
-    operation = layout.box()
-    operation.label(text=f"Operation: {'Active' if operation_active else 'Idle'}")
-    operation.label(text=f"Phase: {runtime.phase.title()}")
-    operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
-    operation.label(text=f"Current Frame: {runtime.current_frame}")
-    operation.label(text=f"Work: {runtime.completed_work}/{runtime.total_work}")
-    operation.label(text=f"Progress: {runtime.progress:.0%}")
-    operation.label(text=f"Status: {runtime.status}")
-    if operation_active:
-        operation.operator(ODM_OT_cancel_operation.bl_idname)
-
-    target = layout.box()
-    target.enabled = not operation_active
-    target.label(text="Target")
-    target.prop(settings, "target_object")
-    target.operator(ODM_OT_use_active_object.bl_idname)
-    view_layer_name = context.view_layer.name if context.view_layer is not None else "None"
-    target.label(text=f"View Layer: {view_layer_name}")
-
-    sequence = layout.box()
-    sequence.enabled = not operation_active
-    sequence.label(text="Sequence")
-    row = sequence.row(align=True)
-    row.prop(settings, "frame_start")
-    row.prop(settings, "frame_end")
-    sequence.prop(settings, "output_directory")
-    sequence.prop(settings, "overwrite_raw")
-    sequence.operator(ODM_OT_render_raw_passes.bl_idname)
-    sequence.operator(ODM_OT_render_and_process.bl_idname)
-    sequence.prop(settings, "sequence_run_mode")
-    sequence.prop(settings, "reset_frames")
-    sequence.prop(settings, "resolution_change")
-    if settings.sequence_run_mode == "RESUME":
-        sequence.prop(settings, "missing_history")
-    else:
-        sequence.prop(settings, "overwrite_processed")
-    sequence.operator(ODM_OT_process_sequence.bl_idname)
-    sequence.label(text=f"Output: {paths.root}")
-    if paths.warning:
-        warning = sequence.row()
-        warning.alert = True
-        warning.label(text=paths.warning, icon="ERROR")
-
-    matte = layout.box()
-    matte.enabled = not operation_active
-    matte.label(text="Matte")
-    matte.prop(settings, "matte_source")
-    if settings.matte_source == "EXTERNAL":
-        matte.prop(settings, "external_matte_directory")
-    elif settings.matte_source == "CRYPTOMATTE":
-        matte.label(text="Experimental; decoding is not yet available", icon="INFO")
-    else:
-        row = matte.row(align=True)
-        row.operator(ODM_OT_setup_object_index.bl_idname)
-        row.operator(ODM_OT_restore_object_index.bl_idname)
-
-    calibration = layout.box()
-    calibration.enabled = not operation_active
-    calibration.label(text="Vector Calibration")
-    calibration.operator(ODM_OT_create_vector_calibration.bl_idname)
-
-    feedback = layout.box()
-    feedback.enabled = not operation_active
-    feedback.label(text="Feedback")
-    feedback.prop(settings, "feedback_mode")
-    feedback.prop(settings, "trail_decay")
-    feedback.prop(settings, "persistence")
-    feedback.prop(settings, "block_size")
-    feedback.prop(settings, "motion_channels")
-    feedback.prop(settings, "reverse_motion")
-    axis = feedback.row(align=True)
-    axis.prop(settings, "flip_x")
-    axis.prop(settings, "flip_y")
-    feedback.prop(settings, "motion_gain")
-    feedback.prop(settings, "motion_clamp")
-    feedback.prop(settings, "motion_quantization")
-    feedback.prop(settings, "diffusion")
-    feedback.prop(settings, "refresh_probability")
-    feedback.prop(settings, "seed")
-
-    if not operation_active:
-        layout.label(text=f"Status: {settings.status}")
+    phase_label = {
+        OperationPhase.RENDERING.value: "Rendering Raw Passes",
+        OperationPhase.PROCESSING.value: "Processing Passes",
+    }.get(runtime.phase, runtime.phase.title())
+    draw_sidebar(
+        layout,
+        context,
+        settings,
+        runtime,
+        paths,
+        operation_active=operation_active,
+        phase_label=phase_label,
+    )
 
 
 _CLASSES = (
