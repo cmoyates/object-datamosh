@@ -16,6 +16,7 @@ _NAMESPACE = runpy.run_path(str(_SCRIPT), run_name="issue26_release_gates_test")
 SourceIdentity = _NAMESPACE["SourceIdentity"]
 capture_identity = cast(Callable[[], Any], _NAMESPACE["capture_identity"])
 gate_environment = _NAMESPACE["gate_environment"]
+interrupt_release_gate = _NAMESPACE["interrupt_release_gate"]
 _capture_identity_globals = cast(dict[str, Any], cast(Any, capture_identity).__globals__)
 require_unchanged_identity = cast(
     Callable[[Any, Any], None], _NAMESPACE["require_unchanged_identity"]
@@ -55,6 +56,12 @@ def test_gate_environment_isolates_blender_and_drops_python_injection(
     assert environment["BLENDER_USER_EXTENSIONS"] == str(
         tmp_path / "blender-user" / "extensions"
     )
+
+
+@pytest.mark.parametrize("signal_number", [1, 15])
+def test_release_interruption_signals_enter_controlled_cleanup(signal_number: int) -> None:
+    with pytest.raises(RuntimeError, match=f"interrupted by signal {signal_number}"):
+        interrupt_release_gate(signal_number, None)
 
 
 def test_release_failure_receipt_survives_a_post_gate_error(tmp_path: Path) -> None:

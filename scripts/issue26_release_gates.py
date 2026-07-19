@@ -140,6 +140,10 @@ def terminate_timed_out_process(
             return 124, "Gate process did not exit after SIGKILL"
 
 
+def interrupt_release_gate(signal_number: int, _frame: object) -> None:
+    raise RuntimeError(f"Release gate interrupted by signal {signal_number}")
+
+
 def require_unchanged_identity(expected: SourceIdentity, actual: SourceIdentity) -> None:
     if actual != expected:
         raise RuntimeError(
@@ -595,10 +599,11 @@ def main() -> None:
     def stop_after_receipting_failure(message: str) -> None:
         raise RuntimeError(message)
 
-    def interrupt_release_gate(signal_number: int, _frame: object) -> None:
-        raise RuntimeError(f"Release gate interrupted by signal {signal_number}")
-
-    previous_sigterm = signal.signal(signal.SIGTERM, interrupt_release_gate)
+    handled_signals = (signal.SIGHUP, signal.SIGTERM)
+    previous_handlers = {
+        signal_number: signal.signal(signal_number, interrupt_release_gate)
+        for signal_number in handled_signals
+    }
     success_committed = False
     try:
         for name, command, display in specifications:
@@ -725,7 +730,8 @@ def main() -> None:
             )
         raise
     finally:
-        signal.signal(signal.SIGTERM, previous_sigterm)
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree)],
             cwd=REPO,
