@@ -48,7 +48,7 @@ line-ending = "auto"
 python-version = "3.11"
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 exclude = [
   ".venv",
   "**/__pycache__",

@@ -21,8 +21,9 @@ defect was found, so this release-verification change is documentation-only.
 The foreground checks used an actual Blender window and window-manager event loop, not
 `--background`. The tracked `scripts/issue26_foreground_probe.py` fixture rendered a 32×24 Cycles
 scene at one sample so ten complete frames could be checked quickly. It observed scene-owned
-runtime values and an instrumented visible 3D View sidebar panel at every redraw. The tracked shell
-runner sent real macOS Escape key events to the foreground Blender application through System
+runtime values while an instrumented visible panel called the production `ODM_PT_sidebar.draw`
+layout at every redraw. The tracked shell runner sent real macOS Escape key events to the foreground
+Blender application through System
 Events; the Cancel-button checks invoked the registered public operator used by the sidebar button.
 The retained assertion output is
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json).
@@ -50,12 +51,12 @@ Two separate runs covered both user inputs:
   `Cancel requested; waiting for a safe boundary...`, remained active while cancellation was
   pending, then ended inactive at `CANCELLED`. Frame 1's three raw files remained, and none of the
   beauty, Vector, or matte files for frames 2–10 was created.
-- A real **Escape** key event was sent by macOS System Events during a 100-frame raw phase. Blender
-  dispatched it at the next safe complete-frame boundary: the visible sidebar then showed the
-  pending state before the terminal state, the latest run retained exactly frame 1, and frame 2 did
-  not start. The probe cannot distinguish whether the OS delivers a key during a blocking
-  `EXEC_DEFAULT` call or at the following boundary; as documented below, within-frame feedback is
-  neither expected nor claimed.
+- A real **Escape** key event was sent by macOS System Events during an active 100-frame raw render.
+  Retained monotonic markers prove that both the send invocation and its completion occurred inside
+  raw render intervals. Blender queued the event while blocked, completed a contiguous three-frame
+  prefix, and then moved directly to the terminal state at the next safe boundary; no frame 4 pass
+  was created. Unlike the button path, this active-render path did not visibly dwell in the pending
+  state. That Blender 5.0 limitation is documented below rather than reported as responsiveness.
 - Both runs restored scene frame 7. The owned render-complete/render-cancel handler counts returned
   to their baseline, and another operation started immediately, demonstrating that the modal timer,
   handlers, and operation lock no longer owned an active run.
@@ -87,12 +88,14 @@ Run the tracked foreground probe on macOS (with Accessibility permission for Sys
 
 ```bash
 BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
-  scripts/run_issue26_foreground_probe.sh
+  scripts/run_issue26_foreground_probe.sh --update-evidence
 ```
 
-The runner starts non-background Blender with factory settings, waits for explicit raw and
-processing Escape checkpoints, sends each real key event, and fails unless the retained JSON says
-`"success": true`. Its assertions implement this checklist:
+The runner starts non-background Blender with factory settings, waits for explicit raw-active and
+processing Escape checkpoints, sends each real key event, has bounded waits, and fails unless the
+result JSON says `"success": true`. By default it leaves a unique run directory outside the checkout;
+`--update-evidence` explicitly promotes a successful result atomically to the tracked receipt. Its
+assertions implement this checklist:
 
 1. Load the extension source tree identified above, start Blender 5.0.0 with factory settings, and
    create a saved 32×24 Cycles scene with one sample and frames 1–10. Set the scene
@@ -100,10 +103,11 @@ processing Escape checkpoints, sends each real key event, and fails unless the r
 2. Run **Render and Process**. At every redraw, record phase, current frame, phase work, overall
    work, and progress. Require rendering boundaries 0–9, processing boundaries 10–19, terminal
    20/20, all four ten-file sequences, restored frame 7, and an immediately startable second run.
-3. Cancel one raw run with the sidebar button after frame 1. In a separate 100-frame raw run, use a
-   real Escape key. Require visible pending then terminal states at the first safe boundary, a
-   contiguous retained raw prefix, no final-frame file, restored frame 7, inactive runtime, a
-   cleared active-controller lock, unchanged render-handler counts, and immediate restart.
+3. Cancel one raw run with the sidebar button after frame 1 and require visible pending then
+   terminal states. In a separate 100-frame raw run, send a real Escape key during an instrumented
+   active render interval. Require a contiguous retained raw prefix, no next-frame pass, restored
+   frame 7, inactive runtime, a cleared active-controller lock, unchanged render-handler counts,
+   and immediate restart. Record whether the active-render path visibly dwells in pending state.
 4. Copy the successful raw inputs to fresh output roots. Cancel **Process Existing Passes** with
    the button after frame 2 and with Escape in a separate run, then inspect each
    `ODM_sequence_manifest.json`. Require the exact retained prefix, restored frame 7, inactive
@@ -125,10 +129,12 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (625 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (594 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
-returns from that frame. The sidebar redraws at the next verified safe boundary; the extension does
-not claim within-frame render responsiveness or force-cancel through an undocumented API. See
+returns from that frame. The active-render Escape observation also moved directly to terminal
+**Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
+safe boundary; the extension does not claim within-frame render responsiveness or force-cancel
+through an undocumented API. See
 [Blender 5.0 modal render investigation](blender-5-modal-render-investigation.md).
 
 ## Commands and results
@@ -143,7 +149,7 @@ Run from the repository root with
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
-| `scripts/run_issue26_foreground_probe.sh` | Passed in foreground Blender 5.0.0: button/Escape cancellation, Resume, restart, visible redraw, and cleanup assertions; retained JSON reports `success: true` |
+| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/button/Escape cancellation, Resume, restart, production-sidebar redraw, and cleanup assertions; retained JSON reports `success: true` |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: `dist/object_datamosh-0.1.0.zip` |
 
 The installation archive is `dist/object_datamosh-0.1.0.zip` (53,328 bytes), SHA-256
@@ -157,6 +163,7 @@ root where the release gate ran.
   background coverage from the completed foreground verification.
 - `docs/responsive-operations-release-verification.md` — records commands, packaging details,
   interactive observations, cancellation/recovery results, and the remaining UI limitation.
+- `pyproject.toml` — includes authored foreground-probe Python in the `ty` boundary.
 - `scripts/issue26_foreground_probe.py` — runs the foreground Blender assertions and writes evidence.
 - `scripts/run_issue26_foreground_probe.sh` — launches the probe and sends real raw/processing
   Escape events through macOS System Events.

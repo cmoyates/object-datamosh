@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
+from typing import Any, cast
 
 import bpy
+
+_bpy = cast(Any, bpy)
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
@@ -17,13 +22,23 @@ if str(SRC) not in sys.path:
 
 import object_datamosh  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
-from object_datamosh.ui import runtime_for_scene, settings_for_scene  # noqa: E402
+from object_datamosh.ui import (  # noqa: E402
+    ODM_PT_sidebar,
+    runtime_for_scene,
+    settings_for_scene,
+)
 
-WORK_ROOT = Path(tempfile.gettempdir()) / "object-datamosh-issue26"
+configured_work_root = os.environ.get("ODM_ISSUE26_WORK_ROOT")
+WORK_ROOT = (
+    Path(configured_work_root)
+    if configured_work_root
+    else Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-"))
+)
 ROOT = WORK_ROOT / "output"
 LOG = WORK_ROOT / "events.jsonl"
-RESULT = REPO / "docs" / "evidence" / "issue-26-foreground-result.json"
+RESULT = Path(os.environ.get("ODM_ISSUE26_RESULT", WORK_ROOT / "result.json"))
 WORK_ROOT.mkdir(parents=True, exist_ok=True)
+RESULT.parent.mkdir(parents=True, exist_ok=True)
 shutil.rmtree(ROOT, ignore_errors=True)
 LOG.unlink(missing_ok=True)
 RESULT.unlink(missing_ok=True)
@@ -36,7 +51,7 @@ def emit(event: str, **values: object) -> None:
         stream.flush()
 
 
-state: dict[str, object] = {
+state: dict[str, Any] = {
     "stage": "initialize",
     "snapshots": [],
     "seen": set(),
@@ -50,14 +65,17 @@ state: dict[str, object] = {
 }
 
 
-class ODM_PT_issue26_observer(bpy.types.Panel):
+class ODM_PT_issue26_observer(_bpy.types.Panel):
     bl_idname = "ODM_PT_issue26_observer"
     bl_label = "Issue 26 Draw Observer"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Item"
 
-    def draw(self, context: object) -> None:
+    def draw(self, context: Any) -> None:
+        # Render the production sidebar layout in the active Item tab so this probe observes a
+        # genuinely visible panel without relying on Blender's non-public category-selection state.
+        cast(Any, ODM_PT_sidebar).draw(self, context)
         scene = context.scene
         runtime = runtime_for_scene(scene)
         observation = (
@@ -66,6 +84,9 @@ class ODM_PT_issue26_observer(bpy.types.Panel):
             runtime.current_frame,
             runtime.completed_work,
             runtime.total_work,
+            runtime.phase_completed_work,
+            runtime.phase_total_work,
+            round(float(runtime.progress), 6),
         )
         draws = state["sidebar_draws"]
         assert isinstance(draws, list)
@@ -78,12 +99,17 @@ class ODM_PT_issue26_observer(bpy.types.Panel):
                 current_frame=observation[2],
                 completed_work=observation[3],
                 total_work=observation[4],
+                phase_completed_work=observation[5],
+                phase_total_work=observation[6],
+                progress=observation[7],
             )
-        self.layout.label(text=f"Observed {runtime.completed_work}/{runtime.total_work}")
+        layout = self.layout
+        assert layout is not None
+        layout.label(text=f"Observed {runtime.completed_work}/{runtime.total_work}")
 
 
-def snapshot(stage: str) -> dict[str, object]:
-    scene = bpy.context.scene
+def snapshot(stage: str) -> dict[str, Any]:
+    scene = _bpy.context.scene
     runtime = runtime_for_scene(scene)
     settings = settings_for_scene(scene)
     return {
@@ -103,7 +129,7 @@ def snapshot(stage: str) -> dict[str, object]:
     }
 
 
-def record_snapshot() -> dict[str, object]:
+def record_snapshot() -> dict[str, Any]:
     stage = str(state["stage"])
     item = snapshot(stage)
     key = tuple(item.values())
@@ -120,17 +146,21 @@ def record_snapshot() -> dict[str, object]:
 
 def render_pre(*_args: object) -> None:
     state["render_active"] = True
-    emit("render_pre", stage=state["stage"], frame=bpy.context.scene.frame_current)
+    stage = str(state["stage"])
+    frame = _bpy.context.scene.frame_current
+    emit("render_pre", stage=stage, frame=frame)
+    if stage == "raw_escape_cancel":
+        emit("raw_render_active", stage=stage, frame=frame)
 
 
 def render_complete(*_args: object) -> None:
     state["render_active"] = False
-    emit("render_complete", stage=state["stage"], frame=bpy.context.scene.frame_current)
+    emit("render_complete", stage=state["stage"], frame=_bpy.context.scene.frame_current)
 
 
 def render_cancel(*_args: object) -> None:
     state["render_active"] = False
-    emit("render_cancel", stage=state["stage"], frame=bpy.context.scene.frame_current)
+    emit("render_cancel", stage=state["stage"], frame=_bpy.context.scene.frame_current)
 
 
 def heartbeat() -> float:
@@ -141,7 +171,7 @@ def heartbeat() -> float:
 
 
 def set_output(name: str, *, end: int = 10) -> None:
-    settings = settings_for_scene(bpy.context.scene)
+    settings = settings_for_scene(_bpy.context.scene)
     settings.output_directory = str(ROOT / name)
     settings.frame_start = 1
     settings.frame_end = end
@@ -163,12 +193,36 @@ def all_frame_files(root: Path, *, processed: bool) -> bool:
 
 
 def assert_controller_cleared() -> None:
-    assert "ODM_active_modal_controller" not in bpy.app.driver_namespace
+    assert "ODM_active_modal_controller" not in _bpy.app.driver_namespace
+
+
+def assert_raw_escape_sent_during_render() -> None:
+    events = [json.loads(line) for line in LOG.read_text(encoding="utf-8").splitlines()]
+    intervals: list[tuple[float, float]] = []
+    for render_pre in events:
+        if render_pre["event"] != "raw_render_active":
+            continue
+        render_complete = next(
+            event
+            for event in events
+            if event["event"] == "render_complete"
+            and event["stage"] == "raw_escape_cancel"
+            and event["frame"] == render_pre["frame"]
+        )
+        intervals.append((render_pre["time"], render_complete["time"]))
+    escape_times = [
+        event["time"]
+        for event in events
+        if event["event"] in {"external_escape_send_started", "external_escape_sent"}
+        and event["marker"] == "raw_render_active"
+    ]
+    assert len(escape_times) == 2
+    assert all(any(start < escape < end for start, end in intervals) for escape in escape_times)
 
 
 def start_combined(name: str, *, end: int = 10) -> None:
     set_output(name, end=end)
-    result = bpy.ops.object_datamosh.render_and_process("INVOKE_DEFAULT")
+    result = _bpy.ops.object_datamosh.render_and_process("INVOKE_DEFAULT")
     emit(
         "operator_invoked",
         stage=state["stage"],
@@ -180,8 +234,8 @@ def start_combined(name: str, *, end: int = 10) -> None:
 
 def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
     set_output(name)
-    settings_for_scene(bpy.context.scene).sequence_run_mode = mode
-    result = bpy.ops.object_datamosh.process_sequence("INVOKE_DEFAULT")
+    settings_for_scene(_bpy.context.scene).sequence_run_mode = mode
+    result = _bpy.ops.object_datamosh.process_sequence("INVOKE_DEFAULT")
     emit(
         "operator_invoked",
         stage=state["stage"],
@@ -195,26 +249,38 @@ def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
 def finish_success() -> None:
     evidence = state["evidence"]
     assert isinstance(evidence, dict)
+    build_hash = _bpy.app.build_hash
+    if isinstance(build_hash, bytes):
+        build_hash = build_hash.decode("ascii")
+    source_tree = subprocess.run(
+        ["git", "rev-parse", "HEAD:src/object_datamosh"],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     result = {
-        "blender_version": bpy.app.version_string,
+        "blender_build_hash": build_hash,
+        "blender_version": _bpy.app.version_string,
+        "extension_source_tree": source_tree,
         "evidence": evidence,
         "heartbeat_count": state["heartbeat_count"],
         "heartbeats_during_render": state["heartbeats_during_render"],
-        "render_complete_handlers": len(bpy.app.handlers.render_complete),
-        "render_cancel_handlers": len(bpy.app.handlers.render_cancel),
-        "scene_frame": bpy.context.scene.frame_current,
+        "render_complete_handlers": len(_bpy.app.handlers.render_complete),
+        "render_cancel_handlers": len(_bpy.app.handlers.render_cancel),
+        "scene_frame": _bpy.context.scene.frame_current,
         "success": True,
     }
     RESULT.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
     emit("probe_complete", success=True)
-    bpy.ops.wm.quit_blender()
+    _bpy.ops.wm.quit_blender()
 
 
 def fail(error: BaseException) -> None:
     details = {"success": False, "error": repr(error), "traceback": traceback.format_exc()}
     RESULT.write_text(json.dumps(details, indent=2), encoding="utf-8")
     emit("probe_complete", **details)
-    bpy.ops.wm.quit_blender()
+    _bpy.ops.wm.quit_blender()
 
 
 def tick() -> float | None:
@@ -225,7 +291,7 @@ def tick() -> float | None:
 
         if stage == "initialize":
             object_datamosh.register()
-            scene = bpy.context.scene
+            scene = _bpy.context.scene
             scene.frame_set(int(state["original_frame"]))
             render = scene.render
             render.engine = "CYCLES"
@@ -233,19 +299,19 @@ def tick() -> float | None:
             render.resolution_x = 32
             render.resolution_y = 24
             render.resolution_percentage = 100
-            active_object = bpy.context.active_object
+            active_object = _bpy.context.active_object
             assert active_object is not None
             settings = settings_for_scene(scene)
             settings.target_object = active_object
             set_output("combined-success")
-            assert bpy.ops.object_datamosh.setup_object_index() == {"FINISHED"}
-            for area in bpy.context.screen.areas:
+            assert _bpy.ops.object_datamosh.setup_object_index() == {"FINISHED"}
+            for area in _bpy.context.screen.areas:
                 if area.type != "VIEW_3D":
                     continue
                 area.spaces.active.show_region_ui = True
                 area.tag_redraw()
-            state["baseline_complete_handlers"] = len(bpy.app.handlers.render_complete)
-            state["baseline_cancel_handlers"] = len(bpy.app.handlers.render_cancel)
+            state["baseline_complete_handlers"] = len(_bpy.app.handlers.render_complete)
+            state["baseline_cancel_handlers"] = len(_bpy.app.handlers.render_cancel)
             state["stage"] = "combined_success"
             start_combined("combined-success")
 
@@ -272,10 +338,18 @@ def tick() -> float | None:
             draws = state["sidebar_draws"]
             assert isinstance(draws, list)
             combined_draws = [entry for entry in draws if entry[0] == stage]
-            draw_render_counts = {entry[3] for entry in combined_draws if entry[1] == "RENDERING"}
-            draw_process_counts = {entry[3] for entry in combined_draws if entry[1] == "PROCESSING"}
+            render_draws = [entry for entry in combined_draws if entry[1] == "RENDERING"]
+            process_draws = [entry for entry in combined_draws if entry[1] == "PROCESSING"]
+            draw_render_counts = {entry[3] for entry in render_draws}
+            draw_process_counts = {entry[3] for entry in process_draws}
+            draw_render_phase_counts = {entry[5] for entry in render_draws}
+            draw_process_phase_counts = {entry[5] for entry in process_draws}
+            draw_progress = {entry[7] for entry in render_draws + process_draws}
             assert set(range(0, 10)).issubset(draw_render_counts), draw_render_counts
             assert set(range(10, 20)).issubset(draw_process_counts), draw_process_counts
+            assert set(range(0, 10)).issubset(draw_render_phase_counts), draw_render_phase_counts
+            assert set(range(0, 10)).issubset(draw_process_phase_counts), draw_process_phase_counts
+            assert {step / 20 for step in range(20)}.issubset(draw_progress), draw_progress
             evidence = state["evidence"]
             assert isinstance(evidence, dict)
             evidence["combined_success"] = {
@@ -283,6 +357,9 @@ def tick() -> float | None:
                 "process_counts": sorted(processed_counts),
                 "sidebar_render_counts": sorted(draw_render_counts),
                 "sidebar_process_counts": sorted(draw_process_counts),
+                "sidebar_render_phase_counts": sorted(draw_render_phase_counts),
+                "sidebar_process_phase_counts": sorted(draw_process_phase_counts),
+                "sidebar_progress": sorted(draw_progress),
                 "completed_work": item["completed_work"],
                 "progress": item["progress"],
             }
@@ -298,7 +375,7 @@ def tick() -> float | None:
                 and item["phase"] == "RENDERING"
                 and int(item["completed_work"]) >= 1
             ):
-                result = bpy.ops.object_datamosh.cancel_operation()
+                result = _bpy.ops.object_datamosh.cancel_operation()
                 state["cancel_sent"] = True
                 pending = snapshot(stage)
                 emit("cancel_button", result=sorted(result), pending=pending)
@@ -320,15 +397,22 @@ def tick() -> float | None:
                     )
                 assert item["scene_frame"] == state["original_frame"]
                 assert_controller_cleared()
-                assert len(bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
-                assert len(bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
+                assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
+                assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
                 evidence = state["evidence"]
                 assert isinstance(evidence, dict)
-                evidence["raw_button_cancel"] = {"completed_frames": [1]}
+                evidence["raw_button_cancel"] = {
+                    "completed_frames": [1],
+                    "controller_cleared": True,
+                    "handler_counts_restored": True,
+                }
                 state["stage"] = "raw_escape_cancel"
                 state["escape_seen"] = False
+                scene = _bpy.context.scene
+                scene.cycles.samples = 16
+                scene.render.resolution_x = 512
+                scene.render.resolution_y = 512
                 start_combined("raw-escape-cancel", end=100)
-                emit("escape_ready")
 
         elif stage == "raw_escape_cancel":
             if active and bool(item["cancel_requested"]):
@@ -336,18 +420,40 @@ def tick() -> float | None:
             elif not active and item["phase"] == "CANCELLED":
                 draws = state["sidebar_draws"]
                 assert isinstance(draws, list)
-                assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
+                pending_visible = any(
+                    entry[0] == stage and entry[1] == "CANCELLING" for entry in draws
+                )
                 paths = SequencePaths(ROOT / "raw-escape-cancel")
                 completed = [n for n in range(1, 101) if paths.frame(n).beauty.is_file()]
                 assert completed
                 assert completed == list(range(1, len(completed) + 1)), completed
-                assert len(completed) < 100, completed
-                assert not paths.frame(100).beauty.exists()
+                for number in completed:
+                    frame = paths.frame(number)
+                    assert all(path.is_file() for path in (frame.beauty, frame.vector, frame.matte))
+                next_frame = paths.frame(len(completed) + 1)
+                assert not any(
+                    path.exists()
+                    for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
+                )
                 assert item["scene_frame"] == state["original_frame"]
+                assert_raw_escape_sent_during_render()
+                assert_controller_cleared()
+                assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
+                assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
                 evidence = state["evidence"]
                 assert isinstance(evidence, dict)
-                evidence["raw_escape_cancel"] = {"completed_frames": completed}
+                evidence["raw_escape_cancel"] = {
+                    "completed_frames": completed,
+                    "controller_cleared": True,
+                    "handler_counts_restored": True,
+                    "escape_sent_during_render": True,
+                    "pending_state_visible": pending_visible,
+                }
                 emit("escape_verified", completed_frames=completed)
+                scene = _bpy.context.scene
+                scene.cycles.samples = 1
+                scene.render.resolution_x = 32
+                scene.render.resolution_y = 24
                 process_root = ROOT / "processing-cancel"
                 shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
                 state["stage"] = "processing_cancel"
@@ -360,7 +466,7 @@ def tick() -> float | None:
                 and not state.get("processing_cancel_sent")
                 and int(item["completed_work"]) >= 2
             ):
-                result = bpy.ops.object_datamosh.cancel_operation()
+                result = _bpy.ops.object_datamosh.cancel_operation()
                 state["processing_cancel_sent"] = True
                 pending = snapshot(stage)
                 emit("processing_cancel_button", result=sorted(result), pending=pending)
@@ -370,7 +476,8 @@ def tick() -> float | None:
                 assert item["phase"] == "CANCELLED", item
                 paths = SequencePaths(ROOT / "processing-cancel")
                 completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-                assert completed == list(range(1, len(completed) + 1)), completed
+                assert completed == [1, 2], completed
+                assert not paths.frame(3).processed.exists()
                 manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 assert payload["completed_frames"] == completed
@@ -378,7 +485,10 @@ def tick() -> float | None:
                 assert_controller_cleared()
                 evidence = state["evidence"]
                 assert isinstance(evidence, dict)
-                evidence["processing_button_cancel"] = {"completed_frames": completed}
+                evidence["processing_button_cancel"] = {
+                    "completed_frames": completed,
+                    "controller_cleared": True,
+                }
                 state["stage"] = "processing_resume"
                 start_existing("processing-cancel", mode="RESUME")
 
@@ -387,8 +497,8 @@ def tick() -> float | None:
             assert all_frame_files(ROOT / "processing-cancel", processed=True)
             assert item["scene_frame"] == state["original_frame"]
             assert_controller_cleared()
-            assert len(bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
-            assert len(bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
+            assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
+            assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
             process_root = ROOT / "processing-escape"
             shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
             state["stage"] = "processing_escape_cancel"
@@ -402,9 +512,8 @@ def tick() -> float | None:
                 assert state.get("processing_escape_seen")
                 paths = SequencePaths(ROOT / "processing-escape")
                 completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-                assert completed
-                assert completed == list(range(1, len(completed) + 1)), completed
-                assert len(completed) < 10, completed
+                assert completed == [1], completed
+                assert not paths.frame(2).processed.exists()
                 manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 assert payload["completed_frames"] == completed
@@ -412,7 +521,10 @@ def tick() -> float | None:
                 assert_controller_cleared()
                 evidence = state["evidence"]
                 assert isinstance(evidence, dict)
-                evidence["processing_escape_cancel"] = {"completed_frames": completed}
+                evidence["processing_escape_cancel"] = {
+                    "completed_frames": completed,
+                    "controller_cleared": True,
+                }
                 emit("processing_escape_verified", completed_frames=completed)
                 state["stage"] = "processing_escape_resume"
                 start_existing("processing-escape", mode="RESUME")
@@ -434,7 +546,7 @@ def tick() -> float | None:
 
         elif stage == "restart_after_resume":
             if active and not state.get("restart_cancel_sent"):
-                result = bpy.ops.object_datamosh.cancel_operation()
+                result = _bpy.ops.object_datamosh.cancel_operation()
                 assert result == {"FINISHED"}
                 state["restart_cancel_sent"] = True
             elif not active and state.get("restart_cancel_sent"):
@@ -453,10 +565,10 @@ def tick() -> float | None:
 
 
 object_datamosh.register()
-bpy.utils.register_class(ODM_PT_issue26_observer)
-bpy.app.handlers.render_pre.append(render_pre)
-bpy.app.handlers.render_complete.append(render_complete)
-bpy.app.handlers.render_cancel.append(render_cancel)
-bpy.app.timers.register(heartbeat, first_interval=0.01, persistent=False)
-bpy.app.timers.register(tick, first_interval=1.0, persistent=False)
+_bpy.utils.register_class(ODM_PT_issue26_observer)
+_bpy.app.handlers.render_pre.append(render_pre)
+_bpy.app.handlers.render_complete.append(render_complete)
+_bpy.app.handlers.render_cancel.append(render_cancel)
+_bpy.app.timers.register(heartbeat, first_interval=0.01, persistent=False)
+_bpy.app.timers.register(tick, first_interval=1.0, persistent=False)
 emit("probe_started")
