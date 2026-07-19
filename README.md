@@ -238,7 +238,8 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   narrow NumPy/standard-library scanline ZIP reader because Blender identifies those files but
   does not expose their pixels through `Image.pixels`. Matte files use scalar coverage from the
   EXR red channel; `read_mask` returns that
-  channel as a contiguous `(height, width)` `float32` array. The implementation removes temporary
+  channel as a contiguous `(height, width)` `float32` array. Modal processing binds image writes to
+  its initiating scene rather than the mutable active context. The implementation removes temporary
   data-blocks and restores render image settings in `finally` paths.
 - **Ownership:** extension-created data uses the `ODM_` prefix and the
   `object_datamosh_owned` custom-property tag. Helpers live in
@@ -486,7 +487,10 @@ data, or returned immutable values; there is no mutable module-level runtime sta
 `ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
 locking, cancellation requests, and idempotent universal cleanup with a separate workflow cleanup
 hook. Blender properties contain only transient, `SKIP_SAVE` run metadata—never either runtime
-service—so reopening a blend cannot resurrect an active lock without its controller or timer.
+service—so reopening a blend cannot resurrect an active lock without its controller or timer. The
+active controller is referenced under an `ODM_` key in Blender's transient driver namespace until
+cleanup, keeping the global lock and Cancel action reachable if the initiating scene is switched or
+removed without introducing mutable module-level state.
 Setup and cleanup never delete, disconnect, or replace unrelated
 compositor nodes and restore pass settings that they change.
 

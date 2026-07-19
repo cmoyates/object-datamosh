@@ -70,9 +70,10 @@ def run_processing_modal_scenarios(
         assert runtime.progress == 0.0
         assert settings.status == "Processing frame 1 of 2"
         assert runtime.status == settings.status
-        assert modal_window_manager.events[:3] == [
+        assert modal_window_manager.events[:4] == [
             ("progress_begin", (0, 2)),
             ("timer_add", (0.1, modal_window)),
+            ("progress_update", 0),
             ("modal_handler_add", process_operator),
         ]
         foreign_timer_event = type(

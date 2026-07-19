@@ -10,17 +10,21 @@ class WindowManagerRecorder:
         *,
         fail_timer_add: bool = False,
         fail_timer_remove: bool = False,
+        fail_progress_update: bool = False,
     ) -> None:
         self.timer = object()
         self.windows: tuple[object, ...] = ()
         self.fail_timer_add = fail_timer_add
         self.fail_timer_remove = fail_timer_remove
+        self.fail_progress_update = fail_progress_update
+        self.handler_added = False
 
     def progress_begin(self, _minimum: int, _maximum: int) -> None:
         pass
 
     def progress_update(self, _value: int) -> None:
-        pass
+        if self.fail_progress_update:
+            raise RuntimeError("progress unavailable")
 
     def progress_end(self) -> None:
         pass
@@ -37,7 +41,7 @@ class WindowManagerRecorder:
             raise RuntimeError("timer removal failed")
 
     def modal_handler_add(self, _operator: object) -> None:
-        pass
+        self.handler_added = True
 
 
 class ReportingOperator:
@@ -131,6 +135,54 @@ def test_timer_setup_failure_reports_initialization_frame_and_cause() -> None:
     expected = "Initialization failed at frame 7: timer unavailable"
     assert runtime.status == expected
     assert operator.reports == [({"ERROR"}, expected)]
+
+
+def test_initial_progress_failure_does_not_add_a_modal_handler() -> None:
+    runtime = SimpleNamespace(
+        active=False,
+        cancel_requested=False,
+        phase="IDLE",
+        run_identity="",
+        current_frame=0,
+        frame_start=0,
+        frame_end=0,
+        completed_work=0,
+        total_work=0,
+        progress=0.0,
+        status="Ready",
+    )
+    settings = SimpleNamespace(status="Ready")
+    session = SimpleNamespace(
+        frame_start=4,
+        frame_end=4,
+        current_frame=4,
+        recovery_frame=None,
+        retained_frames=(),
+        is_finished=False,
+    )
+    operator = ReportingOperator()
+    window_manager = WindowManagerRecorder(fail_progress_update=True)
+    controller = ExistingPassModalController(
+        operator,
+        cast(Any, runtime),
+        cast(Any, settings),
+    )
+
+    try:
+        controller.start(
+            SimpleNamespace(window_manager=window_manager, window=object()),
+            cast(Any, session),
+        )
+    except RuntimeError as error:
+        controller.fail_initialization(4, error)
+    else:
+        raise AssertionError("initial progress failure did not propagate")
+
+    assert not window_manager.handler_added
+    assert not runtime.active
+    assert operator.reports == [
+        ({"ERROR"}, "Processing failed during initialization at frame 4: progress unavailable")
+    ]
 
 
 def test_completed_resume_publishes_the_configured_end_frame() -> None:
@@ -228,4 +280,6 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
 
     assert result == {"CANCELLED"}
     assert runtime.phase == "FAILED"
-    assert operator.reports == [({"ERROR"}, "Cleanup failed: timer removal failed")]
+    assert operator.reports == [
+        ({"ERROR"}, "Processed 1 frame(s); cleanup failed: timer removal failed")
+    ]

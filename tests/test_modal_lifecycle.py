@@ -76,6 +76,7 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
     )
 
     lifecycle.begin(context, frame_start=3, frame_end=5, total_work=3)
+    lifecycle.enter_modal()
 
     assert runtime == RuntimeState(
         active=True,
@@ -354,7 +355,7 @@ def test_timer_removal_failure_still_ends_progress_and_unlocks_runtime() -> None
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Cleanup failed: timer already removed"
+    assert runtime.status == "Complete; cleanup failed: timer already removed"
     assert window_manager.events[-1] == ("progress_end", None)
 
 
@@ -376,7 +377,7 @@ def test_cleanup_failure_still_releases_universal_resources_and_reports_failure(
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Cleanup failed: session cleanup failed"
+    assert runtime.status == "Complete; cleanup failed: session cleanup failed"
     assert window_manager.events[-2:] == [
         ("timer_remove", window_manager.timer),
         ("progress_end", None),

@@ -67,6 +67,7 @@ class ModalOperationLifecycle:
         self._next_step_deadline: float | None = None
         self._window_manager: Any | None = None
         self._progress_started = False
+        self._handler_added = False
         self._owns_runtime = False
         self._finalized = False
 
@@ -116,7 +117,6 @@ class ModalOperationLifecycle:
                 window=context.window,
             )
             self._next_step_deadline = self._clock() + self._timer_interval
-            window_manager.modal_handler_add(self._operator)
         except Exception as error:
             with suppress(Exception):
                 self.finalize(
@@ -124,6 +124,15 @@ class ModalOperationLifecycle:
                     f"Initialization failed at frame {frame_start}: {error}",
                 )
             raise
+
+    def enter_modal(self) -> None:
+        """Register the modal handler after every other initialization step has succeeded."""
+        if self._finalized or not self._owns_runtime or self._window_manager is None:
+            raise RuntimeError("The modal lifecycle is not ready to enter modal handling")
+        if self._handler_added:
+            raise RuntimeError("The modal handler has already been added")
+        self._window_manager.modal_handler_add(self._operator)
+        self._handler_added = True
 
     def update(
         self,
@@ -203,7 +212,9 @@ class ModalOperationLifecycle:
             self._progress_started = False
 
         terminal_phase = OperationPhase.FAILED if cleanup_errors else phase
-        terminal_status = f"Cleanup failed: {cleanup_errors[0]}" if cleanup_errors else status
+        terminal_status = (
+            f"{status}; cleanup failed: {cleanup_errors[0]}" if cleanup_errors else status
+        )
         try:
             runtime_available = self._owns_runtime or not self._runtime.active
         except Exception:

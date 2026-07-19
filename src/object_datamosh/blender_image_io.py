@@ -20,7 +20,10 @@ from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
 class BlenderImageIO:
-    """Read and write float RGBA images without retaining temporary Image data-blocks."""
+    """Read/write float RGBA images using one initiating scene's render settings."""
+
+    def __init__(self, scene: bpy.types.Scene | None = None) -> None:
+        self._scene = scene
 
     def read_rgba(self, path: str | Path) -> FloatImage:
         image_path = Path(path)
@@ -94,9 +97,8 @@ class BlenderImageIO:
         finally:
             bpy.data.images.remove(image)
 
-    @staticmethod
-    def _save_full_float_exr(image: bpy.types.Image, image_path: Path) -> None:
-        scene = bpy.context.scene
+    def _save_full_float_exr(self, image: bpy.types.Image, image_path: Path) -> None:
+        scene = self._scene if self._scene is not None else bpy.context.scene
         if scene is None:
             raise RuntimeError("A Blender scene is required to write an EXR image")
         settings = scene.render.image_settings

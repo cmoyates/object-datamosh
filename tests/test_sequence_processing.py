@@ -695,8 +695,10 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
     assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
     assert reset_progress.events == [
         ("begin", 3),
+        ("update", 3),
         ("update", 1),
         ("update", 2),
+        ("update", 3),
         ("end", 0),
     ]
     assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
