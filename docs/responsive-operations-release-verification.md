@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation and its release probe only)
 
-Foreground probe and release-gate revision: `5a3b74dcaab93d4f0d885be03a16f65971657d43`
+Foreground probe and release-gate revision: `bcfde1620f8e372d34339e5c70f6a7e5c89a3b87`
 
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
@@ -31,7 +31,7 @@ Events; the Cancel-button checks invoked the registered public operator wired to
 The retained assertion receipt is
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json); its
 `event_log_file` names the immutable retained
-[JSONL trace](evidence/issue-26-foreground-events-3bfd2036a12192d96d95579c6453a54248e04c75a73fbaea6b590ee25001acf8.jsonl)
+[JSONL trace](evidence/issue-26-foreground-events-73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725.jsonl)
 whose SHA-256 the receipt records.
 
 ## Foreground Blender 5.0.0 observations
@@ -139,7 +139,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (574 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (562 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified

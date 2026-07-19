@@ -1,8 +1,8 @@
 {
   "blender_build_hash": "a37564c4df7a",
   "blender_version": "5.0.0",
-  "event_log_file": "issue-26-foreground-events-3bfd2036a12192d96d95579c6453a54248e04c75a73fbaea6b590ee25001acf8.jsonl",
-  "event_log_sha256_before_completion": "3bfd2036a12192d96d95579c6453a54248e04c75a73fbaea6b590ee25001acf8",
+  "event_log_file": "issue-26-foreground-events-73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725.jsonl",
+  "event_log_sha256_before_completion": "73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725",
   "evidence": {
     "combined_success": {
       "completed_work": 20,
@@ -142,13 +142,13 @@
     }
   },
   "extension_source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
-  "git_head": "5a3b74dcaab93d4f0d885be03a16f65971657d43",
-  "heartbeat_count": 574,
+  "git_head": "bcfde1620f8e372d34339e5c70f6a7e5c89a3b87",
+  "heartbeat_count": 562,
   "heartbeats_during_render": 0,
   "probe_sha256": "360874823475bfc27f9d24b1f607d0f73a5a4195382e6ddaf2bb9546a4a1b320",
   "render_cancel_handlers": 1,
   "render_complete_handlers": 1,
-  "runner_sha256": "b362e048639f3b91ad9585b58e3c70c7c00b35172e66d02c72c35dac2222f3c6",
+  "runner_sha256": "b9c3494aeadba8614882a8b455cbdc29b2134d00ccb66d5e51a02cd60afe9673",
   "scene_frame": 7,
   "success": true
 }

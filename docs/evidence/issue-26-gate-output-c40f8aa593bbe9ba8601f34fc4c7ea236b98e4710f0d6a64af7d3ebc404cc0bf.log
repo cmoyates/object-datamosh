@@ -1,0 +1,71 @@
+00:00.437  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/complete/ODM_staging_48c193c5ebe24ac8a81ce24a5da1b567/raw/beauty/ODM_beauty_0001.exr'
+00:00.438  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/complete/ODM_staging_48c193c5ebe24ac8a81ce24a5da1b567/raw/matte/ODM_matte_0001.exr'
+00:00.438  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/complete/ODM_staging_48c193c5ebe24ac8a81ce24a5da1b567/raw/vector/ODM_vector_0001.exr'
+00:00.504  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/cancelled/ODM_staging_87fd797e462143f9b78b6f6351d2aa86/raw/matte/ODM_matte_0001.exr'
+00:00.504  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/cancelled/ODM_staging_87fd797e462143f9b78b6f6351d2aa86/raw/beauty/ODM_beauty_0001.exr'
+00:00.505  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/cancelled/ODM_staging_87fd797e462143f9b78b6f6351d2aa86/raw/vector/ODM_vector_0001.exr'
+00:00.571  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/registered-background/ODM_staging_aec219683b0c481a82e5ea83adbdae94/raw/matte/ODM_matte_0001.exr'
+00:00.572  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/registered-background/ODM_staging_aec219683b0c481a82e5ea83adbdae94/raw/vector/ODM_vector_0001.exr'
+00:00.572  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/operator/registered-background/ODM_staging_aec219683b0c481a82e5ea83adbdae94/raw/beauty/ODM_beauty_0001.exr'
+00:00.643  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/beauty/ODM_beauty_0001.exr'
+00:00.643  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/vector/ODM_vector_0001.exr'
+00:00.643  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/matte/ODM_matte_0001.exr'
+00:00.710  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/beauty/ODM_beauty_0002.exr'
+00:00.711  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/vector/ODM_vector_0002.exr'
+00:00.711  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-modal/ODM_staging_13053743846e4aa990ad53c1932c57b4/raw/matte/ODM_matte_0002.exr'
+00:00.783  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-render-cancel/ODM_staging_33bf49a90a644eb8a0605a6d5eb58c8c/raw/matte/ODM_matte_0001.exr'
+00:00.783  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-render-cancel/ODM_staging_33bf49a90a644eb8a0605a6d5eb58c8c/raw/beauty/ODM_beauty_0001.exr'
+00:00.784  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-render-cancel/ODM_staging_33bf49a90a644eb8a0605a6d5eb58c8c/raw/vector/ODM_vector_0001.exr'
+00:00.849  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/vector/ODM_vector_0001.exr'
+00:00.849  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/beauty/ODM_beauty_0001.exr'
+00:00.849  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/matte/ODM_matte_0001.exr'
+00:00.914  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/matte/ODM_matte_0002.exr'
+00:00.915  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/vector/ODM_vector_0002.exr'
+00:00.915  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-process-cancel/ODM_staging_6c97bc8f67d847fdbf2d21488980c55d/raw/beauty/ODM_beauty_0002.exr'
+00:00.983  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/matte/ODM_matte_0001.exr'
+00:00.983  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/vector/ODM_vector_0001.exr'
+00:00.983  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/beauty/ODM_beauty_0001.exr'
+00:01.049  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/matte/ODM_matte_0002.exr'
+00:01.049  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/vector/ODM_vector_0002.exr'
+00:01.049  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background/ODM_staging_af878ed8272a41a2adc404716a2bb9fe/raw/beauty/ODM_beauty_0002.exr'
+00:01.119  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background-failure/ODM_staging_1f3fbe287a9346e2a09d5ddeb1e451f1/raw/matte/ODM_matte_0001.exr'
+00:01.119  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background-failure/ODM_staging_1f3fbe287a9346e2a09d5ddeb1e451f1/raw/vector/ODM_vector_0001.exr'
+00:01.119  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/combined-background-failure/ODM_staging_1f3fbe287a9346e2a09d5ddeb1e451f1/raw/beauty/ODM_beauty_0001.exr'
+00:01.188  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/vector/ODM_vector_0001.exr'
+00:01.189  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/beauty/ODM_beauty_0001.exr'
+00:01.189  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/matte/ODM_matte_0001.exr'
+00:01.254  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/vector/ODM_vector_0002.exr'
+00:01.255  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/beauty/ODM_beauty_0002.exr'
+00:01.255  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/rendered/ODM_staging_dc15a2ee4b924f84b8636e278c9391fe/raw/matte/ODM_matte_0002.exr'
+00:01.321  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/negative/ODM_staging_35cbbc8ffe4a43fa900bef95235e4388/raw/beauty/ODM_beauty_-0001.exr'
+00:01.321  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/negative/ODM_staging_35cbbc8ffe4a43fa900bef95235e4388/raw/matte/ODM_matte_-0001.exr'
+00:01.322  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/negative/ODM_staging_35cbbc8ffe4a43fa900bef95235e4388/raw/vector/ODM_vector_-0001.exr'
+00:01.388  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/cancelled/ODM_staging_25b6d546fcff4534847984406e91ed8d/raw/vector/ODM_vector_0001.exr'
+00:01.389  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/cancelled/ODM_staging_25b6d546fcff4534847984406e91ed8d/raw/beauty/ODM_beauty_0001.exr'
+00:01.389  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_gud4zxtn/cancelled/ODM_staging_25b6d546fcff4534847984406e91ed8d/raw/matte/ODM_matte_0001.exr'
+Info: Target set to Cube
+Info: Cancel requested; waiting for a safe boundary...
+Info: Created ODM_Vector_Calibration (frames 1-8)
+Info: Saved as "ODM_smoke.blend"
+Info: Object Index setup ready (pass 1)
+Info: Object Index setup restored
+Info: Object Index setup ready (pass 1)
+Info: Cancel requested; waiting for a safe boundary...
+Info: Rendered 1 raw frame(s)
+Info: Object Index setup restored
+Info: Object Index setup ready (pass 1)
+Info: Cancel requested; waiting for a safe boundary...
+Info: Cancel requested; waiting for a safe boundary...
+Info: Render and Process complete: 2 frame(s)
+Error: Render and Process failed during processing at frame 1: Cryptomatte decoding is experimental and is not available in the MVP
+Info: Object Index setup restored
+Render and Process outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_processed_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr, ODM_processed_0002.exr
+Error: Cannot render, no camera
+Object Index smoke outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr
+Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_z7sgozou/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_z7sgozou/processed/ODM_processed_0002.exr
+Info: Cancel requested; waiting for a safe boundary...
+Sequence processing outputs: ODM_processed_0001.exr, ODM_processed_0002.exr
+Object Datamosh Blender smoke test passed
+Blender 5.0.0 (hash a37564c4df7a built 2025-11-18 10:00:50)
+
+Blender quit
