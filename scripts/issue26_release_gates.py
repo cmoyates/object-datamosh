@@ -351,6 +351,23 @@ def run_gate(
     )
 
 
+def write_release_failure(
+    path: Path,
+    error: BaseException,
+    *,
+    identity: SourceIdentity,
+    results: list[GateResult],
+) -> None:
+    payload = {
+        "error": f"{type(error).__name__}: {error}",
+        "git_head": identity.git_head,
+        "last_gate": asdict(results[-1]) if results else None,
+        "source_tree": identity.source_tree,
+        "success": False,
+    }
+    atomic_write(path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode())
+
+
 def write_gate_result(
     result: GateResult,
     *,
@@ -562,11 +579,6 @@ def main() -> None:
     gate_receipts: list[Path] = []
 
     def stop_after_receipting_failure(message: str) -> None:
-        if arguments.update_evidence and gate_receipts:
-            atomic_write(
-                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
-                gate_receipts[-1].read_bytes(),
-            )
         raise RuntimeError(message)
 
     try:
@@ -681,6 +693,15 @@ def main() -> None:
                 if old_receipt not in promoted_gate_receipts:
                     old_receipt.unlink()
         print(f"Release-gate receipt: {aggregate}")
+    except BaseException as error:
+        if arguments.update_evidence:
+            write_release_failure(
+                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
+                error,
+                identity=identity,
+                results=results,
+            )
+        raise
     finally:
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree)],

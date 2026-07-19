@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import runpy
 import subprocess
@@ -20,6 +21,7 @@ require_unchanged_identity = cast(
     Callable[[Any, Any], None], _NAMESPACE["require_unchanged_identity"]
 )
 run_gate = _NAMESPACE["run_gate"]
+write_release_failure = _NAMESPACE["write_release_failure"]
 signal_process_group = _NAMESPACE["signal_process_group"]
 terminate_timed_out_process = _NAMESPACE["terminate_timed_out_process"]
 _signal_process_group_globals = cast(dict[str, Any], signal_process_group.__globals__)
@@ -53,6 +55,22 @@ def test_gate_environment_isolates_blender_and_drops_python_injection(
     assert environment["BLENDER_USER_EXTENSIONS"] == str(
         tmp_path / "blender-user" / "extensions"
     )
+
+
+def test_release_failure_receipt_survives_a_post_gate_error(tmp_path: Path) -> None:
+    receipt = tmp_path / "last-failure.json"
+
+    write_release_failure(
+        receipt,
+        RuntimeError("archive missing"),
+        identity=identity(),
+        results=[],
+    )
+
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    assert payload["success"] is False
+    assert payload["error"] == "RuntimeError: archive missing"
+    assert payload["last_gate"] is None
 
 
 def test_release_gate_identity_accepts_an_unchanged_snapshot() -> None:
