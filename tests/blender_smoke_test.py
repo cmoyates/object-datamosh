@@ -508,7 +508,16 @@ def main() -> None:
             frame_end=2,
             progress=progress,
         )
-        assert result.frames == (render_paths.frame(1), render_paths.frame(2))
+        assert tuple(frame.frame for frame in result.frames) == (1, 2)
+        assert all(
+            path.is_file()
+            for frame_number in (1, 2)
+            for path in (
+                render_paths.frame(frame_number).beauty,
+                render_paths.frame(frame_number).vector,
+                render_paths.frame(frame_number).matte,
+            )
+        )
         assert scene.frame_current == original_frame
         assert progress.events == [
             ("begin", 2),
@@ -551,7 +560,7 @@ def main() -> None:
             frame_start=-1,
             frame_end=-1,
         )
-        assert negative_result.frames == (negative_paths.frame(-1),)
+        assert tuple(frame.frame for frame in negative_result.frames) == (-1,)
         assert negative_result.frames[0].beauty.name == "ODM_beauty_-0001.exr"
         try:
             render_raw_passes(
@@ -579,7 +588,15 @@ def main() -> None:
                 should_cancel=lambda: ("update", 1) in cancel_progress.events,
             )
         except RawRenderCancelled as error:
-            assert error.completed_frames == (cancelled_paths.frame(1),)
+            assert tuple(frame.frame for frame in error.completed_frames) == (1,)
+            assert all(
+                path.is_file()
+                for path in (
+                    error.completed_frames[0].beauty,
+                    error.completed_frames[0].vector,
+                    error.completed_frames[0].matte,
+                )
+            )
         else:
             raise AssertionError("Raw rendering ignored cancellation between frames")
         assert cancel_progress.events == [("begin", 2), ("update", 1), ("end", 0)]
