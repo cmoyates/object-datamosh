@@ -47,7 +47,22 @@ def run_raw_render_modal_scenarios(
     operator = ProcessOperatorHarness(ODM_OT_render_raw_passes)
     complete_handlers_before = len(bpy.app.handlers.render_complete)
     cancel_handlers_before = len(bpy.app.handlers.render_cancel)
+    output_nodes = tuple(
+        scene.compositing_node_group.nodes.get(name)
+        for name in ("ODM_Beauty_Output", "ODM_Vector_Output", "ODM_Matte_Output")
+    )
+    assert all(node is not None for node in output_nodes)
 
+    def output_state() -> tuple[tuple[str, str], ...]:
+        return tuple((node.directory, node.file_name) for node in output_nodes)
+
+    configured_output_state = output_state()
+    observed_complete_handler_counts: list[int] = []
+
+    def observe_completion(*_args: object) -> None:
+        observed_complete_handler_counts.append(len(bpy.app.handlers.render_complete))
+
+    bpy.app.handlers.render_complete.append(observe_completion)
     assert operator.execute(context) == {"RUNNING_MODAL"}
     assert runtime.active
     assert runtime.phase == "RENDERING"
@@ -59,13 +74,17 @@ def run_raw_render_modal_scenarios(
         ("modal_handler_add", operator),
     ]
     timer = _timer(window_manager)
-    launch_result = operator.modal(context, timer)
+    try:
+        launch_result = operator.modal(context, timer)
+    finally:
+        bpy.app.handlers.render_complete.remove(observe_completion)
     assert launch_result == {"FINISHED"}, (launch_result, operator.reports, runtime.status)
-    # Render, discovery, progress publication, and handler removal share one atomic timer step.
+    # The probe and adapter callback were both present during Blender's completion event.
+    assert observed_complete_handler_counts
+    assert observed_complete_handler_counts[-1] >= complete_handlers_before + 2
     assert len(bpy.app.handlers.render_complete) == complete_handlers_before
     assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before
-    assert len(bpy.app.handlers.render_complete) == complete_handlers_before
-    assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before
+    assert output_state() == configured_output_state
     frame = SequencePaths(root / "complete").frame(1)
     assert frame.beauty.is_file() and frame.vector.is_file() and frame.matte.is_file()
     assert not runtime.active
@@ -97,6 +116,7 @@ def run_raw_render_modal_scenarios(
     assert not runtime.active
     assert runtime.phase == "CANCELLED"
     assert scene.frame_current == original_frame
+    assert output_state() == configured_output_state
     assert cancelled_window_manager.events[-2:] == [
         ("timer_remove", cancelled_window_manager.timer),
         ("progress_end", None),

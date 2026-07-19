@@ -45,9 +45,15 @@ def test_external_provider_rejects_unsafe_filename_parts(
         ExternalMatteProvider(directory=tmp_path, **cast(Any, arguments))
 
 
-@pytest.mark.parametrize("padding", [-1, 1.5, True])
+def test_external_provider_uses_blender_compatible_negative_tokens(tmp_path: Path) -> None:
+    provider = ExternalMatteProvider(directory=tmp_path)
+
+    assert provider.path_for_frame(-1, SequencePaths(tmp_path)).name == "matte_-0001.exr"
+
+
+@pytest.mark.parametrize("padding", [-1, 0, 1.5, True])
 def test_external_provider_rejects_invalid_padding(tmp_path: Path, padding: object) -> None:
-    error_type = ValueError if padding == -1 else TypeError
+    error_type = ValueError if padding in {-1, 0} else TypeError
     with pytest.raises(error_type, match="padding"):
         ExternalMatteProvider(directory=tmp_path, padding=cast(Any, padding))
 

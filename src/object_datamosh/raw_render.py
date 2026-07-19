@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
+from uuid import uuid4
 
 import bpy
 
@@ -82,6 +84,17 @@ def _discover_output(directory: Path, before: dict[Path, tuple[int, int]], pass_
     return changed[0]
 
 
+def _publish_output(staged: Path, destination: Path, *, overwrite: bool) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if overwrite:
+        os.replace(staged, destination)
+    else:
+        # A hard link publishes without a check/write race and never replaces user data. Retain
+        # the owned staging link because output deletion requires a separate explicit action.
+        os.link(staged, destination)
+    return destination
+
+
 def _collision_paths(paths: SequencePaths, frame_start: int, frame_end: int) -> tuple[Path, ...]:
     collisions: list[Path] = []
     for frame in range(frame_start, frame_end + 1):
@@ -124,6 +137,10 @@ class RawRenderSession:
         self.scene = scene
         self.view_layer = view_layer
         self.paths = paths
+        self._staging_paths = SequencePaths(
+            paths.root / f"ODM_staging_{uuid4().hex}",
+            frame_padding=paths.frame_padding,
+        )
         self.frame_start = frame_start
         self.frame_end = frame_end
         self.current_frame = frame_start
@@ -187,6 +204,7 @@ class RawRenderSession:
         if self.is_finished:
             raise RuntimeError("Raw rendering is already complete")
         expected = self.paths.frame(self.current_frame)
+        staged = self._staging_paths.frame(self.current_frame)
         if not self._overwrite:
             late_collisions = tuple(
                 path
@@ -199,11 +217,13 @@ class RawRenderSession:
                     "Raw output appeared after rendering started and overwrite is disabled: "
                     f"{preview}"
                 )
-        directories = (expected.beauty.parent, expected.vector.parent, expected.matte.parent)
+        directories = (staged.beauty.parent, staged.vector.parent, staged.matte.parent)
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
         self._before = tuple(_snapshot(directory) for directory in directories)
-        output_context = self._output_paths_context(self.scene, self.view_layer, self.paths)
+        output_context = self._output_paths_context(
+            self.scene, self.view_layer, self._staging_paths
+        )
         output_context.__enter__()
         self._output_context = output_context
         try:
@@ -230,13 +250,25 @@ class RawRenderSession:
         if request is not self._pending_request or self._before is None:
             raise RuntimeError("Render completion does not belong to the active raw frame")
         expected = self.paths.frame(request.frame)
-        directories = (expected.beauty.parent, expected.vector.parent, expected.matte.parent)
+        staged = self._staging_paths.frame(request.frame)
+        directories = (staged.beauty.parent, staged.vector.parent, staged.matte.parent)
         try:
+            discovered = (
+                _discover_output(directories[0], self._before[0], "beauty"),
+                _discover_output(directories[1], self._before[1], "vector"),
+                _discover_output(directories[2], self._before[2], "matte"),
+            )
             actual = FramePaths(
                 frame=request.frame,
-                beauty=_discover_output(directories[0], self._before[0], "beauty"),
-                vector=_discover_output(directories[1], self._before[1], "vector"),
-                matte=_discover_output(directories[2], self._before[2], "matte"),
+                beauty=_publish_output(
+                    discovered[0], expected.beauty, overwrite=self._overwrite
+                ),
+                vector=_publish_output(
+                    discovered[1], expected.vector, overwrite=self._overwrite
+                ),
+                matte=_publish_output(
+                    discovered[2], expected.matte, overwrite=self._overwrite
+                ),
                 processed=expected.processed,
             )
         except Exception as error:
@@ -316,9 +348,26 @@ def render_raw_passes(
         while not session.is_finished:
             if should_cancel is not None and should_cancel():
                 raise RawRenderCancelled(session.completed_frames)
-            request = session.prepare_next_frame()
-            bpy.ops.render.render(scene=scene.name, layer=view_layer.name)
-            session.complete_frame(request)
+            affected_frame = session.current_frame
+            try:
+                request = session.prepare_next_frame()
+                render_result = cast(
+                    set[str],
+                    bpy.ops.render.render(scene=scene.name, layer=view_layer.name),
+                )
+                if "CANCELLED" in render_result:
+                    raise RawRenderCancelled(session.completed_frames)
+                if "FINISHED" not in render_result:
+                    raise RuntimeError(
+                        f"Unexpected Blender render result: {sorted(render_result)}"
+                    )
+                session.complete_frame(request)
+            except RawRenderCancelled:
+                raise
+            except Exception as error:
+                raise RuntimeError(
+                    f"Raw rendering failed at frame {affected_frame}: {error}"
+                ) from error
             if progress is not None:
                 progress.update(len(session.completed_frames))
         return session.result

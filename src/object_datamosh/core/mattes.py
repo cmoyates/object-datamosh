@@ -5,7 +5,7 @@ from numbers import Integral
 from pathlib import Path, PureWindowsPath
 from typing import Protocol
 
-from .paths import SequencePaths
+from .paths import SequencePaths, format_frame_token
 
 
 class MatteProvider(Protocol):
@@ -45,8 +45,8 @@ class ExternalMatteProvider:
 
     def path_for_frame(self, frame: int, sequence: SequencePaths) -> Path:
         del sequence
-        _validate_frame(frame)
-        return self.directory / f"{self.prefix}{frame:0{self.padding}d}{self.extension}"
+        token = format_frame_token(frame, self.padding)
+        return self.directory / f"{self.prefix}{token}{self.extension}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,13 +64,8 @@ def _validate_filename_part(name: str, value: str) -> None:
         raise ValueError(f"{name} must be a single filename component")
 
 
-def _validate_frame(frame: int) -> None:
-    if isinstance(frame, bool) or not isinstance(frame, Integral):
-        raise TypeError("frame must be an integer")
-
-
 def _validate_padding(padding: int) -> None:
     if isinstance(padding, bool) or not isinstance(padding, Integral):
         raise TypeError("padding must be an integer")
-    if padding < 0:
-        raise ValueError("padding must not be negative")
+    if padding < 1:
+        raise ValueError("padding must be at least one")

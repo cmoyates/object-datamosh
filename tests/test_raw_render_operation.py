@@ -171,6 +171,36 @@ def test_timer_launches_one_frame_and_advances_only_after_completion() -> None:
     assert len(adapter.launches) == 1
 
 
+def test_synchronous_completion_is_consumed_when_timer_identity_is_omitted() -> None:
+    class SynchronousAdapter(FakeRenderAdapter):
+        def launch(self, request: RenderFrameRequest, run_identity: str) -> None:
+            super().launch(request, run_identity)
+            self.event = RenderEvent.COMPLETED
+
+    runtime = RuntimeState()
+    operator = Operator()
+    adapter = SynchronousAdapter()
+    session = FakeRenderSession()
+    session.frame_end = 3
+    window_manager = WindowManager()
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        session,
+    )
+    controller._lifecycle._next_step_deadline = 0.0
+
+    assert controller.handle_event(SimpleNamespace(type="TIMER")) == {"FINISHED"}
+    assert runtime.phase == "COMPLETED"
+    assert adapter.event is RenderEvent.NONE
+
+
 def test_completed_last_frame_finalizes_and_releases_modal_resources() -> None:
     runtime = RuntimeState()
     operator = Operator()

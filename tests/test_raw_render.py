@@ -7,8 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
+import object_datamosh.raw_render as raw_render_module
 from object_datamosh.core.paths import SequencePaths
-from object_datamosh.raw_render import RawRenderResult, RawRenderSession, render_raw_passes
+from object_datamosh.raw_render import (
+    RawRenderCancelled,
+    RawRenderResult,
+    RawRenderSession,
+    _publish_output,
+    render_raw_passes,
+)
 
 
 class Scene:
@@ -43,10 +50,11 @@ def test_session_discovers_emitted_paths_and_restores_the_scene_frame(tmp_path: 
     )
 
     request = session.prepare_next_frame()
+    staging_root = session._staging_paths.root
     emitted = (
-        tmp_path / "raw" / "beauty" / "actual-beauty-0003.exr",
-        tmp_path / "raw" / "vector" / "actual-vector-0003.exr",
-        tmp_path / "raw" / "matte" / "actual-matte-0003.exr",
+        staging_root / "raw" / "beauty" / "actual-beauty-0003.exr",
+        staging_root / "raw" / "vector" / "actual-vector-0003.exr",
+        staging_root / "raw" / "matte" / "actual-matte-0003.exr",
     )
     for path in emitted:
         path.write_bytes(b"rendered")
@@ -54,7 +62,13 @@ def test_session_discovers_emitted_paths_and_restores_the_scene_frame(tmp_path: 
     actual = session.complete_frame(request)
     session.close()
 
-    assert (actual.beauty, actual.vector, actual.matte) == emitted
+    expected = paths.frame(3)
+    assert (actual.beauty, actual.vector, actual.matte) == (
+        expected.beauty,
+        expected.vector,
+        expected.matte,
+    )
+    assert all(path.read_bytes() == b"rendered" for path in emitted)
     assert session.result.frames == (actual,)
     assert scene.frames == [3, 9]
     assert scene.frame_subframe == 0.625
@@ -85,8 +99,8 @@ def test_output_paths_are_owned_only_during_an_active_frame(tmp_path: Path) -> N
     assert events == []
     request = session.prepare_next_frame()
     assert events == ["enter"]
-    expected = paths.frame(1)
-    for path in (expected.beauty, expected.vector, expected.matte):
+    staged = session._staging_paths.frame(1)
+    for path in (staged.beauty, staged.vector, staged.matte):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"rendered")
     session.complete_frame(request)
@@ -160,6 +174,19 @@ def test_session_constructor_failure_does_not_acquire_output_paths(tmp_path: Pat
     assert not output_context.entered
 
 
+def test_staged_publish_never_clobbers_a_late_destination(tmp_path: Path) -> None:
+    staged = tmp_path / "staged.exr"
+    destination = tmp_path / "final.exr"
+    staged.write_bytes(b"rendered")
+    destination.write_bytes(b"external")
+
+    with pytest.raises(FileExistsError):
+        _publish_output(staged, destination, overwrite=False)
+
+    assert destination.read_bytes() == b"external"
+    assert staged.read_bytes() == b"rendered"
+
+
 def test_session_rejects_output_created_after_initial_collision_check(tmp_path: Path) -> None:
     view_layer = SimpleNamespace(name="Main")
     scene = Scene(view_layer)
@@ -182,6 +209,86 @@ def test_session_rejects_output_created_after_initial_collision_check(tmp_path: 
 
     assert late_output.read_bytes() == b"external"
     session.close()
+
+
+def test_synchronous_blender_cancellation_never_verifies_the_frame(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = SimpleNamespace(name="Scene")
+    view_layer = SimpleNamespace(name="Main")
+
+    class PendingSession:
+        is_finished = False
+        current_frame = 1
+        completed_frames: tuple[object, ...] = ()
+
+        def prepare_next_frame(self) -> SimpleNamespace:
+            return SimpleNamespace(frame=1)
+
+        def complete_frame(self, _request: object) -> None:
+            raise AssertionError("cancelled render was verified")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        RawRenderSession,
+        "create",
+        lambda *_args, **_kwargs: PendingSession(),
+    )
+    monkeypatch.setattr(
+        raw_render_module.bpy,
+        "ops",
+        SimpleNamespace(
+            render=SimpleNamespace(render=lambda **_kwargs: {"CANCELLED"})
+        ),
+        raising=False,
+    )
+
+    with pytest.raises(RawRenderCancelled) as raised:
+        render_raw_passes(
+            scene,
+            view_layer,
+            SequencePaths(tmp_path),
+            frame_start=1,
+            frame_end=1,
+        )
+
+    assert raised.value.completed_frames == ()
+
+
+def test_synchronous_failure_identifies_the_affected_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingSession:
+        is_finished = False
+        current_frame = 4
+        completed_frames: tuple[object, ...] = ()
+
+        def prepare_next_frame(self) -> object:
+            raise RuntimeError("camera unavailable")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        RawRenderSession,
+        "create",
+        lambda *_args, **_kwargs: FailingSession(),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Raw rendering failed at frame 4: camera unavailable",
+    ):
+        render_raw_passes(
+            SimpleNamespace(name="Scene"),
+            SimpleNamespace(name="Layer"),
+            SequencePaths(Path("unused")),
+            frame_start=4,
+            frame_end=4,
+        )
 
 
 def test_synchronous_progress_ends_when_session_cleanup_fails(

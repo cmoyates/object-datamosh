@@ -136,17 +136,22 @@ class RawRenderModalController:
             except Exception as error:
                 return self._fail(frame_number, error)
             # EXEC_DEFAULT is synchronous in the production adapter. Consume and verify its
-            # terminal event in this same timer transaction; asynchronous fakes remain pollable.
-            return self.handle_event(event)
+            # terminal event without reapplying timer admission; asynchronous fakes remain pollable.
+            return self._observe_active_render(session)
 
+        return self._observe_active_render(session)
+
+    def _observe_active_render(self, session: RenderSession) -> set[Any]:
+        request = self._active_request
+        if request is None:
+            return {"RUNNING_MODAL"}
         try:
             adapter_event = self._adapter.poll()
         except Exception as error:
-            return self._fail(self._active_request.frame, error)
+            return self._fail(request.frame, error)
         if adapter_event in {RenderEvent.NONE, RenderEvent.ACTIVE}:
             return {"RUNNING_MODAL"}
         if adapter_event is RenderEvent.COMPLETED:
-            request = self._active_request
             try:
                 session.complete_frame(request)
                 self._adapter.remove()
@@ -175,7 +180,7 @@ class RawRenderModalController:
             self._operator.report({"INFO"}, message)
             return {"FINISHED"}
         if adapter_event is RenderEvent.CANCELLED:
-            cancelled_frame = self._active_request.frame
+            cancelled_frame = request.frame
             try:
                 self._adapter.remove()
                 self._active_request = None
@@ -187,7 +192,7 @@ class RawRenderModalController:
         except Exception as adapter_error:
             error = adapter_error
         return self._fail(
-            self._active_request.frame,
+            request.frame,
             error if isinstance(error, Exception) else RuntimeError("Blender render failed"),
         )
 
@@ -278,5 +283,7 @@ class RawRenderModalController:
             except Exception as error:
                 cleanup_errors.append(error)
 
-        if cleanup_errors:
+        if len(cleanup_errors) == 1:
             raise cleanup_errors[0]
+        if cleanup_errors:
+            raise RuntimeError("; ".join(str(error) for error in cleanup_errors))

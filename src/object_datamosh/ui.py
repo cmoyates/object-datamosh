@@ -499,11 +499,13 @@ class ODM_OT_render_raw_passes(Operator):
                     overwrite=settings.overwrite_raw,
                     progress=progress,
                 )
+            except RawRenderCancelled as error:
+                message = f"Raw rendering cancelled during background rendering: {error}"
+                settings.status = message
+                self.report({"WARNING"}, message)
+                return {"CANCELLED"}
             except Exception as error:
-                message = (
-                    f"Raw rendering failed during background rendering at frame "
-                    f"{scene.frame_current}: {error}"
-                )
+                message = f"Raw rendering failed during background rendering: {error}"
                 settings.status = message
                 self.report({"ERROR"}, message)
                 return {"CANCELLED"}

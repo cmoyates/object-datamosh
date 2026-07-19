@@ -217,9 +217,10 @@ class ModalOperationLifecycle:
                 affected_frame = self._runtime.current_frame
             except Exception:
                 affected_frame = "unknown"
+            cleanup_detail = "; ".join(str(error) for error in cleanup_errors)
             terminal_status = (
                 f"{status}; cleanup failed during finalization at frame {affected_frame}: "
-                f"{cleanup_errors[0]}"
+                f"{cleanup_detail}"
             )
         else:
             terminal_status = status
@@ -238,8 +239,10 @@ class ModalOperationLifecycle:
                 pass
         self._owns_runtime = False
         request_sidebar_redraw(self._window_manager)
-        if cleanup_errors:
+        if len(cleanup_errors) == 1:
             raise cleanup_errors[0]
+        if cleanup_errors:
+            raise RuntimeError("; ".join(str(error) for error in cleanup_errors))
 
 
 def request_cancellation(runtime: RuntimeState, window_manager: Any | None = None) -> bool:

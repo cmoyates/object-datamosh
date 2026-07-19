@@ -85,9 +85,12 @@ frame 2 render_post/render_complete
 terminal runtime -> COMPLETED, completed work 2, progress 1.0
 ```
 
-The exact discovered beauty, Vector, and matte paths were retained after each completion. Owned
-File Output paths are active only for that atomic render/discovery timer step and are restored before
-yielding; finalization restores the original scene frame and any partially active output context.
+Each frame renders into a unique `ODM_staging_*` tree. After all three staged files are discovered,
+the extension publishes canonical beauty, Vector, and matte paths with no-clobber hard links (or
+explicit replacement when overwrite is enabled) and retains those exact canonical `FramePaths`.
+Owned File Output paths are active only for that atomic render/discovery timer step and are restored
+before yielding; finalization restores the original scene frame and any partially active output
+context. Staged links are retained rather than silently deleted, consistent with output safety.
 
 This fallback yields to Blender between frames, not during an individual frame. A 256×256 Cycles
 foreground probe scheduled a 50 ms application heartbeat and recorded **zero heartbeats while a
