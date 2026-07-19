@@ -667,7 +667,7 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
     )
     io.images[paths.frame(2).processed][0, 0, 0] = np.nan
 
-    with pytest.raises(RuntimeError, match="invalid for frame 3"):
+    with pytest.raises(RuntimeError, match="invalid for frame 2"):
         process_sequence(
             paths,
             frame_start=1,
@@ -690,10 +690,21 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
         missing_history=MissingHistoryPolicy.RESET,
     )
 
-    assert result.frames == (paths.frame(3).processed,)
+    assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
     assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
         "completed_frames"
     ] == [1, 2, 3]
+    io.written.clear()
+    subsequent = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+    assert subsequent.frames == ()
 
 
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(

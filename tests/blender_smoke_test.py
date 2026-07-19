@@ -42,6 +42,7 @@ from object_datamosh.raw_render import (  # noqa: E402
     render_raw_passes,
 )
 from object_datamosh.ui import (  # noqa: E402
+    ODM_RuntimeState,
     _draw_sidebar,
     feedback_settings_for_scene,
     runtime_for_scene,
@@ -106,8 +107,24 @@ def main() -> None:
     object_datamosh.register()
     assert hasattr(bpy.types.Scene, "ODM_settings")
     assert hasattr(bpy.types.Scene, "ODM_runtime")
-    panel_type = cast(Any, bpy.types).ODM_PT_sidebar
+    registered_types = cast(Any, bpy.types)
+    panel_type = registered_types.ODM_PT_sidebar
     assert panel_type.bl_category == "Object Datamosh"
+    runtime_type = ODM_RuntimeState
+    for property_name in (
+        "active",
+        "cancel_requested",
+        "phase",
+        "run_identity",
+        "current_frame",
+        "frame_start",
+        "frame_end",
+        "completed_work",
+        "total_work",
+        "progress",
+        "status",
+    ):
+        assert runtime_type.bl_rna.properties[property_name].is_skip_save
 
     scene = bpy.context.scene
     assert scene is not None

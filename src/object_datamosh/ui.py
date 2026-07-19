@@ -106,31 +106,49 @@ def sequence_paths_for_scene(scene: Scene) -> SequencePaths:
 
 
 class ODM_RuntimeState(PropertyGroup):
-    """Serializable scene-owned state for one Object Datamosh operation."""
+    """Transient scene-owned state for one Object Datamosh operation."""
 
-    active: BoolProperty(name="Active", default=False)  # ty: ignore[invalid-type-form]
+    active: BoolProperty(  # ty: ignore[invalid-type-form]
+        name="Active", default=False, options={"SKIP_SAVE"}
+    )
     cancel_requested: BoolProperty(  # ty: ignore[invalid-type-form]
-        name="Cancel Requested", default=False
+        name="Cancel Requested", default=False, options={"SKIP_SAVE"}
     )
     phase: EnumProperty(  # ty: ignore[invalid-type-form]
         name="Phase",
         items=tuple((phase.value, phase.value.title(), "") for phase in OperationPhase),
         default=OperationPhase.IDLE.value,
+        options={"SKIP_SAVE"},
     )
     run_identity: StringProperty(  # ty: ignore[invalid-type-form]
-        name="Run Identity", default=""
+        name="Run Identity", default="", options={"SKIP_SAVE"}
     )
-    current_frame: IntProperty(name="Current Frame", default=0)  # ty: ignore[invalid-type-form]
-    frame_start: IntProperty(name="Start", default=0)  # ty: ignore[invalid-type-form]
-    frame_end: IntProperty(name="End", default=0)  # ty: ignore[invalid-type-form]
+    current_frame: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Current Frame", default=0, options={"SKIP_SAVE"}
+    )
+    frame_start: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Start", default=0, options={"SKIP_SAVE"}
+    )
+    frame_end: IntProperty(  # ty: ignore[invalid-type-form]
+        name="End", default=0, options={"SKIP_SAVE"}
+    )
     completed_work: IntProperty(  # ty: ignore[invalid-type-form]
-        name="Completed", default=0, min=0
+        name="Completed", default=0, min=0, options={"SKIP_SAVE"}
     )
-    total_work: IntProperty(name="Total", default=0, min=0)  # ty: ignore[invalid-type-form]
+    total_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Total", default=0, min=0, options={"SKIP_SAVE"}
+    )
     progress: FloatProperty(  # ty: ignore[invalid-type-form]
-        name="Progress", default=0.0, min=0.0, max=1.0, subtype="PERCENTAGE"
+        name="Progress",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype="PERCENTAGE",
+        options={"SKIP_SAVE"},
     )
-    status: StringProperty(name="Status", default="Ready")  # ty: ignore[invalid-type-form]
+    status: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Status", default="Ready", options={"SKIP_SAVE"}
+    )
 
 
 class ODM_Settings(PropertyGroup):

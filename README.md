@@ -484,7 +484,8 @@ data, or returned immutable values; there is no mutable module-level runtime sta
 `ExistingPassModalController` owns the existing-pass event state machine, while the reusable
 `ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
 locking, cancellation requests, and idempotent universal cleanup with a separate workflow cleanup
-hook. Blender properties contain only serializable run metadata, never either runtime service.
+hook. Blender properties contain only transient, `SKIP_SAVE` run metadata—never either runtime
+service—so reopening a blend cannot resurrect an active lock without its controller or timer.
 Setup and cleanup never delete, disconnect, or replace unrelated
 compositor nodes and restore pass settings that they change.
 
