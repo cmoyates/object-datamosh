@@ -188,6 +188,29 @@ def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> N
     ]
 
 
+def test_run_identity_failure_does_not_lock_the_runtime() -> None:
+    runtime = RuntimeState()
+
+    def fail_identity() -> str:
+        raise RuntimeError("identity unavailable")
+
+    lifecycle = ModalOperationLifecycle(
+        object(), runtime, run_identity_factory=fail_identity
+    )
+
+    try:
+        lifecycle.begin(
+            Context(WindowManager(), object()), frame_start=1, frame_end=1, total_work=1
+        )
+    except RuntimeError as error:
+        assert str(error) == "identity unavailable"
+    else:
+        raise AssertionError("run identity failure did not propagate")
+
+    assert not runtime.active
+    assert runtime.run_identity == "stale"
+
+
 def test_active_scene_state_rejects_a_second_lifecycle() -> None:
     runtime = RuntimeState(active=True, run_identity="first-run")
     lifecycle = ModalOperationLifecycle(object(), runtime)
@@ -205,6 +228,18 @@ def test_active_scene_state_rejects_a_second_lifecycle() -> None:
     assert runtime.run_identity == "first-run"
 
 
+def test_finalizing_an_unused_lifecycle_does_not_release_another_run() -> None:
+    runtime = RuntimeState(active=True, run_identity="another-run")
+    lifecycle = ModalOperationLifecycle(object(), runtime)
+
+    lifecycle.finalize(OperationPhase.FAILED, "ignored")
+
+    assert runtime.active
+    assert runtime.run_identity == "another-run"
+    assert runtime.phase == "IDLE"
+    assert runtime.status == "stale"
+
+
 def test_finalize_is_safe_before_timer_creation() -> None:
     runtime = RuntimeState()
     cleanup_calls: list[str] = []
@@ -219,6 +254,30 @@ def test_finalize_is_safe_before_timer_creation() -> None:
     assert not runtime.active
     assert runtime.phase == "FAILED"
     assert runtime.status == "Could not initialize"
+
+
+def test_timer_removal_failure_still_ends_progress_and_unlocks_runtime() -> None:
+    class FailingRemovalWindowManager(WindowManager):
+        def event_timer_remove(self, timer: object) -> None:
+            super().event_timer_remove(timer)
+            raise ValueError("timer already removed")
+
+    runtime = RuntimeState()
+    window_manager = FailingRemovalWindowManager()
+    lifecycle = ModalOperationLifecycle(object(), runtime)
+    lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
+
+    try:
+        lifecycle.finalize(OperationPhase.COMPLETED, "Complete")
+    except ValueError as error:
+        assert str(error) == "timer already removed"
+    else:
+        raise AssertionError("timer cleanup failure did not propagate")
+
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.status == "Cleanup failed: timer already removed"
+    assert window_manager.events[-1] == ("progress_end", None)
 
 
 def test_cleanup_failure_still_releases_universal_resources_and_reports_failure() -> None:
