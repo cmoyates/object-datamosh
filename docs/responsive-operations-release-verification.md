@@ -12,7 +12,7 @@ this issue changes release documentation, verification tooling, tests, and evide
 
 Foreground UI probe revision: `35b1147cbf17fc19206932ab008fa52070f9244b`
 
-Release-gate revision: `10735c6306e2e3295e75b635dfa6e84653c0f812`
+Release-gate revision: `0793278c7668b7293c9094184599e1d866034df3`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -164,10 +164,11 @@ probe/helper/runner hashes, while retaining the foreground run's Git revision fo
 creates a fresh environment from the locked dependencies, redirects Blender's user resources to
 empty per-run directories, and executes each gate from an isolated detached worktree. Each command
 stages a receipt with exit status, output digest, and up to 64 KiB complete output (or bounded
-32 KiB head plus 32 KiB tail) with explicit truncation metadata. Launch, timeout, command, and
-tracked-mutation failures are atomically receipted before stopping. Successful content-addressed
-receipts and the uniquely built ZIP are promoted only after final identity checks, then one aggregate
-manifest is atomically switched and superseded receipts are pruned. Receipt-publication commits change evidence/documentation only; the recorded revisions
+32 KiB head plus 32 KiB tail) with explicit truncation metadata. Once source/evidence preconditions
+are valid and release execution begins, setup, launch, timeout, command, tracked-mutation, and
+post-gate failures are atomically receipted before stopping. Successful content-addressed receipts
+and the uniquely built ZIP are promoted only after final identity checks, then one aggregate
+manifest is atomically switched; superseded receipts are pruned best-effort after that commit. Receipt-publication commits change evidence/documentation only; the recorded revisions
 identify the executable trees that were actually run.
 
 Run from the repository root with
@@ -185,8 +186,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-dd12bdf3b512.zip` (53,328 bytes), SHA-256
-`dd12bdf3b51263d8090dd9c5f7658711d098319aa11417c443229ab38f1e4bb8`.
+The installation archive is `dist/object_datamosh-0.1.0-74e9a8911835.zip` (53,328 bytes), SHA-256
+`74e9a89118356270dd5c888b7a05efa333fa29ed5f11850f77a8d3c7998f03bf`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 

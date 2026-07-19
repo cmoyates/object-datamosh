@@ -5,9 +5,9 @@
     "launch_error": null,
     "name": "environment-sync",
     "output_error": null,
-    "output_head": "Using CPython 3.12.8\nCreating virtual environment at: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-l9yvx76x/environment\nInstalled 9 packages in 25ms\n + fake-bpy-module-5-0==20260128\n + iniconfig==2.3.0\n + numpy==2.5.1\n + packaging==26.2\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==9.1.1\n + ruff==0.15.22\n + ty==0.0.61\n",
+    "output_head": "Using CPython 3.12.8\nCreating virtual environment at: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-40ecm5ea/environment\nInstalled 9 packages in 28ms\n + fake-bpy-module-5-0==20260128\n + iniconfig==2.3.0\n + numpy==2.5.1\n + packaging==26.2\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==9.1.1\n + ruff==0.15.22\n + ty==0.0.61\n",
     "output_retained_bytes": 356,
-    "output_sha256": "1aed1613276f610e7e0362a6a25ce7fc953c80d6e9ae3022d131c0c373a3a68d",
+    "output_sha256": "40e1aece4bf219808a53873290abcb86892968a4e81b1bdaa9c37be5ad24c3ee",
     "output_tail": "",
     "output_total_bytes": 356,
     "output_truncated": false,
@@ -15,7 +15,7 @@
     "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "10735c6306e2e3295e75b635dfa6e84653c0f812",
+  "git_head": "0793278c7668b7293c9094184599e1d866034df3",
   "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"

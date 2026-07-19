@@ -15,7 +15,7 @@
     "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "10735c6306e2e3295e75b635dfa6e84653c0f812",
+  "git_head": "0793278c7668b7293c9094184599e1d866034df3",
   "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
