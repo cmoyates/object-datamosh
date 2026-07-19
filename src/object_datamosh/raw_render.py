@@ -98,6 +98,7 @@ class RawRenderSession:
         *,
         frame_start: int,
         frame_end: int,
+        overwrite: bool,
         output_context: AbstractContextManager[None],
     ) -> None:
         self.scene = scene
@@ -106,6 +107,7 @@ class RawRenderSession:
         self.frame_start = frame_start
         self.frame_end = frame_end
         self.current_frame = frame_start
+        self._overwrite = overwrite
         self.completed_frames: tuple[FramePaths, ...] = ()
         self._original_frame = scene.frame_current
         self._output_context = output_context
@@ -142,6 +144,7 @@ class RawRenderSession:
             paths,
             frame_start=frame_start,
             frame_end=frame_end,
+            overwrite=overwrite,
             output_context=output_context,
         )
 
@@ -164,6 +167,17 @@ class RawRenderSession:
         if self.is_finished:
             raise RuntimeError("Raw rendering is already complete")
         expected = self.paths.frame(self.current_frame)
+        if not self._overwrite:
+            late_collisions = tuple(
+                path
+                for path in (expected.beauty, expected.vector, expected.matte)
+                if path.exists()
+            )
+            if late_collisions:
+                preview = ", ".join(str(path) for path in late_collisions)
+                raise FileExistsError(
+                    f"Raw output appeared after rendering started and overwrite is disabled: {preview}"
+                )
         directories = (expected.beauty.parent, expected.vector.parent, expected.matte.parent)
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
@@ -249,6 +263,8 @@ def render_raw_passes(
                 progress.update(len(session.completed_frames))
         return session.result
     finally:
-        session.close()
-        if progress is not None and progress_started:
-            progress.end()
+        try:
+            session.close()
+        finally:
+            if progress is not None and progress_started:
+                progress.end()

@@ -292,9 +292,15 @@ def temporary_raw_output_paths(
             node.file_name = f"{prefix}{'#' * paths.frame_padding}"
         yield
     finally:
+        restoration_errors: list[Exception] = []
         for node, directory, file_name in configured:
-            node.directory = directory
-            node.file_name = file_name
+            try:
+                node.directory = directory
+                node.file_name = file_name
+            except Exception as error:
+                restoration_errors.append(error)
+        if restoration_errors:
+            raise restoration_errors[0]
 
 
 def restore_object_index_passes(scene: Scene) -> bool:

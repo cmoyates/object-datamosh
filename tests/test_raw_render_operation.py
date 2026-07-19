@@ -271,6 +271,89 @@ def test_output_verification_failure_reports_rendering_phase_and_frame() -> None
     ]
 
 
+def test_progress_update_failure_finalizes_and_releases_owned_resources() -> None:
+    class FailingProgressWindowManager(WindowManager):
+        def progress_update(self, value: int) -> None:
+            super().progress_update(value)
+            if value:
+                raise RuntimeError("progress display unavailable")
+
+    runtime = RuntimeState()
+    operator = Operator()
+    adapter = FakeRenderAdapter()
+    session = FakeRenderSession()
+    window_manager = FailingProgressWindowManager()
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        session,
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    assert controller.handle_event(timer) == {"RUNNING_MODAL"}
+    adapter.event = RenderEvent.COMPLETED
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.status == (
+        "Raw rendering failed during rendering at frame 3: progress display unavailable"
+    )
+    assert window_manager.events[-2:] == [
+        ("timer_remove", window_manager.timer),
+        ("progress_end", None),
+    ]
+
+
+def test_session_close_failure_still_runs_controller_cleanup() -> None:
+    class FailingCloseSession(FakeRenderSession):
+        frame_end = 3
+
+        def close(self) -> None:
+            raise RuntimeError("could not restore output paths")
+
+    runtime = RuntimeState()
+    operator = Operator()
+    adapter = FakeRenderAdapter()
+    session = FailingCloseSession()
+    window_manager = WindowManager()
+    cleanup_calls: list[str] = []
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        on_cleanup=lambda: cleanup_calls.append("cleared"),
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        session,
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    assert controller.handle_event(timer) == {"RUNNING_MODAL"}
+    adapter.event = RenderEvent.COMPLETED
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert cleanup_calls == ["cleared"]
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.status == (
+        "Rendered 1 raw frame(s); cleanup failed: could not restore output paths"
+    )
+    assert operator.reports == [
+        (
+            {"ERROR"},
+            "Rendered 1 raw frame(s); cleanup failed: could not restore output paths",
+        )
+    ]
+
+
 def test_blender_cancel_event_does_not_verify_or_retain_the_active_frame() -> None:
     runtime = RuntimeState()
     operator = Operator()

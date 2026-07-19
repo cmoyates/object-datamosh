@@ -57,11 +57,11 @@ class BlenderRenderAdapter:
                 return False
 
         def completed(scene: object, _depsgraph: object | None = None) -> None:
-            if belongs_to_run(scene):
+            if self._event is RenderEvent.ACTIVE and belongs_to_run(scene):
                 self._event = RenderEvent.COMPLETED
 
         def cancelled(scene: object, _depsgraph: object | None = None) -> None:
-            if belongs_to_run(scene):
+            if self._event is RenderEvent.ACTIVE and belongs_to_run(scene):
                 self._event = RenderEvent.CANCELLED
 
         self._complete_handler = completed
@@ -90,6 +90,10 @@ class BlenderRenderAdapter:
                     self._event = RenderEvent.COMPLETED
             elif "RUNNING_MODAL" not in result:
                 raise RuntimeError(f"Unexpected Blender render result: {sorted(result)}")
+            if self._event is not RenderEvent.ACTIVE:
+                # EXEC_DEFAULT normally reaches its terminal boundary before returning. Stop
+                # observing process-wide events immediately while retaining the state for poll().
+                self._remove_handlers()
         except Exception as error:
             self._error = error
             self._event = RenderEvent.FAILED
@@ -101,6 +105,10 @@ class BlenderRenderAdapter:
 
     def remove(self) -> None:
         """Remove only handlers owned by this adapter; safe to call repeatedly."""
+        self._remove_handlers()
+        self._event = RenderEvent.NONE
+
+    def _remove_handlers(self) -> None:
         if self._complete_handler is not None:
             with suppress(ValueError):
                 self._handlers.render_complete.remove(self._complete_handler)
@@ -109,4 +117,3 @@ class BlenderRenderAdapter:
             with suppress(ValueError):
                 self._handlers.render_cancel.remove(self._cancel_handler)
             self._cancel_handler = None
-        self._event = RenderEvent.NONE

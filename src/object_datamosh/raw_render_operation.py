@@ -148,22 +148,22 @@ class RawRenderModalController:
             request = self._active_request
             try:
                 session.complete_frame(request)
+                self._adapter.remove()
+                self._active_request = None
+                current_frame = min(session.current_frame, session.frame_end)
+                message = (
+                    f"Rendered frame {request.frame} of {session.frame_end}"
+                    if not session.is_finished
+                    else f"Rendered {len(session.completed_frames)} raw frame(s)"
+                )
+                self._lifecycle.update(
+                    phase=OperationPhase.RENDERING,
+                    current_frame=current_frame,
+                    completed_work=len(session.completed_frames),
+                    status=message,
+                )
             except Exception as error:
                 return self._fail(request.frame, error)
-            self._adapter.remove()
-            self._active_request = None
-            current_frame = min(session.current_frame, session.frame_end)
-            message = (
-                f"Rendered frame {request.frame} of {session.frame_end}"
-                if not session.is_finished
-                else f"Rendered {len(session.completed_frames)} raw frame(s)"
-            )
-            self._lifecycle.update(
-                phase=OperationPhase.RENDERING,
-                current_frame=current_frame,
-                completed_work=len(session.completed_frames),
-                status=message,
-            )
             if self.cancel_requested:
                 return self._finish_cancelled()
             if not session.is_finished:
@@ -207,11 +207,14 @@ class RawRenderModalController:
             return False
 
     def request_cancel(self) -> bool:
-        """Publish cancellation while allowing an active Blender render to reach a safe boundary."""
+        """Publish cancellation without relying on the initiating scene remaining valid."""
         if self._finalized:
             return False
+        if self.cancel_requested:
+            return True
         self._cancel_requested = True
-        self._lifecycle.request_cancel()
+        with suppress(Exception):
+            self._lifecycle.request_cancel()
         return True
 
     def _fail(self, frame_number: int, error: Exception) -> set[Any]:
@@ -248,11 +251,24 @@ class RawRenderModalController:
             return fallback
 
     def _cleanup(self) -> None:
+        cleanup_errors: list[Exception] = []
         try:
             self._adapter.remove()
-        finally:
-            if self._session is not None:
-                self._session.close()
-                self._session = None
-            if self._on_cleanup is not None:
+        except Exception as error:
+            cleanup_errors.append(error)
+
+        session, self._session = self._session, None
+        if session is not None:
+            try:
+                session.close()
+            except Exception as error:
+                cleanup_errors.append(error)
+
+        if self._on_cleanup is not None:
+            try:
                 self._on_cleanup()
+            except Exception as error:
+                cleanup_errors.append(error)
+
+        if cleanup_errors:
+            raise cleanup_errors[0]

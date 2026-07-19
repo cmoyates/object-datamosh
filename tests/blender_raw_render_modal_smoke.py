@@ -61,8 +61,10 @@ def run_raw_render_modal_scenarios(
     timer = _timer(window_manager)
     launch_result = operator.modal(context, timer)
     assert launch_result == {"RUNNING_MODAL"}, (launch_result, operator.reports, runtime.status)
-    assert len(bpy.app.handlers.render_complete) == complete_handlers_before + 1
-    assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before + 1
+    # The synchronous fallback reaches a terminal event before launch returns, so its exact
+    # temporary handlers are already removed before control returns to the parent modal operator.
+    assert len(bpy.app.handlers.render_complete) == complete_handlers_before
+    assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before
     assert operator.modal(context, timer) == {"FINISHED"}
     assert len(bpy.app.handlers.render_complete) == complete_handlers_before
     assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before

@@ -125,16 +125,17 @@ Click **Render and Process**. The extension will:
 3. process those frames sequentially through temporal feedback; and
 4. write `processed/ODM_processed_<frame>.exr` plus a recovery manifest.
 
-Watch the panel's **Status** value and Blender's progress display. Raw rendering and existing-pass
-processing yield to Blender between frames. An individual Blender frame render can still temporarily
-block the UI; see [the Blender 5 modal render investigation](docs/blender-5-modal-render-investigation.md).
-Press **Escape** or use **Cancel** to stop at the next safe frame boundary. Completed raw and
-processed files are retained rather than deleted.
+Watch the panel's **Status** value and Blender's progress display. **Render and Process** runs its
+combined workflow synchronously. For frame-boundary cancellation and visible per-frame progress,
+click **Render Raw Passes** first and then **Process Existing Passes**; each standalone operation
+yields to Blender between frames and responds to **Escape** or **Cancel** at its next safe boundary.
+An individual Blender frame render can still temporarily block the UI; see
+[the Blender 5 modal render investigation](docs/blender-5-modal-render-investigation.md). Completed
+raw and processed files are retained rather than deleted.
 
-For more control, click **Render Raw Passes** first, inspect the raw EXRs, and then click **Process
-Existing Passes**. This is also the appropriate path when adjusting feedback settings without
-rerendering the scene: keep the raw sequences, choose **Reprocess**, enable **Overwrite Processed
-Frames**, and process again.
+The two-step path also lets you inspect the raw EXRs before processing. Use it when adjusting
+feedback settings without rerendering the scene: keep the raw sequences, choose **Reprocess**,
+enable **Overwrite Processed Frames**, and process again.
 
 ### 6. Inspect and use the result
 

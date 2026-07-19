@@ -22,10 +22,10 @@ produce `bpy.ops.render.cancel`, asking for its RNA type raises `KeyError`. The 
 `bpy.ops.render.view_cancel` operator only closes the render view; its installed description is
 “Cancel show render view,” so it is not a safe programmatic render-cancellation API.
 
-Handlers in this Blender build receive the rendered scene and a second dependency-graph argument
-(which was `None` in the probes). Object Datamosh accepts the second argument without depending on
-it. Each adapter callback captures the expected scene and scene-owned run identity. It ignores a
-callback unless both still match the active run.
+The independent handler probe in this Blender build invoked callbacks with the rendered scene. API
+contexts may also provide a dependency-graph argument, so Object Datamosh accepts that second
+argument optionally without depending on it. Each adapter callback captures the expected scene and
+scene-owned run identity. It ignores a callback unless both still match the active run.
 
 ## Invocation probes
 
@@ -94,10 +94,12 @@ frame render was active**. Therefore an individual raw frame can temporarily blo
 extension does not claim fully responsive raw rendering.
 
 The scene-visible progress changed after frame 1 and before frame 2, and the modal lifecycle issued
-its safe 3D View sidebar redraw request at that verified boundary. Deterministic Blender smoke
-coverage also records the progress update and redraw boundary. A separate visual confirmation of
-the Sidebar repaint was not performed; the foreground probe verified the runtime/redraw request,
-not pixels on screen.
+its safe 3D View sidebar redraw request at that verified boundary. The pure lifecycle test verifies
+that a real 3D View area receives `tag_redraw()` after progress publication. The background Blender
+smoke test verifies the runtime boundary but intentionally has no foreground windows and therefore
+does not claim to observe a sidebar repaint. A separate visual confirmation of the Sidebar repaint
+was not performed; the foreground probe verified runtime publication and the redraw request, not
+pixels on screen.
 
 ## Completion and cancellation behavior
 

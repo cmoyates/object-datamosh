@@ -40,3 +40,26 @@ def test_adapter_ignores_stale_scene_and_run_events() -> None:
     adapter.remove()
     assert handlers.render_complete == []
     assert handlers.render_cancel == []
+
+
+def test_synchronous_terminal_result_removes_handlers_before_launch_returns() -> None:
+    runtime = SimpleNamespace(run_identity="current-run")
+    handlers = SimpleNamespace(render_complete=[], render_cancel=[])
+
+    adapter = BlenderRenderAdapter(
+        runtime,
+        handlers=handlers,
+        render_operator=lambda *_args, **_kwargs: {"FINISHED"},
+    )
+    adapter.launch(
+        RenderFrameRequest(
+            frame=1,
+            scene=SimpleNamespace(name="Shot"),
+            view_layer=SimpleNamespace(name="Main"),
+        ),
+        "current-run",
+    )
+
+    assert adapter.poll() is RenderEvent.COMPLETED
+    assert handlers.render_complete == []
+    assert handlers.render_cancel == []
