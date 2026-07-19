@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import runpy
+import signal
 import subprocess
 import time
 from collections.abc import Callable
@@ -242,6 +243,30 @@ def test_signal_process_group_accepts_an_already_exited_process(
     monkeypatch.setattr(_signal_process_group_globals["os"], "killpg", exited_process)
 
     signal_process_group(123, 15)
+
+
+def test_interrupt_during_gate_launch_stops_the_owned_process(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    previous_handler = signal.signal(signal.SIGTERM, interrupt_release_gate)
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="interrupted by signal"):
+            run_gate(
+                "launch-interrupt",
+                [
+                    "/usr/bin/python3",
+                    "-c",
+                    "import os, signal, time; "
+                    "os.kill(os.getppid(), signal.SIGTERM); time.sleep(30)",
+                ],
+                "launch interrupt",
+                worktree=tmp_path,
+                environment={},
+            )
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
+
+    assert time.monotonic() - started < 5.0
 
 
 def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:

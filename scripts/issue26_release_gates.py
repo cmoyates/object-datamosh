@@ -224,6 +224,7 @@ def run_gate(
     process_group_timeout_seconds: float = 1.0,
     stage_result: Callable[[GateResult], None] | None = None,
 ) -> GateResult:
+    launch_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
     print(f"$ {display}")
     try:
         process = subprocess.Popen(
@@ -236,6 +237,7 @@ def run_gate(
         )
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
+        signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
         return GateResult(
             name=name,
             command=display,
@@ -252,6 +254,9 @@ def run_gate(
             timeout_seconds=timeout_seconds,
             tracked_changes="",
         )
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
+        raise
     assert process.stdout is not None
     stdout = process.stdout
     digest = hashlib.sha256()
@@ -302,6 +307,7 @@ def run_gate(
     termination_error: str | None = None
     post_wait_signal_mask: set[int] | None = None
     try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, launch_signal_mask)
         try:
             try:
                 exit_code = process.wait(timeout=timeout_seconds)
