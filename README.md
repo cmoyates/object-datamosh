@@ -354,6 +354,49 @@ The development-only Blender 5.0 stubs support static checking outside Blender. 
 development dependency and is bundled with Blender at runtime; the extension declares no
 third-party runtime dependency.
 
+## Performance expectations
+
+The feedback core processes complete frames in memory and is single-process NumPy code; Blender
+rendering and OpenEXR reads/writes are separate costs. As a reference measurement, three warm
+hard-localized feedback frames at 1280×720, block size 16, and zero motion took 0.191, 0.171, and
+0.160 seconds (0.171-second median) on an Apple M3 Max with 36 GB RAM, Python 3.12.8, and NumPy
+2.5.1. This synthetic measurement was recorded on 2026-07-18 with `process_frame` directly and
+excludes image I/O. Production time varies with resolution, storage, compositor complexity, render
+engine, and scene complexity; measure a representative frame range before scheduling a final
+render. Memory use scales with pixel count because source, motion, matte, sampling, and history
+arrays coexist during processing.
+
+## Troubleshooting
+
+- **No output or a missing pass:** run **Setup Object Index** for the current target and view layer,
+  use an engine that emits Image, Vector, and Object Index (Cycles is the tested path), and inspect
+  the pass name and directory in the reported error.
+- **Existing output blocks a run:** enable the matching overwrite control only when replacement is
+  intentional. To continue compatible processed output, select **Resume** instead; the extension
+  never deletes old files automatically.
+- **Resume rejects a sequence:** keep the same range, matte provider, and feedback settings. If
+  history is missing or invalid, choose the explicit missing-history **Reset** policy or start a
+  full **Reprocess** with overwrite enabled.
+- **Effect moves the wrong way or by the wrong amount:** use the vector calibration scene to verify
+  RG versus BA, reversal, axis flips, and gain for the active Blender version and engine.
+- **Unsaved-file warning or unexpected root:** save the blend file or choose an explicit absolute
+  output directory. Blender-relative paths require a saved blend file as their anchor.
+- **Cryptomatte fails:** select Object Index or a numbered external matte sequence. Cryptomatte
+  decoding is intentionally not implemented in the MVP.
+
+## Release verification record
+
+The production gate was run on 2026-07-18 with Blender 5.0.0. `uv run ty check` passed; the pure
+suite reported 121 passed and one Blender-runtime skip; and the factory-startup Blender smoke test
+printed `Object Datamosh Blender smoke test passed` (1.12 seconds wall time for its tiny fixtures).
+Manifest validation succeeded, and Blender built `dist/object_datamosh-0.1.0.zip` (31,094 bytes,
+SHA-256 `f15d92386176847b66a0c6f6e859de38577f17f2b52d86d2181c3621ac46a022`). Archive inspection
+found the manifest, 8 top-level Python modules, and 9 `core/` Python modules, with no caches,
+tests, development dependencies, or compiled third-party libraries. Issue #10 changed only this
+README; the generated ZIP remains ignored under `dist/`. Visual node layout, sidebar
+polish, interactive cancellation, calibration interpretation, and foreground control behavior
+remain explicit interactive checks; they were not claimed by the background gate.
+
 ## Current limitations
 
 - Resume is deliberately range-based and sequential. It does not splice arbitrary processed
