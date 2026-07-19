@@ -303,10 +303,14 @@ files pass discovery, requests a redraw, and then yields before launching the ne
 the extension uses a modal frame-boundary fallback: Blender remains available between frames, but
 an individual frame render can temporarily block the UI.
 
-Press **Escape** or click **Cancel** to publish pending-cancel feedback. No later frame starts. If
-Blender cannot interrupt the active frame safely, cancellation completes after that frame and its
-outputs are verified. Already completed files form a bounded recovery point and are never deleted.
-Resolve the cause and rerun with overwrite enabled only when replacing those raw files is intended.
+Press **Escape** or click **Cancel** to request cancellation. The button publishes pending-cancel
+feedback immediately. Escape received between frames does the same; if an `EXEC_DEFAULT` render is
+blocking Blender, the OS key can remain queued while additional complete frames finish. Blender may
+then deliver a render-cancel result directly, so the sidebar can move to the terminal **Cancelled**
+state at the next safe boundary without visibly dwelling in the pending state. Once the extension
+receives the request or render-cancel result, no later frame starts. Completed outputs are verified,
+form the bounded recovery point, and are never deleted. Resolve the cause and rerun with overwrite
+enabled only when replacing those raw files is intended.
 
 Object Index remains render-engine dependent. Use Cycles for the documented Blender 5.0.0 path,
 or verify that the chosen engine exposes and emits Image, Vector, and Object Index before a
@@ -522,6 +526,7 @@ Set `BLENDER_BIN` to the tested Blender executable, then run all repository gate
 ```bash
 uv run ty check
 uv run pytest -q
+uv run ruff check .
 "$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py
 "$BLENDER_BIN" --command extension validate src/object_datamosh
 mkdir -p dist
@@ -532,7 +537,9 @@ mkdir -p dist
 
 The development-only Blender 5.0 stubs support static checking outside Blender. NumPy is a
 development dependency and is bundled with Blender at runtime; the extension declares no
-third-party runtime dependency.
+third-party runtime dependency. The current foreground observations, gate results, archive path,
+and checksum are recorded in
+[Responsive operations release verification](docs/responsive-operations-release-verification.md).
 
 ## Performance expectations
 
@@ -600,6 +607,9 @@ remain explicit interactive checks; they were not claimed by the background gate
   collision refusal, deterministic modal event boundaries, and real registered-operator dispatch
   through Blender's window manager. Background Blender does not pump foreground modal events while
   the smoke script owns the main thread, so deterministic timer advancement/final cleanup use a
-  recorded window-manager boundary; interactive event dispatch, visual node layout, sidebar polish,
-  calibration interpretation (especially Y-axis and reversed-motion checks), and foreground control
-  behavior still require a manual Blender check.
+  recorded window-manager boundary. Foreground modal dispatch, visible per-frame sidebar redraws,
+  Escape and Cancel-button boundaries, Resume, cleanup, and immediate restart were separately
+  verified in Blender 5.0.0 and are recorded in the
+  [responsive operations release report](docs/responsive-operations-release-verification.md).
+  Visual node layout, broader sidebar polish, and calibration interpretation (especially Y-axis and
+  reversed-motion checks) remain manual production-scene checks.
