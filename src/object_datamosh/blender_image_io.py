@@ -15,6 +15,7 @@ import bpy
 import numpy as np
 
 from .core.contracts import FloatImage, FloatMask
+from .core.exr import read_full_float_rgba
 from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
@@ -30,15 +31,19 @@ class BlenderImageIO:
         logging.getLogger(__name__).info("Reading RGBA OpenEXR image: %s", image_path)
         image = bpy.data.images.load(str(image_path), check_existing=False)
         try:
+            # Ask Blender to populate regular EXR metadata before using the multilayer fallback.
+            image.reload()
+            width, height = image.size
             image.name = owned_name(image.name)
             image[OWNERSHIP_TAG] = True
-            width, height = image.size
-            if not image.is_float:
-                raise ValueError(f"Expected a floating-point OpenEXR image at {image_path}")
+            if image.channels == 0 and image.type == "MULTILAYER":
+                return read_full_float_rgba(image_path)
             if image.channels != 4:
                 raise ValueError(
                     f"Expected an RGBA image at {image_path}, found {image.channels} channels"
                 )
+            if not image.is_float:
+                raise ValueError(f"Expected a floating-point OpenEXR image at {image_path}")
             logging.getLogger(__name__).debug(
                 "Loaded %s: width=%d, height=%d, channels=%d, mapping=RGBA",
                 image_path,

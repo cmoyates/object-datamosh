@@ -16,7 +16,7 @@ from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState
 from .core.feedback import process_frame
 from .core.image_io import ImageSequenceIO
 from .core.mattes import MatteProvider
-from .core.paths import SequencePaths
+from .core.paths import FramePaths, SequencePaths
 
 
 def parse_reset_frames(expression: str) -> frozenset[int]:
@@ -94,11 +94,23 @@ def process_sequence(
     missing_history: MissingHistoryPolicy = MissingHistoryPolicy.ERROR,
     progress: ProcessingProgress | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    input_frames: tuple[FramePaths, ...] | None = None,
 ) -> SequenceProcessingResult:
-    """Process a resolved sequence strictly from ``frame_start`` through ``frame_end``."""
+    """Process a resolved sequence strictly from ``frame_start`` through ``frame_end``.
+
+    When ``input_frames`` is supplied, beauty, vector, and Object Index matte inputs are read from
+    those discovered paths rather than reconstructed from the sequence naming convention.
+    """
     if frame_start > frame_end:
         raise ValueError("frame_start must not be greater than frame_end")
     frame_numbers = tuple(range(frame_start, frame_end + 1))
+    if input_frames is not None and tuple(frame.frame for frame in input_frames) != frame_numbers:
+        raise ValueError("input_frames must contain the complete configured frame range in order")
+    resolved_inputs = (
+        {frame.frame: frame for frame in input_frames}
+        if input_frames is not None
+        else {frame: paths.frame(frame) for frame in frame_numbers}
+    )
     manifest_path = sequence_manifest_path(paths)
     fingerprint = _settings_fingerprint(settings, matte_provider)
     state: FeedbackState | None = None
@@ -214,18 +226,21 @@ def process_sequence(
             if should_cancel is not None and should_cancel():
                 raise SequenceProcessingCancelled(tuple(outputs))
             frame = paths.frame(frame_number)
+            raw_frame = resolved_inputs[frame_number]
             matte_path = matte_provider.path_for_frame(frame_number, paths)
+            if matte_path == frame.matte:
+                matte_path = raw_frame.matte
             try:
-                beauty = image_io.read_rgba(frame.beauty)
+                beauty = image_io.read_rgba(raw_frame.beauty)
             except FileNotFoundError:
                 raise FileNotFoundError(
-                    f"Missing beauty input for frame {frame_number}: {frame.beauty}"
+                    f"Missing beauty input for frame {frame_number}: {raw_frame.beauty}"
                 ) from None
             try:
-                motion = image_io.read_rgba(frame.vector)
+                motion = image_io.read_rgba(raw_frame.vector)
             except FileNotFoundError:
                 raise FileNotFoundError(
-                    f"Missing vector input for frame {frame_number}: {frame.vector}"
+                    f"Missing vector input for frame {frame_number}: {raw_frame.vector}"
                 ) from None
             try:
                 matte = image_io.read_mask(matte_path)
@@ -236,8 +251,8 @@ def process_sequence(
             logging.getLogger(__name__).info(
                 "Processing frame %d: beauty=%s, vector=%s, matte=%s, motion_channels=%s",
                 frame_number,
-                frame.beauty,
-                frame.vector,
+                raw_frame.beauty,
+                raw_frame.vector,
                 matte_path,
                 settings.motion_channels.value,
             )
