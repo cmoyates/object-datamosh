@@ -97,6 +97,32 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
     ]
 
 
+def test_unused_lifecycle_cannot_update_or_cancel_another_run() -> None:
+    runtime = RuntimeState(
+        active=True, cancel_requested=False, run_identity="another-run"
+    )
+    lifecycle = ModalOperationLifecycle(object(), runtime)
+
+    try:
+        lifecycle.update(
+            phase=OperationPhase.PROCESSING,
+            current_frame=1,
+            completed_work=0,
+            status="must not be published",
+        )
+    except RuntimeError as error:
+        assert str(error) == "The modal lifecycle has not begun"
+    else:
+        raise AssertionError("an unused lifecycle updated another run")
+
+    assert not lifecycle.request_cancel()
+    assert runtime.active
+    assert not runtime.cancel_requested
+    assert runtime.run_identity == "another-run"
+    assert runtime.phase == "IDLE"
+    assert runtime.status == "stale"
+
+
 def test_update_publishes_bounded_progress_and_redraws_the_sidebar() -> None:
     runtime = RuntimeState()
     window_manager = WindowManager()

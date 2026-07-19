@@ -123,11 +123,13 @@ class ModalOperationLifecycle:
         status: str,
     ) -> None:
         """Publish one safe work boundary to Blender's runtime and progress surfaces."""
+        if self._finalized:
+            return
+        if not self._owns_runtime:
+            raise RuntimeError("The modal lifecycle has not begun")
         total_work = self._runtime.total_work
         if completed_work < 0 or completed_work > total_work:
             raise ValueError("completed_work must be within the configured total work")
-        if self._finalized:
-            return
         self._runtime.phase = phase.value
         self._runtime.current_frame = current_frame
         self._runtime.completed_work = completed_work
@@ -139,7 +141,7 @@ class ModalOperationLifecycle:
 
     def request_cancel(self) -> bool:
         """Mark active work for cancellation without mutating workflow resources."""
-        if self._finalized:
+        if self._finalized or not self._owns_runtime:
             return False
         return request_cancellation(self._runtime, self._window_manager)
 
