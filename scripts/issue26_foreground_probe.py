@@ -667,6 +667,7 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
         if state.raw_escape_simulated and item["completed_work"] >= 10:
             raise RuntimeError("Blender did not dispatch the simulated raw Escape within 10 frames")
     elif not active and item["phase"] == "CANCELLED":
+        assert state.raw_escape_simulated, "Raw cancellation pre-empted simulated Escape"
         draws = state.sidebar_draws
         assert isinstance(draws, list)
         pending_visible = any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
@@ -680,7 +681,7 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["raw_escape_cancel"] = {
-            "blender_escape_event_simulated": True,
+            "blender_escape_event_simulated": state.raw_escape_simulated,
             "completed_frames": completed,
             "controller_cleared": True,
             "escape_sent_during_render": True,
@@ -776,6 +777,9 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
             )
     elif item["phase"] == "CANCELLED":
         assert state.processing_escape_seen
+        assert state.processing_escape_simulated, (
+            "Processing cancellation pre-empted simulated Escape"
+        )
         draws = state.sidebar_draws
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
         paths = SequencePaths(ROOT / "processing-escape")
@@ -785,7 +789,7 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["processing_escape_cancel"] = {
-            "blender_escape_event_simulated": True,
+            "blender_escape_event_simulated": state.processing_escape_simulated,
             "completed_frames": completed,
             "controller_cleared": True,
             "pending_state_visible": True,

@@ -471,6 +471,15 @@ def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[s
                 f"expected {value!r}, got {payload.get(field)!r}"
             )
     validate_embedded_event_log(payload, "foreground")
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        raise RuntimeError("Foreground receipt has no evidence summary")
+    for scenario in ("raw_escape_cancel", "processing_escape_cancel"):
+        scenario_evidence = evidence.get(scenario)
+        if not isinstance(scenario_evidence, dict) or not scenario_evidence.get(
+            "blender_escape_event_simulated"
+        ):
+            raise RuntimeError(f"Foreground receipt lacks simulated Escape for {scenario}")
     return content, payload
 
 
