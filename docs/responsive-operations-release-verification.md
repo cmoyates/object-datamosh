@@ -8,7 +8,9 @@ Platform: Blender 5.0.0 (`a37564c4df7a`), macOS, Apple Silicon
 
 Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
-this issue changes release documentation only)
+this issue changes release documentation and its release probe only)
+
+Foreground probe revision: `d8a1c0f5a7ce3a8f2a4807264865610493f88627`
 
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
@@ -54,8 +56,8 @@ Two separate runs covered both user inputs:
   beauty, Vector, or matte files for frames 2–10 was created.
 - A real **Escape** key event was sent by macOS System Events during an active 100-frame raw render.
   Retained monotonic markers prove that both the send invocation and its completion occurred inside
-  raw render intervals. Blender queued the event while blocked, completed a contiguous three-frame
-  prefix, and then moved directly to the terminal state at the next safe boundary; no frame 4 pass
+  raw render intervals. Blender queued the event while blocked, completed a contiguous two-frame
+  prefix, and then moved directly to the terminal state at the next safe boundary; no frame 3 pass
   was created. Unlike the button path, this active-render path did not visibly dwell in the pending
   state. That Blender 5.0 limitation is documented below rather than reported as responsiveness.
 - Both runs restored scene frame 7. The owned render-complete/render-cancel handler counts returned
@@ -131,7 +133,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (594 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (596 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
