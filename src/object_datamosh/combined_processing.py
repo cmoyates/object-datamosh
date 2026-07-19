@@ -87,7 +87,10 @@ class CombinedProcessingConfiguration:
                 except Exception as error:
                     raise CombinedProcessingFailure(frame_number, error) from error
                 if len(session.completed_frames) > completed_before:
-                    progress.update(len(session.completed_frames))
+                    try:
+                        progress.update(len(session.completed_frames))
+                    except Exception as error:
+                        raise CombinedProcessingFailure(frame_number, error) from error
             try:
                 return session.result
             except Exception as error:
