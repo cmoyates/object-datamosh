@@ -123,6 +123,23 @@ def stop_process_group(pid: int, *, timeout_seconds: float) -> bool:
     return not process_group_exists(pid)
 
 
+def terminate_timed_out_process(
+    process: subprocess.Popen[bytes],
+    *,
+    term_timeout_seconds: float = 5.0,
+    kill_timeout_seconds: float = 5.0,
+) -> tuple[int, str | None]:
+    signal_process_group(process.pid, signal.SIGTERM)
+    try:
+        return process.wait(timeout=term_timeout_seconds), None
+    except subprocess.TimeoutExpired:
+        signal_process_group(process.pid, signal.SIGKILL)
+        try:
+            return process.wait(timeout=kill_timeout_seconds), None
+        except subprocess.TimeoutExpired:
+            return 124, "Gate process did not exit after SIGKILL"
+
+
 def require_unchanged_identity(expected: SourceIdentity, actual: SourceIdentity) -> None:
     if actual != expected:
         raise RuntimeError(
@@ -275,23 +292,19 @@ def run_gate(
     output_thread = threading.Thread(target=consume_output, name=f"{name}-output")
     output_thread.start()
     timed_out = False
+    termination_error: str | None = None
     try:
         exit_code = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         timed_out = True
-        signal_process_group(process.pid, signal.SIGTERM)
-        try:
-            exit_code = process.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            signal_process_group(process.pid, signal.SIGKILL)
-            exit_code = process.wait(timeout=5.0)
+        exit_code, termination_error = terminate_timed_out_process(process)
     descendants_remained = process_group_exists(process.pid)
     group_stopped = stop_process_group(
         process.pid,
         timeout_seconds=process_group_timeout_seconds,
     )
     output_thread.join(timeout=output_close_timeout_seconds)
-    output_error: str | None = None
+    output_error: str | None = termination_error
     if descendants_remained:
         output_error = f"Gate left descendant processes running: {display}"
     if not group_stopped:

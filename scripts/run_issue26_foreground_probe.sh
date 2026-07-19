@@ -34,13 +34,33 @@ evidence_tmp="$evidence_result.tmp.$$"
 blender_pid=""
 escape_sender_pid=""
 
+stop_child() {
+  local pid=$1
+  [[ -n "$pid" ]] || return 0
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    local terminate_deadline=$((SECONDS + 2))
+    while kill -0 "$pid" 2>/dev/null && (( SECONDS < terminate_deadline )); do
+      sleep 0.05
+    done
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+    local kill_deadline=$((SECONDS + 2))
+    while kill -0 "$pid" 2>/dev/null && (( SECONDS < kill_deadline )); do
+      sleep 0.05
+    done
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Could not stop child process $pid" >&2
+    return 1
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
 cleanup() {
-  if [[ -n "$escape_sender_pid" ]] && kill -0 "$escape_sender_pid" 2>/dev/null; then
-    kill "$escape_sender_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$blender_pid" ]] && kill -0 "$blender_pid" 2>/dev/null; then
-    kill "$blender_pid" 2>/dev/null || true
-  fi
+  stop_child "$escape_sender_pid" || true
+  stop_child "$blender_pid" || true
   rm -f "$evidence_tmp"
 }
 trap cleanup EXIT
@@ -124,16 +144,7 @@ APPLESCRIPT
   local send_deadline=$((SECONDS + 10))
   while kill -0 "$escape_sender_pid" 2>/dev/null; do
     if (( SECONDS >= send_deadline )); then
-      kill "$escape_sender_pid" 2>/dev/null || true
-      local terminate_deadline=$((SECONDS + 2))
-      while kill -0 "$escape_sender_pid" 2>/dev/null; do
-        if (( SECONDS >= terminate_deadline )); then
-          kill -9 "$escape_sender_pid" 2>/dev/null || true
-          break
-        fi
-        sleep 0.05
-      done
-      wait "$escape_sender_pid" 2>/dev/null || true
+      stop_child "$escape_sender_pid" || true
       escape_sender_pid=""
       fail_with_log "Timed out sending Escape for $marker"
     fi

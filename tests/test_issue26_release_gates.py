@@ -21,6 +21,7 @@ require_unchanged_identity = cast(
 )
 run_gate = _NAMESPACE["run_gate"]
 signal_process_group = _NAMESPACE["signal_process_group"]
+terminate_timed_out_process = _NAMESPACE["terminate_timed_out_process"]
 _signal_process_group_globals = cast(dict[str, Any], signal_process_group.__globals__)
 write_gate_result = _NAMESPACE["write_gate_result"]
 
@@ -121,6 +122,23 @@ def test_gate_receipt_retains_complete_output_below_limit(tmp_path: Path) -> Non
     assert result.output_total_bytes == 40960
     assert len(result.output_head.encode()) == 40960
     assert result.output_tail == ""
+
+
+def test_unresponsive_process_after_sigkill_returns_a_receiptable_failure() -> None:
+    class UnresponsiveProcess:
+        pid = 999_999_999
+
+        def wait(self, *, timeout: float) -> int:
+            raise subprocess.TimeoutExpired("synthetic", timeout)
+
+    exit_code, error = terminate_timed_out_process(
+        cast(Any, UnresponsiveProcess()),
+        term_timeout_seconds=0.0,
+        kill_timeout_seconds=0.0,
+    )
+
+    assert exit_code == 124
+    assert error == "Gate process did not exit after SIGKILL"
 
 
 def test_signal_process_group_accepts_an_already_exited_process(
