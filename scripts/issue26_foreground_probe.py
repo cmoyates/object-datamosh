@@ -40,10 +40,8 @@ WORK_ROOT = (
 ROOT = WORK_ROOT / "output"
 LOG = WORK_ROOT / "events.jsonl"
 RESULT = Path(os.environ.get("ODM_ISSUE26_RESULT", WORK_ROOT / "result.json"))
-TRACE_RESULT = Path(os.environ.get("ODM_ISSUE26_TRACE", WORK_ROOT / "events-for-receipt.jsonl"))
 WORK_ROOT.mkdir(parents=True, exist_ok=True)
 RESULT.parent.mkdir(parents=True, exist_ok=True)
-TRACE_RESULT.parent.mkdir(parents=True, exist_ok=True)
 shutil.rmtree(ROOT, ignore_errors=True)
 LOG.unlink(missing_ok=True)
 RESULT.unlink(missing_ok=True)
@@ -404,12 +402,12 @@ def finish_success() -> None:
     assert not git_output(
         "status", "--porcelain", "--untracked-files=all", "--", "src/object_datamosh"
     )
-    TRACE_RESULT.write_bytes(LOG.read_bytes())
-    trace_sha256 = file_sha256(TRACE_RESULT)
+    event_log_jsonl = LOG.read_text(encoding="utf-8")
+    trace_sha256 = hashlib.sha256(event_log_jsonl.encode("utf-8")).hexdigest()
     result = {
         "blender_build_hash": build_hash,
         "blender_version": _app.version_string,
-        "event_log_file": f"issue-26-foreground-events-{trace_sha256}.jsonl",
+        "event_log_jsonl": event_log_jsonl,
         "event_log_sha256_before_completion": trace_sha256,
         "extension_source_tree": git_output("rev-parse", "HEAD:src/object_datamosh"),
         "git_head": git_output("rev-parse", "HEAD"),
@@ -675,6 +673,7 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
     if active and bool(item["cancel_requested"]):
         assert item["phase"] == "CANCELLING"
         assert item["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+        assert event_recorded("external_escape_send_started", "processing_escape_ready")
         state.processing_escape_seen = True
     elif active:
         if item["phase"] != "PROCESSING":
@@ -706,6 +705,7 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
             "controller_cleared": True,
             "pending_state_visible": True,
             "pending_status_verified": True,
+            "escape_received_by_runtime": True,
         }
         emit("processing_escape_verified", completed_frames=completed)
         state.transition(ProbeStage.PROCESSING_ESCAPE_RESUME)

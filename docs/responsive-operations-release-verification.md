@@ -28,11 +28,10 @@ layout at every redraw. This verifies the production layout and redraw data, not
 category selection itself. The tracked shell runner sent real macOS Escape key events to the foreground
 Blender application through System
 Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
-The retained assertion receipt is
-[`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json); its
-`event_log_file` names the immutable retained
-[JSONL trace](evidence/issue-26-foreground-events-73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725.jsonl)
-whose SHA-256 the receipt records.
+The retained
+[`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
+atomically bundles the assertion summary and exact JSONL event trace; the recorded SHA-256 verifies
+the embedded trace.
 
 ## Foreground Blender 5.0.0 observations
 
@@ -153,8 +152,8 @@ The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates
 code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
 machine-readable receipt at `docs/evidence/issue-26-release-gates.json` only with explicit
 `--update-evidence`. The receipt validates the foreground result, trace digest, tested revision,
-source tree, and probe/runner hashes before running, and each command entry links a retained full
-stdout/stderr log by content hash. Receipt-publication commits change evidence/documentation only;
+source tree, and probe/runner hashes before running. Each command entry atomically embeds its full
+stdout/stderr plus a content hash. Receipt-publication commits change evidence/documentation only;
 the recorded revisions identify the executable trees that were actually run.
 
 Run from the repository root with
@@ -163,7 +162,7 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 200 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 202 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -187,11 +186,9 @@ root where the release gate ran.
   Escape events through macOS System Events.
 - `scripts/issue26_release_gates.py` — executes and receipts static, pure-Python, Blender background,
   validation, and package-build gates.
-- `docs/evidence/issue-26-foreground-result.json` — retains the successful foreground assertion
-  receipt for the tested source tree and probe revision.
-- `docs/evidence/issue-26-foreground-events-<sha256>.jsonl` — retains the receipt-bound monotonic
-  event trace used to verify active-render Escape timing; explicit evidence updates promote the new
-  receipt before pruning superseded traces, so interrupted updates remain recoverable and bounded.
-- `docs/evidence/issue-26-release-gates.json` — retains the tested-revision command and ZIP receipt.
-- `docs/evidence/issue-26-gate-output-<sha256>.log` — retains complete content-addressed output for
-  every receipted command; explicit updates prune logs not referenced by the current receipt.
+- `docs/evidence/issue-26-foreground-result.json` — atomically retains the successful foreground
+  assertions and exact monotonic event trace for the tested source tree and probe revision.
+- `docs/evidence/issue-26-release-gates.json` — atomically retains the tested-revision commands,
+  complete outputs, output digests, foreground-receipt identity, and ZIP metadata.
+- `tests/test_issue26_release_gates.py` — verifies that mid-run source-identity drift blocks receipt
+  publication.

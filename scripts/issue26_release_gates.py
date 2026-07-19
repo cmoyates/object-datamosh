@@ -19,15 +19,9 @@ EVIDENCE = REPO / "docs" / "evidence" / "issue-26-release-gates.json"
 class GateResult:
     command: str
     exit_code: int
-    output_file: str
+    output: str
     output_sha256: str
     output_tail: list[str]
-
-
-@dataclass(frozen=True)
-class GateExecution:
-    result: GateResult
-    output: bytes
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -44,7 +38,7 @@ def git_output(*arguments: str) -> str:
     ).stdout.strip()
 
 
-def run_gate(arguments: list[str], display: str) -> GateExecution:
+def run_gate(arguments: list[str], display: str) -> GateResult:
     process = subprocess.run(
         arguments,
         cwd=REPO,
@@ -60,13 +54,13 @@ def run_gate(arguments: list[str], display: str) -> GateExecution:
     result = GateResult(
         command=display,
         exit_code=process.returncode,
-        output_file=f"issue-26-gate-output-{output_sha256}.log",
+        output=output,
         output_sha256=output_sha256,
         output_tail=output.splitlines()[-20:],
     )
     if process.returncode != 0:
         raise RuntimeError(f"Release gate failed ({process.returncode}): {display}")
-    return GateExecution(result=result, output=output_bytes)
+    return result
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -75,10 +69,12 @@ def atomic_write(path: Path, content: bytes) -> None:
     temporary.replace(path)
 
 
-def prune_gate_outputs(directory: Path, keep: set[str]) -> None:
-    for output in directory.glob("issue-26-gate-output-*.log"):
-        if output.name not in keep:
-            output.unlink()
+def require_unchanged_identity(expected: dict[str, str], actual: dict[str, str]) -> None:
+    if actual != expected:
+        raise RuntimeError(
+            "Release-gate source identity changed during execution: "
+            f"expected {expected!r}, got {actual!r}"
+        )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -107,22 +103,19 @@ def main() -> None:
     if not blender_bin.is_file():
         raise RuntimeError(f"BLENDER_BIN is not a file: {blender_bin}")
 
-    dirty = git_output(
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
-        "--",
-        "src",
-        "tests",
-        "scripts",
-        "pyproject.toml",
-        "uv.lock",
-    )
+    source_scope = ("src", "tests", "scripts", "pyproject.toml", "uv.lock")
+    dirty = git_output("status", "--porcelain", "--untracked-files=all", "--", *source_scope)
     if dirty:
         raise RuntimeError(f"Release-gate source is dirty:\n{dirty}")
 
     current_head = git_output("rev-parse", "HEAD")
     current_source_tree = git_output("rev-parse", "HEAD:src/object_datamosh")
+    probe_path = REPO / "scripts" / "issue26_foreground_probe.py"
+    runner_path = REPO / "scripts" / "run_issue26_foreground_probe.sh"
+    release_gate_path = Path(__file__)
+    probe_sha256 = sha256_bytes(probe_path.read_bytes())
+    runner_sha256 = sha256_bytes(runner_path.read_bytes())
+    release_gate_sha256 = sha256_bytes(release_gate_path.read_bytes())
     foreground_receipt_path = REPO / "docs" / "evidence" / "issue-26-foreground-result.json"
     foreground_receipt_content = foreground_receipt_path.read_bytes()
     foreground = json.loads(foreground_receipt_content)
@@ -131,12 +124,8 @@ def main() -> None:
     expected_foreground_fields = {
         "git_head": current_head,
         "extension_source_tree": current_source_tree,
-        "probe_sha256": sha256_bytes(
-            (REPO / "scripts" / "issue26_foreground_probe.py").read_bytes()
-        ),
-        "runner_sha256": sha256_bytes(
-            (REPO / "scripts" / "run_issue26_foreground_probe.sh").read_bytes()
-        ),
+        "probe_sha256": probe_sha256,
+        "runner_sha256": runner_sha256,
     }
     for field, expected in expected_foreground_fields.items():
         if foreground.get(field) != expected:
@@ -144,16 +133,13 @@ def main() -> None:
                 f"Foreground receipt {field} is stale: "
                 f"expected {expected!r}, got {foreground.get(field)!r}"
             )
-    trace_name = foreground.get("event_log_file")
-    if not isinstance(trace_name, str) or Path(trace_name).name != trace_name:
-        raise RuntimeError(f"Unsafe foreground trace name: {trace_name!r}")
-    foreground_trace = foreground_receipt_path.parent / trace_name
-    if not foreground_trace.is_file():
-        raise RuntimeError(f"Foreground trace is missing: {foreground_trace}")
-    if sha256_bytes(foreground_trace.read_bytes()) != foreground.get(
+    event_log_jsonl = foreground.get("event_log_jsonl")
+    if not isinstance(event_log_jsonl, str):
+        raise RuntimeError("Foreground receipt does not embed its event log")
+    if sha256_bytes(event_log_jsonl.encode("utf-8")) != foreground.get(
         "event_log_sha256_before_completion"
     ):
-        raise RuntimeError("Foreground trace digest does not match its receipt")
+        raise RuntimeError("Embedded foreground event-log digest does not match its receipt")
 
     dist = REPO / "dist"
     dist.mkdir(exist_ok=True)
@@ -210,14 +196,13 @@ def main() -> None:
         },
         "blender_bin": str(blender_bin),
         "foreground": {
+            "event_log_sha256": foreground["event_log_sha256_before_completion"],
             "git_head": foreground["git_head"],
             "receipt_sha256": sha256_bytes(foreground_receipt_content),
-            "trace_file": trace_name,
-            "trace_sha256": foreground["event_log_sha256_before_completion"],
         },
-        "gates": [asdict(execution.result) for execution in gates],
+        "gates": [asdict(gate) for gate in gates],
         "git_head": current_head,
-        "release_gate_script_sha256": sha256_bytes(Path(__file__).read_bytes()),
+        "release_gate_script_sha256": release_gate_sha256,
         "source_tree": current_source_tree,
         "success": True,
     }
@@ -229,37 +214,27 @@ def main() -> None:
     )
     if foreground_receipt_path.read_bytes() != foreground_receipt_content:
         raise RuntimeError("Foreground receipt changed during the release-gate run")
-    if (
-        not foreground_trace.is_file()
-        or sha256_bytes(foreground_trace.read_bytes())
-        != foreground["event_log_sha256_before_completion"]
-    ):
-        raise RuntimeError("Foreground trace changed during the release-gate run")
+    final_identity = {
+        "dirty": git_output("status", "--porcelain", "--untracked-files=all", "--", *source_scope),
+        "git_head": git_output("rev-parse", "HEAD"),
+        "source_tree": git_output("rev-parse", "HEAD:src/object_datamosh"),
+        "probe_sha256": sha256_bytes(probe_path.read_bytes()),
+        "runner_sha256": sha256_bytes(runner_path.read_bytes()),
+        "release_gate_sha256": sha256_bytes(release_gate_path.read_bytes()),
+    }
+    expected_final_identity = {
+        "dirty": "",
+        "git_head": current_head,
+        "source_tree": current_source_tree,
+        "probe_sha256": probe_sha256,
+        "runner_sha256": runner_sha256,
+        "release_gate_sha256": release_gate_sha256,
+    }
+    require_unchanged_identity(expected_final_identity, final_identity)
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    previous_keep: set[str] = set()
-    if target.is_file():
-        previous = json.loads(target.read_text(encoding="utf-8"))
-        previous_keep = {
-            gate["output_file"]
-            for gate in previous.get("gates", [])
-            if isinstance(gate.get("output_file"), str)
-        }
-    prune_gate_outputs(target.parent, previous_keep)
-
-    output_names: set[str] = set()
-    for execution in gates:
-        output_path = target.parent / execution.result.output_file
-        output_names.add(output_path.name)
-        if output_path.is_file():
-            if output_path.read_bytes() != execution.output:
-                raise RuntimeError(f"Gate-output digest collision: {output_path}")
-        else:
-            atomic_write(output_path, execution.output)
-
     receipt_content = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
     atomic_write(target, receipt_content)
-    prune_gate_outputs(target.parent, output_names)
     print(f"Release-gate receipt: {target}")
 
 

@@ -29,10 +29,8 @@ evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
-run_trace="$work_root/events-for-receipt.jsonl"
 run_result="$work_root/result.json"
 evidence_tmp="$evidence_result.tmp.$$"
-evidence_trace_tmp=""
 blender_pid=""
 
 cleanup() {
@@ -40,21 +38,22 @@ cleanup() {
     kill "$blender_pid" 2>/dev/null || true
   fi
   rm -f "$evidence_tmp"
-  if [[ -n "$evidence_trace_tmp" ]]; then
-    rm -f "$evidence_trace_tmp"
-  fi
 }
 trap cleanup EXIT
 
-if [[ -n "$(git status --porcelain --untracked-files=all -- src/object_datamosh scripts)" ]]; then
+source_scope=(src/object_datamosh scripts)
+if [[ -n "$(git status --porcelain --untracked-files=all -- "${source_scope[@]}")" ]]; then
   fail_message="Extension/probe source is dirty; commit or restore it before recording release evidence"
   echo "$fail_message" >&2
   exit 1
 fi
+start_head="$(git rev-parse HEAD)"
+start_source_tree="$(git rev-parse HEAD:src/object_datamosh)"
+start_probe_sha="$(shasum -a 256 "$probe" | awk '{print $1}')"
+start_runner_sha="$(shasum -a 256 "$0" | awk '{print $1}')"
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
-ODM_ISSUE26_TRACE="$run_trace" \
   "$BLENDER_BIN" --factory-startup --python "$probe" &
 blender_pid=$!
 
@@ -134,6 +133,7 @@ wait "$blender_pid"
 blender_pid=""
 
 uv run python - "$run_result" <<'PY'
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -141,34 +141,26 @@ from pathlib import Path
 result_path = Path(sys.argv[1])
 payload = json.loads(result_path.read_text(encoding="utf-8"))
 assert payload["success"] is True, payload
+event_log = payload["event_log_jsonl"].encode("utf-8")
+assert hashlib.sha256(event_log).hexdigest() == payload[
+    "event_log_sha256_before_completion"
+]
 print(json.dumps(payload, indent=2, sort_keys=True))
 PY
 
+if [[ -n "$(git status --porcelain --untracked-files=all -- "${source_scope[@]}")" \
+   || "$(git rev-parse HEAD)" != "$start_head" \
+   || "$(git rev-parse HEAD:src/object_datamosh)" != "$start_source_tree" \
+   || "$(shasum -a 256 "$probe" | awk '{print $1}')" != "$start_probe_sha" \
+   || "$(shasum -a 256 "$0" | awk '{print $1}')" != "$start_runner_sha" ]]; then
+  fail_with_log "Extension/probe identity changed during the foreground run"
+fi
+
 if $update_evidence; then
-  trace_sha="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_log_sha256_before_completion"])' "$run_result")"
-  trace_name="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_log_file"])' "$run_result")"
-  actual_trace_sha="$(shasum -a 256 "$run_trace" | awk '{print $1}')"
-  if [[ "$actual_trace_sha" != "$trace_sha" ]]; then
-    fail_with_log "Receipt trace digest does not match the retained event log"
-  fi
-  evidence_trace="$repo_root/docs/evidence/$trace_name"
-  evidence_trace_tmp="$evidence_trace.tmp.$$"
-  if [[ -f "$evidence_trace" ]]; then
-    cmp "$run_trace" "$evidence_trace"
-  else
-    cp "$run_trace" "$evidence_trace_tmp"
-    mv "$evidence_trace_tmp" "$evidence_trace"
-    evidence_trace_tmp=""
-  fi
   cp "$run_result" "$evidence_tmp"
   mv "$evidence_tmp" "$evidence_result"
-  for old_trace in "$repo_root"/docs/evidence/issue-26-foreground-events-*.jsonl; do
-    if [[ -f "$old_trace" && "$old_trace" != "$evidence_trace" ]]; then
-      rm "$old_trace"
-    fi
-  done
   rm -r "$work_root"
-  echo "Updated $evidence_result and $evidence_trace"
+  echo "Updated $evidence_result"
 else
   echo "Run artifacts retained at $work_root"
 fi
