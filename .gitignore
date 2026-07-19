@@ -10,3 +10,6 @@ wheels/
 .venv
 
 .DS_Store
+
+# Machine-local tool state
+.local/
