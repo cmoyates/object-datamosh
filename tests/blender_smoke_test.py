@@ -39,6 +39,7 @@ from object_datamosh.raw_render import (  # noqa: E402
 from object_datamosh.ui import (  # noqa: E402
     _draw_sidebar,
     feedback_settings_for_scene,
+    runtime_for_scene,
     sequence_paths_for_scene,
     settings_for_scene,
 )
@@ -127,13 +128,26 @@ def main() -> None:
     object_datamosh.register()
     object_datamosh.register()
     assert hasattr(bpy.types.Scene, "ODM_settings")
+    assert hasattr(bpy.types.Scene, "ODM_runtime")
     panel_type = cast(Any, bpy.types).ODM_PT_sidebar
     assert panel_type.bl_category == "Object Datamosh"
 
     scene = bpy.context.scene
     assert scene is not None
     settings = settings_for_scene(scene)
+    runtime = runtime_for_scene(scene)
     assert settings.status == "Ready"
+    assert not runtime.active
+    assert not runtime.cancel_requested
+    assert runtime.phase == "IDLE"
+    assert runtime.run_identity == ""
+    assert runtime.current_frame == 0
+    assert runtime.frame_start == 0
+    assert runtime.frame_end == 0
+    assert runtime.completed_work == 0
+    assert runtime.total_work == 0
+    assert runtime.progress == 0.0
+    assert runtime.status == "Ready"
     assert settings.matte_source == "OBJECT_INDEX"
     assert settings.target_object is None
     feedback_settings = feedback_settings_for_scene(scene)
@@ -194,7 +208,43 @@ def main() -> None:
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
     assert any(label.startswith("Status: ") for label in layout.labels)
+    assert "Operation: Idle" in layout.labels
+    assert "Phase: Idle" in layout.labels
+    assert "Frame Range: 0-0" in layout.labels
+    assert "Current Frame: 0" in layout.labels
+    assert "Work: 0/0" in layout.labels
+    assert "Progress: 0%" in layout.labels
     assert "Save the blend file to use a project-relative output directory." in layout.labels
+
+    runtime.active = True
+    runtime.phase = "PROCESSING"
+    runtime.frame_start = 1
+    runtime.frame_end = 4
+    runtime.current_frame = 2
+    runtime.completed_work = 1
+    runtime.total_work = 4
+    runtime.progress = 0.25
+    runtime.status = "Processing frame 2 of 4"
+    active_layout = LayoutRecorder()
+    _draw_sidebar(active_layout, bpy.context, scene)
+    assert "Operation: Active" in active_layout.labels
+    assert "object_datamosh.cancel_operation" in active_layout.operators
+    assert not object_datamosh_ops.use_active_object.poll()
+    assert not object_datamosh_ops.setup_object_index.poll()
+    assert not object_datamosh_ops.create_vector_calibration.poll()
+    assert not object_datamosh_ops.render_raw_passes.poll()
+    assert not object_datamosh_ops.render_and_process.poll()
+    assert not object_datamosh_ops.process_sequence.poll()
+    assert not object_datamosh_ops.restore_object_index.poll()
+    assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
+    assert runtime.active
+    assert runtime.cancel_requested
+    assert runtime.phase == "CANCELLING"
+    assert runtime.status == "Cancel requested; waiting for a safe boundary..."
+    runtime.active = False
+    runtime.cancel_requested = False
+    runtime.phase = "IDLE"
+    runtime.status = "Ready"
 
     scenes_before_calibration = set(bpy.data.scenes)
     active_scene_before_calibration = bpy.context.scene
@@ -647,10 +697,12 @@ def main() -> None:
     object_datamosh.unregister()
     object_datamosh.unregister()
     assert not hasattr(bpy.types.Scene, "ODM_settings")
+    assert not hasattr(bpy.types.Scene, "ODM_runtime")
 
     object_datamosh.register()
     object_datamosh.unregister()
     assert not hasattr(bpy.types.Scene, "ODM_settings")
+    assert not hasattr(bpy.types.Scene, "ODM_runtime")
 
     scene_type = cast(Any, bpy.types.Scene)
     scene_type.ODM_settings = bpy.props.StringProperty(name="Foreign property")
