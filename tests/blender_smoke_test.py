@@ -27,9 +27,11 @@ for import_root in (SOURCE_ROOT, TEST_ROOT):
         sys.path.insert(0, str(import_root))
 
 from blender_modal_test_support import (  # noqa: E402
+    LayoutRecorder,
     ModalWindowManagerRecorder,
     ProcessOperatorHarness,
 )
+from blender_registered_modal_smoke import run_registered_modal_smoke  # noqa: E402
 
 import object_datamosh  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
@@ -102,34 +104,6 @@ class ProgressRecorder:
 
     def end(self) -> None:
         self.events.append(("end", 0))
-
-
-class LayoutRecorder:
-    """Minimal Blender layout double for verifying the emitted sidebar controls."""
-
-    def __init__(self) -> None:
-        self.properties: set[str] = set()
-        self.operators: set[str] = set()
-        self.labels: list[str] = []
-        self.alert = False
-
-    def box(self) -> LayoutRecorder:
-        return self
-
-    def row(self, *, align: bool = False) -> LayoutRecorder:
-        del align
-        return self
-
-    def prop(self, data: object, property_name: str) -> None:
-        del data
-        self.properties.add(property_name)
-
-    def operator(self, operator_name: str) -> None:
-        self.operators.add(operator_name)
-
-    def label(self, *, text: str, icon: str | None = None) -> None:
-        del icon
-        self.labels.append(text)
 
 
 def main() -> None:
@@ -237,6 +211,8 @@ def main() -> None:
     _draw_sidebar(active_layout, bpy.context, scene)
     assert "Operation: Active" in active_layout.labels
     assert "object_datamosh.cancel_operation" in active_layout.operators
+    assert active_layout.boxes[0].enabled
+    assert all(not box.enabled for box in active_layout.boxes[1:])
     assert not object_datamosh_ops.use_active_object.poll()
     assert not object_datamosh_ops.setup_object_index.poll()
     assert not object_datamosh_ops.create_vector_calibration.poll()
@@ -639,6 +615,13 @@ def main() -> None:
             ("timer_add", (0.1, modal_window)),
             ("modal_handler_add", process_operator),
         ]
+        foreign_timer_event = type(
+            "ForeignTimerEvent",
+            (),
+            {"type": "TIMER", "timer": object()},
+        )()
+        assert process_operator.modal(modal_context, foreign_timer_event) == {"PASS_THROUGH"}
+        assert not first.processed.exists()
         timer_event = type("TimerEvent", (), {"type": "TIMER"})()
         assert process_operator.modal(modal_context, timer_event) == {"RUNNING_MODAL"}
         assert first.processed.is_file()
@@ -969,6 +952,11 @@ def main() -> None:
         assert hasattr(scene_type, "ODM_settings")
     finally:
         del scene_type.ODM_settings
+
+    # Background Blender does not pump interactive modal events while this script owns the main
+    # thread; deterministic advancement/finalization use recorded boundaries above, while this
+    # focused check verifies real bpy dispatch and real window-manager timer installation.
+    run_registered_modal_smoke(scene, image_io, expected)
 
     print("Object Datamosh Blender smoke test passed")
 

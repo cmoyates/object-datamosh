@@ -362,8 +362,8 @@ most one complete output frame or one frame of Trail resume-history reconstructi
 phase, current frame, completed/total work, and normalized progress to the sidebar, requests a
 sidebar redraw, and then yields to Blender's event loop. The Blender progress display follows the
 same complete-output-frame boundaries. The initiating scene and configured range remain the run's
-canonical context; sequence controls and Object Datamosh actions in every scene remain locked until
-this operation finishes cleanup.
+canonical context; configuration controls and Object Datamosh actions in every scene remain locked
+until this operation finishes cleanup.
 
 Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
 immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;
@@ -477,11 +477,12 @@ object_datamosh.core: NumPy + Python only; never imports bpy
 ```
 
 No background thread calls Blender APIs. Runtime state belongs to Blender scenes, tagged Blender
-data, or returned immutable values; there is no mutable module-level runtime state. The reusable
+data, or returned immutable values; there is no mutable module-level runtime state. The focused
+`ExistingPassModalController` owns the existing-pass event state machine, while the reusable
 `ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
-locking, cancellation requests, and idempotent universal cleanup while accepting a separate
-workflow-specific cleanup hook. Blender properties contain only serializable run metadata, never
-the lifecycle service itself. Setup and cleanup never delete, disconnect, or replace unrelated
+locking, cancellation requests, and idempotent universal cleanup with a separate workflow cleanup
+hook. Blender properties contain only serializable run metadata, never either runtime service.
+Setup and cleanup never delete, disconnect, or replace unrelated
 compositor nodes and restore pass settings that they change.
 
 ## Development and verification
@@ -570,7 +571,10 @@ remain explicit interactive checks; they were not claimed by the background gate
   Cycles beauty/vector/matte render, emitted filename discovery, a two-frame combined render and
   process run, full-float EXR contracts, temporary
   image cleanup, render-setting restoration, processing fixture-generated two-frame pass
-  sequences, processed EXR contracts, hard-localized output, trail controls, and processed-output
-  collision refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass
-  interpretation (especially the Y-axis and reversed-motion checks), and control behavior still
-  require a manual foreground Blender check.
+  sequences, processed EXR contracts, hard-localized output, trail controls, processed-output
+  collision refusal, deterministic modal event boundaries, and real registered-operator dispatch
+  through Blender's window manager. Background Blender does not pump foreground modal events while
+  the smoke script owns the main thread, so deterministic timer advancement/final cleanup use a
+  recorded window-manager boundary; interactive event dispatch, visual node layout, sidebar polish,
+  calibration interpretation (especially Y-axis and reversed-motion checks), and foreground control
+  behavior still require a manual Blender check.

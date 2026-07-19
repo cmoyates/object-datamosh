@@ -142,6 +142,11 @@ class ModalOperationLifecycle:
             self._window_manager.progress_update(completed_work)
         request_sidebar_redraw(self._window_manager)
 
+    def owns_timer_event(self, event: object) -> bool:
+        """Whether a timer event identifies this lifecycle's timer when Blender exposes it."""
+        event_timer = getattr(event, "timer", None)
+        return event_timer is None or event_timer is self._timer
+
     def request_cancel(self) -> bool:
         """Mark active work for cancellation without mutating workflow resources."""
         if self._finalized or not self._owns_runtime:

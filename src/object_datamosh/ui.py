@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,7 +39,8 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
-from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, request_cancellation
+from .existing_pass_operation import ExistingPassModalController
+from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, render_raw_passes
 from .sequence_processing import (
@@ -559,11 +559,7 @@ class ODM_OT_process_sequence(Operator):
     bl_label = "Process Existing Passes"
     bl_description = "Process existing beauty, vector, and matte EXR sequences"
 
-    _session: ProcessingSession | None
-    _lifecycle: ModalOperationLifecycle | None
-    _settings: ODM_Settings | None
-    _runtime: ODM_RuntimeState | None
-    _initial_completed_work: int
+    _controller: ExistingPassModalController | None
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -579,14 +575,11 @@ class ODM_OT_process_sequence(Operator):
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
         runtime = runtime_for_scene(scene)
-        self._session = None
-        self._settings = settings
-        self._runtime = runtime
-        self._initial_completed_work = 0
-        self._lifecycle = ModalOperationLifecycle(self, runtime, cleanup=self._cleanup_session)
+        controller = ExistingPassModalController(self, runtime, settings)
+        self._controller = controller
         settings.status = "Processing existing passes..."
         try:
-            self._session = ProcessingSession.create(
+            session = ProcessingSession.create(
                 sequence_paths_for_scene(scene),
                 frame_start=settings.frame_start,
                 frame_end=settings.frame_end,
@@ -600,136 +593,23 @@ class ODM_OT_process_sequence(Operator):
                 missing_history=MissingHistoryPolicy(settings.missing_history),
                 should_cancel=lambda: runtime.cancel_requested,
             )
-            total_work = settings.frame_end - settings.frame_start + 1
-            self._initial_completed_work = min(
-                total_work,
-                max(0, self._session.current_frame - settings.frame_start),
-            )
-            self._lifecycle.begin(
-                context,
-                frame_start=settings.frame_start,
-                frame_end=settings.frame_end,
-                total_work=total_work,
-            )
-            recovery_frame = self._session.recovery_frame
-            current_frame = recovery_frame or self._session.current_frame
-            status = (
-                f"Restoring resume history at frame {recovery_frame}"
-                if recovery_frame is not None
-                else f"Processing frame {current_frame} of {self._session.frame_end}"
-            )
-            settings.status = status
-            self._lifecycle.update(
-                phase=OperationPhase.PROCESSING,
-                current_frame=current_frame,
-                completed_work=self._initial_completed_work,
-                status=status,
-            )
+            controller.start(context, session)
         except Exception as error:
-            message = (
-                f"Processing failed during initialization at frame {settings.frame_start}: {error}"
-            )
-            settings.status = message
-            self._finalize(OperationPhase.FAILED, message)
-            self.report({"ERROR"}, message)
+            controller.fail_initialization(settings.frame_start, error)
             return {"CANCELLED"}
         return {"RUNNING_MODAL"}
 
     def modal(self, context: Context, event: Any) -> set[Any]:
-        if event.type == "ESC":
-            if self._lifecycle is not None:
-                self._lifecycle.request_cancel()
-            return {"RUNNING_MODAL"}
-        if event.type != "TIMER":
-            return {"PASS_THROUGH"}
-
-        session = self._session
-        lifecycle = self._lifecycle
-        settings = self._settings
-        if session is None or lifecycle is None or settings is None:
-            message = "Processing failed: the incremental session is unavailable"
-            if settings is not None:
-                settings.status = message
-            self._finalize(OperationPhase.FAILED, message)
-            self.report({"ERROR"}, message)
+        controller = self._controller
+        if controller is None:
+            self.report({"ERROR"}, "Processing failed: the modal controller is unavailable")
             return {"CANCELLED"}
-
-        recovering_history = session.recovery_frame is not None
-        frame_number = session.recovery_frame or session.current_frame
-        completed_before = len(session.completed_frames)
-        try:
-            session.process_next_frame()
-            completed = len(session.completed_frames)
-            if completed > completed_before:
-                status = f"Processed frame {frame_number} of {session.frame_end}"
-                settings.status = status
-                lifecycle.update(
-                    phase=OperationPhase.PROCESSING,
-                    current_frame=frame_number,
-                    completed_work=self._initial_completed_work + completed,
-                    status=status,
-                )
-            elif recovering_history:
-                status = f"Restored resume history through frame {frame_number}"
-                settings.status = status
-                lifecycle.update(
-                    phase=OperationPhase.PROCESSING,
-                    current_frame=frame_number,
-                    completed_work=self._initial_completed_work,
-                    status=status,
-                )
-        except SequenceProcessingCancelled as error:
-            message = f"Cancelled after {len(error.completed_frames)} frame(s)"
-            settings.status = message
-            self._finalize(OperationPhase.CANCELLED, message)
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-        except Exception as error:
-            message = f"Processing failed during processing at frame {frame_number}: {error}"
-            settings.status = message
-            with suppress(Exception):
-                lifecycle.update(
-                    phase=OperationPhase.FAILED,
-                    current_frame=frame_number,
-                    completed_work=self._initial_completed_work + len(session.completed_frames),
-                    status=message,
-                )
-            self._finalize(OperationPhase.FAILED, message)
-            self.report({"ERROR"}, message)
-            return {"CANCELLED"}
-
-        completed = len(session.completed_frames)
-        if not session.is_finished:
-            return {"RUNNING_MODAL"}
-
-        result = session.result
-        message = f"Processed {len(result.frames)} frame(s)"
-        settings.status = message
-        self._finalize(OperationPhase.COMPLETED, message)
-        self.report({"INFO"}, message)
-        return {"FINISHED"}
+        return controller.handle_event(event)
 
     def cancel(self, context: Context) -> None:
         """Release owned modal resources if Blender cancels the operator externally."""
-        message = "Cancelled by Blender"
-        if self._settings is not None:
-            self._settings.status = message
-        self._finalize(OperationPhase.CANCELLED, message)
-
-    def _cleanup_session(self) -> None:
-        self._session = None
-        self._lifecycle = None
-
-    def _finalize(self, phase: OperationPhase, status: str) -> None:
-        lifecycle = self._lifecycle
-        if lifecycle is None:
-            return
-        # The lifecycle publishes a cleanup failure before re-raising. A Blender callback must
-        # still return control rather than strand the modal operator in an exception.
-        with suppress(Exception):
-            lifecycle.finalize(phase, status)
-        if self._settings is not None and self._runtime is not None:
-            self._settings.status = self._runtime.status
+        if self._controller is not None:
+            self._controller.cancel()
 
 
 class ODM_OT_create_vector_calibration(Operator):
@@ -836,6 +716,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         operation.operator(ODM_OT_cancel_operation.bl_idname)
 
     target = layout.box()
+    target.enabled = not runtime.active
     target.label(text="Target")
     target.prop(settings, "target_object")
     target.operator(ODM_OT_use_active_object.bl_idname)
@@ -867,6 +748,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         warning.label(text=paths.warning, icon="ERROR")
 
     matte = layout.box()
+    matte.enabled = not runtime.active
     matte.label(text="Matte")
     matte.prop(settings, "matte_source")
     if settings.matte_source == "EXTERNAL":
@@ -879,10 +761,12 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         row.operator(ODM_OT_restore_object_index.bl_idname)
 
     calibration = layout.box()
+    calibration.enabled = not runtime.active
     calibration.label(text="Vector Calibration")
     calibration.operator(ODM_OT_create_vector_calibration.bl_idname)
 
     feedback = layout.box()
+    feedback.enabled = not runtime.active
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
     feedback.prop(settings, "trail_decay")

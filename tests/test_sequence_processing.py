@@ -635,6 +635,58 @@ def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     assert resumed.result.frames == (paths.frame(3).processed,)
 
 
+def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_frame(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2, 3):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(frame_number / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+    )
+    io.images[paths.frame(2).processed][0, 0, 0] = np.nan
+
+    with pytest.raises(RuntimeError, match="invalid for frame 2"):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=3,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=settings,
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+    io.written.clear()
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+        missing_history=MissingHistoryPolicy.RESET,
+    )
+
+    assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
+    assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
+        "completed_frames"
+    ] == [1, 2, 3]
+
+
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
     tmp_path: Path,
 ) -> None:

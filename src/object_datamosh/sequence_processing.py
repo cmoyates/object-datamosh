@@ -179,13 +179,12 @@ class ProcessingSession:
             if completed:
                 previous_number = completed[-1]
                 previous_frame = paths.frame(previous_number)
-                if settings.mode is FeedbackMode.TRAIL and previous_number < frame_end:
-                    # Rebuilding trail coverage can be as expensive as processing the completed
-                    # prefix. Defer it so an incremental caller still performs one bounded step.
+                if settings.mode is FeedbackMode.TRAIL:
+                    # Rebuilding and validating trail coverage can be as expensive as processing
+                    # the completed prefix. Defer every frame so an incremental caller remains
+                    # bounded, including a fully completed resume whose history still needs
+                    # validation under the configured missing-history policy.
                     trail_recovery_frames = tuple(completed)
-                    first_frame = max(first_frame, previous_number + 1)
-                elif settings.mode is FeedbackMode.TRAIL:
-                    # A fully completed resume has no pending frame that needs reconstructed state.
                     first_frame = max(first_frame, previous_number + 1)
                 else:
                     try:
@@ -272,6 +271,11 @@ class ProcessingSession:
         return self._is_finished
 
     @property
+    def retained_frames(self) -> tuple[int, ...]:
+        """Manifest frames currently trusted as the contiguous completed prefix."""
+        return tuple(self._completed_numbers)
+
+    @property
     def recovery_frame(self) -> int | None:
         """Completed frame whose trail state will be restored by the next step."""
         if self._trail_recovery_index >= len(self._trail_recovery_frames):
@@ -310,7 +314,6 @@ class ProcessingSession:
         frame_number = self.recovery_frame
         if frame_number is None:
             return
-        previous_number = self._trail_recovery_frames[-1]
         try:
             self._state = _restore_trail_frame(
                 frame_number,
@@ -325,11 +328,12 @@ class ProcessingSession:
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             if self.missing_history is MissingHistoryPolicy.ERROR:
                 raise RuntimeError(
-                    f"Resume history is invalid for frame {previous_number}: {error}"
+                    f"Resume history is invalid for frame {frame_number}: {error}"
                 ) from error
-            self._completed_numbers.pop()
-            self.current_frame = previous_number
-            self._recovery_reset_frame = previous_number
+            failed_index = self._completed_numbers.index(frame_number)
+            self._completed_numbers = self._completed_numbers[:failed_index]
+            self.current_frame = frame_number
+            self._recovery_reset_frame = frame_number
             self._state = None
             self._trail_recovery_frames = ()
             self._trail_recovery_index = 0

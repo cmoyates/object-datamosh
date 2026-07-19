@@ -54,11 +54,43 @@ class ProcessOperatorHarness:
     def cancel(self, context: Any) -> None:
         self._operator_type.cancel(self, context)
 
-    def _cleanup_session(self) -> None:
-        self._operator_type._cleanup_session(self)
-
-    def _finalize(self, phase: Any, status: str) -> None:
-        self._operator_type._finalize(self, phase, status)
-
     def report(self, level: set[str], message: str) -> None:
         self.reports.append((level, message))
+
+
+class LayoutRecorder:
+    """Minimal Blender layout double with shared observations across nested boxes."""
+
+    def __init__(self, parent: LayoutRecorder | None = None) -> None:
+        if parent is None:
+            self.properties: set[str] = set()
+            self.operators: set[str] = set()
+            self.labels: list[str] = []
+            self.boxes: list[LayoutRecorder] = []
+        else:
+            self.properties = parent.properties
+            self.operators = parent.operators
+            self.labels = parent.labels
+            self.boxes = parent.boxes
+        self.alert = False
+        self.enabled = True
+
+    def box(self) -> LayoutRecorder:
+        child = LayoutRecorder(self)
+        self.boxes.append(child)
+        return child
+
+    def row(self, *, align: bool = False) -> LayoutRecorder:
+        del align
+        return self
+
+    def prop(self, data: object, property_name: str) -> None:
+        del data
+        self.properties.add(property_name)
+
+    def operator(self, operator_name: str) -> None:
+        self.operators.add(operator_name)
+
+    def label(self, *, text: str, icon: str | None = None) -> None:
+        del icon
+        self.labels.append(text)
