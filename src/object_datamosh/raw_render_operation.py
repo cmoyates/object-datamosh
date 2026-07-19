@@ -141,7 +141,10 @@ class RawRenderModalController:
             self._active_request = request
             return {"RUNNING_MODAL"}
 
-        adapter_event = self._adapter.poll()
+        try:
+            adapter_event = self._adapter.poll()
+        except Exception as error:
+            return self._fail(self._active_request.frame, error)
         if adapter_event in {RenderEvent.NONE, RenderEvent.ACTIVE}:
             return {"RUNNING_MODAL"}
         if adapter_event is RenderEvent.COMPLETED:
@@ -174,10 +177,17 @@ class RawRenderModalController:
             self._operator.report({"INFO"}, message)
             return {"FINISHED"}
         if adapter_event is RenderEvent.CANCELLED:
-            self._adapter.remove()
-            self._active_request = None
+            cancelled_frame = self._active_request.frame
+            try:
+                self._adapter.remove()
+                self._active_request = None
+            except Exception as error:
+                return self._fail(cancelled_frame, error)
             return self._finish_cancelled()
-        error = getattr(self._adapter, "error", None)
+        try:
+            error = getattr(self._adapter, "error", None)
+        except Exception as adapter_error:
+            error = adapter_error
         return self._fail(
             self._active_request.frame,
             error if isinstance(error, Exception) else RuntimeError("Blender render failed"),

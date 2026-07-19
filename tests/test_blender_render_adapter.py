@@ -34,12 +34,43 @@ def test_adapter_ignores_stale_scene_and_run_events() -> None:
     handlers.render_complete[0](scene, None)
     assert adapter.poll() is RenderEvent.ACTIVE
     runtime.run_identity = "current-run"
+    handlers.render_cancel[0](SimpleNamespace(name="Other"), None)
+    assert adapter.poll() is RenderEvent.ACTIVE
+    handlers.render_cancel[0](scene, None)
+    assert adapter.poll() is RenderEvent.CANCELLED
+
+    adapter.remove()
+    adapter.launch(request, "current-run")
     handlers.render_complete[0](scene, None)
     assert adapter.poll() is RenderEvent.COMPLETED
 
     adapter.remove()
     assert handlers.render_complete == []
     assert handlers.render_cancel == []
+
+
+def test_adapter_ignores_callback_retained_from_an_older_launch() -> None:
+    runtime = SimpleNamespace(run_identity="current-run")
+    handlers = SimpleNamespace(render_complete=[], render_cancel=[])
+    adapter = BlenderRenderAdapter(
+        runtime,
+        handlers=handlers,
+        render_operator=lambda *_args, **_kwargs: {"RUNNING_MODAL"},
+    )
+    request = RenderFrameRequest(
+        frame=1,
+        scene=SimpleNamespace(name="Shot"),
+        view_layer=SimpleNamespace(name="Main"),
+    )
+    adapter.launch(request, "current-run")
+    stale_completion = handlers.render_complete[0]
+    adapter.remove()
+    adapter.launch(request, "current-run")
+
+    stale_completion(request.scene, None)
+
+    assert adapter.poll() is RenderEvent.ACTIVE
+    adapter.remove()
 
 
 def test_synchronous_terminal_result_removes_handlers_before_launch_returns() -> None:

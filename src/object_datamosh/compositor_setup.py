@@ -296,6 +296,9 @@ def temporary_raw_output_paths(
         for node, directory, file_name in configured:
             try:
                 node.directory = directory
+            except Exception as error:
+                restoration_errors.append(error)
+            try:
                 node.file_name = file_name
             except Exception as error:
                 restoration_errors.append(error)

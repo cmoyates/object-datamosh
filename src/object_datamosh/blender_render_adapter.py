@@ -38,6 +38,7 @@ class BlenderRenderAdapter:
         self._error: Exception | None = None
         self._complete_handler: Callable[..., None] | None = None
         self._cancel_handler: Callable[..., None] | None = None
+        self._generation = 0
 
     @property
     def error(self) -> Exception | None:
@@ -49,10 +50,16 @@ class BlenderRenderAdapter:
         if self._event is not RenderEvent.NONE or self._complete_handler is not None:
             raise RuntimeError("A Blender frame render is already being observed")
         expected_scene = request.scene
+        self._generation += 1
+        expected_generation = self._generation
 
         def belongs_to_run(scene: object) -> bool:
             try:
-                return scene is expected_scene and self._runtime.run_identity == run_identity
+                return (
+                    self._generation == expected_generation
+                    and scene is expected_scene
+                    and self._runtime.run_identity == run_identity
+                )
             except Exception:
                 return False
 
@@ -106,6 +113,7 @@ class BlenderRenderAdapter:
     def remove(self) -> None:
         """Remove only handlers owned by this adapter; safe to call repeatedly."""
         self._remove_handlers()
+        self._generation += 1
         self._event = RenderEvent.NONE
 
     def _remove_handlers(self) -> None:

@@ -95,11 +95,15 @@ extension does not claim fully responsive raw rendering.
 
 The scene-visible progress changed after frame 1 and before frame 2, and the modal lifecycle issued
 its safe 3D View sidebar redraw request at that verified boundary. The pure lifecycle test verifies
-that a real 3D View area receives `tag_redraw()` after progress publication. The background Blender
-smoke test verifies the runtime boundary but intentionally has no foreground windows and therefore
-does not claim to observe a sidebar repaint. A separate visual confirmation of the Sidebar repaint
-was not performed; the foreground probe verified runtime publication and the redraw request, not
-pixels on screen.
+that a 3D View area receives `tag_redraw()` after progress publication. The background Blender smoke
+test verifies the runtime boundary but intentionally has no foreground windows.
+
+A separate foreground Blender probe opened the sidebar's active category, registered an
+instrumented panel, published two successive frame states, and called `tag_redraw()` at each
+boundary. Blender invoked the panel draw once for frame 1 and once again for frame 2
+(`frame1_draws=1`, `frame2_total_draws=2`, observed stages `[2, 3]`). This verifies that the sidebar
+repainted at each foreground frame boundary; it does not claim that the blocking fallback can
+repaint during an individual render.
 
 ## Completion and cancellation behavior
 
@@ -112,14 +116,18 @@ pixels on screen.
   `Cancel requested; waiting for a safe boundary...` immediately when Blender's event loop is
   available. No later frame is launched.
 - During the `EXEC_DEFAULT` fallback, the extension cannot receive its own modal events until the
-  current call returns. Blender's built-in Escape handling may interrupt its render and emit
-  `render_cancel`, but Object Datamosh does not invoke an undocumented cancellation API.
+  current call returns. Object Datamosh does not invoke an undocumented cancellation API.
+- A foreground active-render Escape probe used the public asynchronous invocation solely to observe
+  Blender's own key handling. Escape produced this terminal ordering (seconds from probe start):
+  `invoke 1.000`, `render_init 1.026`, operator return `RUNNING_MODAL` 1.026, `render_pre 1.026`,
+  `render_post 12.151`, `render_cancel 12.151`. No `render_complete` event fired. Cancellation was
+  not immediate, but Blender eventually reached the documented cancellation boundary.
 - If the current render cannot be interrupted, cancellation takes effect after that frame is
   complete and its three files are verified. Completed files are preserved.
-- Escape injection during a live foreground render was not automated because Blender exposes no
-  supported Python event-injection API. Escape-before-launch, parent-modal Escape, Cancel-button,
-  completion-after-pending-cancel, and adapter `render_cancel` boundaries are covered through
-  deterministic controller/Blender tests.
+- The live foreground Escape probe used macOS System Events to send a real key event because Blender
+  exposes no supported Python event-injection API. Escape-before-launch, parent-modal Escape,
+  Cancel-button, completion-after-pending-cancel, and adapter `render_cancel` boundaries are also
+  covered through deterministic controller/Blender tests.
 
 ## Background mode
 

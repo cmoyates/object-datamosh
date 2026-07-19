@@ -201,6 +201,32 @@ def test_completed_last_frame_finalizes_and_releases_modal_resources() -> None:
     ]
 
 
+def test_escape_before_first_launch_cancels_without_rendering() -> None:
+    runtime = RuntimeState()
+    operator = Operator()
+    adapter = FakeRenderAdapter()
+    session = FakeRenderSession()
+    window_manager = WindowManager()
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        session,
+    )
+
+    assert controller.handle_event(SimpleNamespace(type="ESC")) == {"RUNNING_MODAL"}
+    assert controller.handle_event(
+        SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    ) == {"CANCELLED"}
+    assert adapter.launches == []
+    assert runtime.phase == "CANCELLED"
+
+
 def test_escape_during_render_waits_for_completion_then_preserves_that_frame() -> None:
     runtime = RuntimeState()
     operator = Operator()
@@ -234,6 +260,38 @@ def test_escape_during_render_waits_for_completion_then_preserves_that_frame() -
     assert not runtime.active
     assert runtime.phase == "CANCELLED"
     assert operator.reports == [({"WARNING"}, "Cancelled after 1 frame(s)")]
+
+
+def test_adapter_poll_failure_finalizes_the_active_frame() -> None:
+    class FailingPollAdapter(FakeRenderAdapter):
+        def poll(self) -> RenderEvent:
+            raise RuntimeError("render event source failed")
+
+    runtime = RuntimeState()
+    operator = Operator()
+    adapter = FailingPollAdapter()
+    session = FakeRenderSession()
+    window_manager = WindowManager()
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        session,
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    assert controller.handle_event(timer) == {"RUNNING_MODAL"}
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.status == (
+        "Raw rendering failed during rendering at frame 3: render event source failed"
+    )
 
 
 def test_output_verification_failure_reports_rendering_phase_and_frame() -> None:
@@ -344,12 +402,14 @@ def test_session_close_failure_still_runs_controller_cleanup() -> None:
     assert not runtime.active
     assert runtime.phase == "FAILED"
     assert runtime.status == (
-        "Rendered 1 raw frame(s); cleanup failed: could not restore output paths"
+        "Rendered 1 raw frame(s); cleanup failed during finalization at frame 3: "
+        "could not restore output paths"
     )
     assert operator.reports == [
         (
             {"ERROR"},
-            "Rendered 1 raw frame(s); cleanup failed: could not restore output paths",
+            "Rendered 1 raw frame(s); cleanup failed during finalization at frame 3: "
+            "could not restore output paths",
         )
     ]
 

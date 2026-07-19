@@ -57,6 +57,40 @@ def test_session_discovers_emitted_paths_and_restores_the_scene_frame(tmp_path: 
     assert scene.frames == [3, 9]
 
 
+def test_session_constructor_failure_does_not_acquire_output_paths(tmp_path: Path) -> None:
+    view_layer = SimpleNamespace(name="Main")
+
+    class InvalidScene:
+        view_layers = {"Main": view_layer}
+
+        @property
+        def frame_current(self) -> int:
+            raise RuntimeError("scene was removed")
+
+    class OutputContext:
+        entered = False
+
+        def __enter__(self) -> None:
+            self.entered = True
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+    output_context = OutputContext()
+
+    with pytest.raises(RuntimeError, match="scene was removed"):
+        RawRenderSession.create(
+            InvalidScene(),
+            view_layer,
+            SequencePaths(tmp_path),
+            frame_start=1,
+            frame_end=1,
+            output_paths_context=lambda *_args: output_context,
+        )
+
+    assert not output_context.entered
+
+
 def test_session_rejects_output_created_after_initial_collision_check(tmp_path: Path) -> None:
     view_layer = SimpleNamespace(name="Main")
     scene = Scene(view_layer)

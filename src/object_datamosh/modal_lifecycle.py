@@ -212,9 +212,17 @@ class ModalOperationLifecycle:
             self._progress_started = False
 
         terminal_phase = OperationPhase.FAILED if cleanup_errors else phase
-        terminal_status = (
-            f"{status}; cleanup failed: {cleanup_errors[0]}" if cleanup_errors else status
-        )
+        if cleanup_errors:
+            try:
+                affected_frame = self._runtime.current_frame
+            except Exception:
+                affected_frame = "unknown"
+            terminal_status = (
+                f"{status}; cleanup failed during finalization at frame {affected_frame}: "
+                f"{cleanup_errors[0]}"
+            )
+        else:
+            terminal_status = status
         try:
             runtime_available = self._owns_runtime or not self._runtime.active
         except Exception:

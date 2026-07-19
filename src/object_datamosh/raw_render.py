@@ -137,8 +137,7 @@ class RawRenderSession:
             preview = ", ".join(str(path) for path in collisions[:3])
             raise FileExistsError(f"Raw output exists and overwrite is disabled: {preview}")
         output_context = output_paths_context(scene, view_layer, paths)
-        output_context.__enter__()
-        return cls(
+        session = cls(
             scene,
             view_layer,
             paths,
@@ -147,6 +146,8 @@ class RawRenderSession:
             overwrite=overwrite,
             output_context=output_context,
         )
+        output_context.__enter__()
+        return session
 
     @property
     def is_finished(self) -> bool:
@@ -176,7 +177,8 @@ class RawRenderSession:
             if late_collisions:
                 preview = ", ".join(str(path) for path in late_collisions)
                 raise FileExistsError(
-                    f"Raw output appeared after rendering started and overwrite is disabled: {preview}"
+                    "Raw output appeared after rendering started and overwrite is disabled: "
+                    f"{preview}"
                 )
         directories = (expected.beauty.parent, expected.vector.parent, expected.matte.parent)
         for directory in directories:
