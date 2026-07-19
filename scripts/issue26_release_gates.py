@@ -95,8 +95,13 @@ def atomic_copy(source: Path, destination: Path) -> None:
 
 def signal_process_group(pid: int, signal_number: int) -> None:
     """Signal a gate process group unless it already exited."""
-    with contextlib.suppress(ProcessLookupError):
+    try:
         os.killpg(pid, signal_number)
+    except PermissionError:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal_number)
+    except ProcessLookupError:
+        pass
 
 
 def process_group_exists(pid: int) -> bool:
@@ -140,6 +145,10 @@ def terminate_timed_out_process(
             return process.wait(timeout=kill_timeout_seconds), None
         except subprocess.TimeoutExpired:
             return 124, "Gate process did not exit after SIGKILL"
+
+
+def unblock_child_interrupt_signals() -> None:
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, INTERRUPT_SIGNALS)
 
 
 def interrupt_release_gate(signal_number: int, _frame: object) -> None:
@@ -234,6 +243,7 @@ def run_gate(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            preexec_fn=unblock_child_interrupt_signals,
         )
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
