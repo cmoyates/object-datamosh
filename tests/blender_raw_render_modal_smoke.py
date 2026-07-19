@@ -60,12 +60,10 @@ def run_raw_render_modal_scenarios(
     ]
     timer = _timer(window_manager)
     launch_result = operator.modal(context, timer)
-    assert launch_result == {"RUNNING_MODAL"}, (launch_result, operator.reports, runtime.status)
-    # The synchronous fallback reaches a terminal event before launch returns, so its exact
-    # temporary handlers are already removed before control returns to the parent modal operator.
+    assert launch_result == {"FINISHED"}, (launch_result, operator.reports, runtime.status)
+    # Render, discovery, progress publication, and handler removal share one atomic timer step.
     assert len(bpy.app.handlers.render_complete) == complete_handlers_before
     assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before
-    assert operator.modal(context, timer) == {"FINISHED"}
     assert len(bpy.app.handlers.render_complete) == complete_handlers_before
     assert len(bpy.app.handlers.render_cancel) == cancel_handlers_before
     frame = SequencePaths(root / "complete").frame(1)
@@ -103,3 +101,13 @@ def run_raw_render_modal_scenarios(
         ("timer_remove", cancelled_window_manager.timer),
         ("progress_end", None),
     ]
+
+    settings.output_directory = str(root / "registered-background")
+    settings.frame_start = 1
+    settings.frame_end = 1
+    assert object_datamosh_ops.render_raw_passes() == {"FINISHED"}
+    background_frame = SequencePaths(root / "registered-background").frame(1)
+    assert background_frame.beauty.is_file()
+    assert background_frame.vector.is_file()
+    assert background_frame.matte.is_file()
+    assert not runtime.active

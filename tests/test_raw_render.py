@@ -14,11 +14,13 @@ from object_datamosh.raw_render import RawRenderResult, RawRenderSession, render
 class Scene:
     def __init__(self, view_layer: object) -> None:
         self.frame_current = 9
+        self.frame_subframe = 0.625
         self.frames: list[int] = []
         self.view_layers = {"Main": view_layer}
 
-    def frame_set(self, frame: int) -> None:
+    def frame_set(self, frame: int, *, subframe: float = 0.0) -> None:
         self.frame_current = frame
+        self.frame_subframe = subframe
         self.frames.append(frame)
 
 
@@ -55,6 +57,73 @@ def test_session_discovers_emitted_paths_and_restores_the_scene_frame(tmp_path: 
     assert (actual.beauty, actual.vector, actual.matte) == emitted
     assert session.result.frames == (actual,)
     assert scene.frames == [3, 9]
+    assert scene.frame_subframe == 0.625
+
+
+def test_output_paths_are_owned_only_during_an_active_frame(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def recording_context(*_args: object) -> Iterator[None]:
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    view_layer = SimpleNamespace(name="Main")
+    scene = Scene(view_layer)
+    paths = SequencePaths(tmp_path)
+    session = RawRenderSession.create(
+        scene,
+        view_layer,
+        paths,
+        frame_start=1,
+        frame_end=1,
+        output_paths_context=recording_context,
+    )
+    assert events == []
+    request = session.prepare_next_frame()
+    assert events == ["enter"]
+    expected = paths.frame(1)
+    for path in (expected.beauty, expected.vector, expected.matte):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"rendered")
+    session.complete_frame(request)
+    assert events == ["enter", "exit"]
+    session.close()
+
+
+def test_session_close_aggregates_frame_and_output_restoration_failures(
+    tmp_path: Path,
+) -> None:
+    class FailingScene(Scene):
+        def frame_set(self, frame: int, *, subframe: float = 0.0) -> None:
+            raise RuntimeError(f"cannot set {frame}:{subframe}")
+
+    class FailingOutputContext:
+        def __enter__(self) -> None:
+            pass
+
+        def __exit__(self, *_args: object) -> None:
+            raise RuntimeError("nodes unavailable")
+
+    view_layer = SimpleNamespace(name="Main")
+    session = RawRenderSession.create(
+        FailingScene(view_layer),
+        view_layer,
+        SequencePaths(tmp_path),
+        frame_start=1,
+        frame_end=1,
+        output_paths_context=lambda *_args: FailingOutputContext(),
+    )
+    session._output_context = FailingOutputContext()
+
+    with pytest.raises(RuntimeError) as raised:
+        session.close()
+
+    assert "temporary output-path restoration failed: nodes unavailable" in str(raised.value)
+    assert "scene frame restoration to 9 (subframe 0.625) failed" in str(raised.value)
 
 
 def test_session_constructor_failure_does_not_acquire_output_paths(tmp_path: Path) -> None:

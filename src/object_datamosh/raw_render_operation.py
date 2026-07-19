@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
+from .raw_render import RenderFrameRequest
 
 
 class RenderEvent(StrEnum):
@@ -19,15 +19,6 @@ class RenderEvent(StrEnum):
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
-
-
-@dataclass(frozen=True, slots=True)
-class RenderFrameRequest:
-    """One scene-owned frame render passed through the adapter boundary."""
-
-    frame: int
-    scene: object
-    view_layer: object
 
 
 class StatusSettings(Protocol):
@@ -134,12 +125,19 @@ class RawRenderModalController:
                 return self._finish_cancelled()
             frame_number = session.current_frame
             try:
+                expected_identity = self._runtime.run_identity
                 request = session.prepare_next_frame()
-                self._adapter.launch(request, self._runtime.run_identity)
+                if self.cancel_requested:
+                    return self._finish_cancelled()
+                if self._runtime.run_identity != expected_identity:
+                    raise RuntimeError("Raw render run ownership changed during frame preparation")
+                self._active_request = request
+                self._adapter.launch(request, expected_identity)
             except Exception as error:
                 return self._fail(frame_number, error)
-            self._active_request = request
-            return {"RUNNING_MODAL"}
+            # EXEC_DEFAULT is synchronous in the production adapter. Consume and verify its
+            # terminal event in this same timer transaction; asynchronous fakes remain pollable.
+            return self.handle_event(event)
 
         try:
             adapter_event = self._adapter.poll()

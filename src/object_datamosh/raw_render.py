@@ -12,7 +12,27 @@ from typing import Any, Protocol
 import bpy
 
 from .core.paths import FramePaths, SequencePaths
-from .raw_render_operation import RenderFrameRequest
+
+
+class RenderScene(Protocol):
+    """Narrow scene identity required by the Blender render adapter."""
+
+    name: str
+
+
+class RenderViewLayer(Protocol):
+    """Narrow view-layer identity required by raw rendering."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenderFrameRequest:
+    """One scene-owned frame render passed through the Blender adapter boundary."""
+
+    frame: int
+    scene: RenderScene
+    view_layer: RenderViewLayer
 
 
 class RenderProgress(Protocol):
@@ -99,7 +119,7 @@ class RawRenderSession:
         frame_start: int,
         frame_end: int,
         overwrite: bool,
-        output_context: AbstractContextManager[None],
+        output_paths_context: OutputPathsContext,
     ) -> None:
         self.scene = scene
         self.view_layer = view_layer
@@ -110,7 +130,9 @@ class RawRenderSession:
         self._overwrite = overwrite
         self.completed_frames: tuple[FramePaths, ...] = ()
         self._original_frame = scene.frame_current
-        self._output_context = output_context
+        self._original_subframe = getattr(scene, "frame_subframe", 0.0)
+        self._output_paths_context = output_paths_context
+        self._output_context: AbstractContextManager[None] | None = None
         self._pending_request: RenderFrameRequest | None = None
         self._before: tuple[dict[Path, tuple[int, int]], ...] | None = None
         self._closed = False
@@ -136,18 +158,15 @@ class RawRenderSession:
         if collisions and not overwrite:
             preview = ", ".join(str(path) for path in collisions[:3])
             raise FileExistsError(f"Raw output exists and overwrite is disabled: {preview}")
-        output_context = output_paths_context(scene, view_layer, paths)
-        session = cls(
+        return cls(
             scene,
             view_layer,
             paths,
             frame_start=frame_start,
             frame_end=frame_end,
             overwrite=overwrite,
-            output_context=output_context,
+            output_paths_context=output_paths_context,
         )
-        output_context.__enter__()
-        return session
 
     @property
     def is_finished(self) -> bool:
@@ -184,7 +203,20 @@ class RawRenderSession:
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
         self._before = tuple(_snapshot(directory) for directory in directories)
-        self.scene.frame_set(self.current_frame)
+        output_context = self._output_paths_context(self.scene, self.view_layer, self.paths)
+        output_context.__enter__()
+        self._output_context = output_context
+        try:
+            self.scene.frame_set(self.current_frame)
+        except Exception as error:
+            try:
+                self._release_output_context()
+            except Exception as cleanup_error:
+                raise RuntimeError(
+                    f"Frame preparation failed: {error}; output-path cleanup failed: "
+                    f"{cleanup_error}"
+                ) from error
+            raise
         request = RenderFrameRequest(
             frame=self.current_frame,
             scene=self.scene,
@@ -199,13 +231,24 @@ class RawRenderSession:
             raise RuntimeError("Render completion does not belong to the active raw frame")
         expected = self.paths.frame(request.frame)
         directories = (expected.beauty.parent, expected.vector.parent, expected.matte.parent)
-        actual = FramePaths(
-            frame=request.frame,
-            beauty=_discover_output(directories[0], self._before[0], "beauty"),
-            vector=_discover_output(directories[1], self._before[1], "vector"),
-            matte=_discover_output(directories[2], self._before[2], "matte"),
-            processed=expected.processed,
-        )
+        try:
+            actual = FramePaths(
+                frame=request.frame,
+                beauty=_discover_output(directories[0], self._before[0], "beauty"),
+                vector=_discover_output(directories[1], self._before[1], "vector"),
+                matte=_discover_output(directories[2], self._before[2], "matte"),
+                processed=expected.processed,
+            )
+        except Exception as error:
+            try:
+                self._release_output_context()
+            except Exception as cleanup_error:
+                raise RuntimeError(
+                    f"Output verification failed: {error}; output-path cleanup failed: "
+                    f"{cleanup_error}"
+                ) from error
+            raise
+        self._release_output_context()
         self.completed_frames += (actual,)
         self.current_frame += 1
         self._pending_request = None
@@ -224,10 +267,25 @@ class RawRenderSession:
         if self._closed:
             return
         self._closed = True
+        cleanup_errors: list[str] = []
         try:
-            self.scene.frame_set(self._original_frame)
-        finally:
-            self._output_context.__exit__(None, None, None)
+            self._release_output_context()
+        except Exception as error:
+            cleanup_errors.append(f"temporary output-path restoration failed: {error}")
+        try:
+            self.scene.frame_set(self._original_frame, subframe=self._original_subframe)
+        except Exception as error:
+            cleanup_errors.append(
+                f"scene frame restoration to {self._original_frame} "
+                f"(subframe {self._original_subframe}) failed: {error}"
+            )
+        if cleanup_errors:
+            raise RuntimeError("; ".join(cleanup_errors))
+
+    def _release_output_context(self) -> None:
+        output_context, self._output_context = self._output_context, None
+        if output_context is not None:
+            output_context.__exit__(None, None, None)
 
 
 def render_raw_passes(

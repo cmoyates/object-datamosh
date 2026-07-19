@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 import bpy
 
 from .modal_lifecycle import RuntimeState
-from .raw_render_operation import RenderEvent, RenderFrameRequest
+from .raw_render import RenderFrameRequest
+from .raw_render_operation import RenderEvent
 
 
 class RenderHandlers(Protocol):
@@ -83,8 +84,8 @@ class BlenderRenderAdapter:
             # then control returns to the parent modal lifecycle before another frame is launched.
             result = self._render_operator(
                 "EXEC_DEFAULT",
-                scene=cast(Any, request.scene).name,
-                layer=cast(Any, request.view_layer).name,
+                scene=request.scene.name,
+                layer=request.view_layer.name,
             )
             if result is None:
                 raise RuntimeError("Blender render invocation returned no status")

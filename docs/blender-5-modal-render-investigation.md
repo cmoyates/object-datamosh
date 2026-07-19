@@ -85,8 +85,9 @@ frame 2 render_post/render_complete
 terminal runtime -> COMPLETED, completed work 2, progress 1.0
 ```
 
-The exact discovered beauty, Vector, and matte paths were retained after each completion. The
-scene frame and owned File Output paths were restored during finalization.
+The exact discovered beauty, Vector, and matte paths were retained after each completion. Owned
+File Output paths are active only for that atomic render/discovery timer step and are restored before
+yielding; finalization restores the original scene frame and any partially active output context.
 
 This fallback yields to Blender between frames, not during an individual frame. A 256×256 Cycles
 foreground probe scheduled a 50 ms application heartbeat and recorded **zero heartbeats while a
@@ -131,11 +132,13 @@ repaint during an individual render.
 
 ## Background mode
 
-In `--background` mode, even an `INVOKE_DEFAULT` call returned `{'FINISHED'}` synchronously. The
-committed adapter deliberately uses the same `EXEC_DEFAULT` frame-boundary path in foreground and
-background modes. Background smoke tests drive the parent modal timer through a deterministic
-WindowManager boundary because a script that owns Blender's main thread cannot pump real modal
-window events.
+In `--background` mode, even an `INVOKE_DEFAULT` call returned `{'FINISHED'}` synchronously, and a
+script that owns Blender's main thread cannot pump real modal window events. The registered
+**Render Raw Passes** operator therefore drives the incremental session synchronously in background
+mode and returns `FINISHED`; a Blender smoke scenario invokes that registered operator directly and
+verifies its files and unlocked runtime. A separate deterministic WindowManager recorder exercises
+the foreground modal startup, timer ownership, progress boundaries, cancellation, and cleanup while
+running under the background smoke harness.
 
 ## macOS limitations
 

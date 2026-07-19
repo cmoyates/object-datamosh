@@ -420,7 +420,7 @@ def main() -> None:
             object_datamosh_ops,
             operator_root,
         )
-        assert settings.status == "Cancelled after 1 frame(s)"
+        assert settings.status == "Rendered 1 raw frame(s)"
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
 
         combined_root = temp_root / "combined"
@@ -473,7 +473,7 @@ def main() -> None:
                 raise AssertionError("Raw rendering accepted a view layer other than its setup")
         finally:
             scene.view_layers.remove(wrong_layer)
-        assert wrong_layer_progress.events == []
+        assert wrong_layer_progress.events == [("begin", 1), ("end", 0)]
         assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
 
         camera = scene.camera
@@ -542,6 +542,29 @@ def main() -> None:
             assert "overwrite is disabled" in str(error)
         else:
             raise AssertionError("Raw rendering overwrote existing outputs without permission")
+
+        negative_paths = SequencePaths(temp_root / "negative")
+        negative_result = render_raw_passes(
+            scene,
+            view_layer,
+            negative_paths,
+            frame_start=-1,
+            frame_end=-1,
+        )
+        assert negative_result.frames == (negative_paths.frame(-1),)
+        assert negative_result.frames[0].beauty.name == "ODM_beauty_-0001.exr"
+        try:
+            render_raw_passes(
+                scene,
+                view_layer,
+                negative_paths,
+                frame_start=-1,
+                frame_end=-1,
+            )
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("Negative-frame output bypassed overwrite protection")
 
         cancelled_paths = SequencePaths(temp_root / "cancelled")
         cancel_progress = ProgressRecorder()

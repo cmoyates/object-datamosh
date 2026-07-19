@@ -70,7 +70,11 @@ class FakeRenderSession:
         self.completed_requests: list[RenderFrameRequest] = []
 
     def prepare_next_frame(self) -> RenderFrameRequest:
-        return RenderFrameRequest(frame=self.current_frame, scene=object(), view_layer=object())
+        return RenderFrameRequest(
+            frame=self.current_frame,
+            scene=SimpleNamespace(name="Scene"),
+            view_layer=SimpleNamespace(name="ViewLayer"),
+        )
 
     def complete_frame(self, request: RenderFrameRequest) -> None:
         self.completed_requests.append(request)
@@ -201,6 +205,36 @@ def test_completed_last_frame_finalizes_and_releases_modal_resources() -> None:
     ]
 
 
+def test_cancellation_requested_during_preparation_prevents_launch() -> None:
+    runtime = RuntimeState()
+
+    class CancellingSession(FakeRenderSession):
+        def prepare_next_frame(self) -> RenderFrameRequest:
+            runtime.cancel_requested = True
+            return super().prepare_next_frame()
+
+    operator = Operator()
+    adapter = FakeRenderAdapter()
+    window_manager = WindowManager()
+    controller = RawRenderModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        run_identity_factory=lambda: "raw-run",
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        CancellingSession(),
+    )
+
+    assert controller.handle_event(
+        SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    ) == {"CANCELLED"}
+    assert adapter.launches == []
+    assert runtime.phase == "CANCELLED"
+
+
 def test_escape_before_first_launch_cancels_without_rendering() -> None:
     runtime = RuntimeState()
     operator = Operator()
@@ -284,7 +318,6 @@ def test_adapter_poll_failure_finalizes_the_active_frame() -> None:
         session,
     )
     timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
-    assert controller.handle_event(timer) == {"RUNNING_MODAL"}
 
     assert controller.handle_event(timer) == {"CANCELLED"}
     assert not runtime.active

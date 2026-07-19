@@ -482,6 +482,36 @@ class ODM_OT_render_raw_passes(Operator):
             self.report({"ERROR"}, "An active scene and view layer are required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
+        if bpy.app.background and isinstance(
+            context.window_manager, bpy.types.WindowManager
+        ):
+            # Registered background operators have no window event loop to deliver modal timers.
+            # Deterministic smoke harnesses provide a recorder instead and exercise modal startup.
+            progress = _WindowManagerProgress(context.window_manager)
+            settings.status = "Rendering raw passes in background mode..."
+            try:
+                result = render_raw_passes(
+                    scene,
+                    view_layer,
+                    sequence_paths_for_scene(scene),
+                    frame_start=settings.frame_start,
+                    frame_end=settings.frame_end,
+                    overwrite=settings.overwrite_raw,
+                    progress=progress,
+                )
+            except Exception as error:
+                message = (
+                    f"Raw rendering failed during background rendering at frame "
+                    f"{scene.frame_current}: {error}"
+                )
+                settings.status = message
+                self.report({"ERROR"}, message)
+                return {"CANCELLED"}
+            message = f"Rendered {len(result.frames)} raw frame(s)"
+            settings.status = message
+            self.report({"INFO"}, message)
+            return {"FINISHED"}
+
         runtime = runtime_for_scene(scene)
         controller = RawRenderModalController(
             self,
