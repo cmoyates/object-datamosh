@@ -93,7 +93,7 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     arguments = parse_arguments()
-    lock_path = Path(f"/tmp/object-datamosh-issue26-gates-{os.getuid()}.lock")
+    lock_path = Path(f"/tmp/object-datamosh-issue26-evidence-{os.getuid()}.lock")
     lock_stream = lock_path.open("w", encoding="utf-8")
     try:
         fcntl.flock(lock_stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -124,7 +124,8 @@ def main() -> None:
     current_head = git_output("rev-parse", "HEAD")
     current_source_tree = git_output("rev-parse", "HEAD:src/object_datamosh")
     foreground_receipt_path = REPO / "docs" / "evidence" / "issue-26-foreground-result.json"
-    foreground = json.loads(foreground_receipt_path.read_text(encoding="utf-8"))
+    foreground_receipt_content = foreground_receipt_path.read_bytes()
+    foreground = json.loads(foreground_receipt_content)
     if foreground.get("success") is not True:
         raise RuntimeError("Foreground receipt is not successful")
     expected_foreground_fields = {
@@ -210,7 +211,7 @@ def main() -> None:
         "blender_bin": str(blender_bin),
         "foreground": {
             "git_head": foreground["git_head"],
-            "receipt_sha256": sha256_bytes(foreground_receipt_path.read_bytes()),
+            "receipt_sha256": sha256_bytes(foreground_receipt_content),
             "trace_file": trace_name,
             "trace_sha256": foreground["event_log_sha256_before_completion"],
         },
@@ -226,6 +227,15 @@ def main() -> None:
         if arguments.update_evidence
         else Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-")) / EVIDENCE.name
     )
+    if foreground_receipt_path.read_bytes() != foreground_receipt_content:
+        raise RuntimeError("Foreground receipt changed during the release-gate run")
+    if (
+        not foreground_trace.is_file()
+        or sha256_bytes(foreground_trace.read_bytes())
+        != foreground["event_log_sha256_before_completion"]
+    ):
+        raise RuntimeError("Foreground trace changed during the release-gate run")
+
     target.parent.mkdir(parents=True, exist_ok=True)
     previous_keep: set[str] = set()
     if target.is_file():

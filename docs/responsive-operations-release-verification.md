@@ -99,7 +99,8 @@ BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
 
 The runner starts non-background Blender with factory settings, waits for explicit raw-active and
 processing Escape checkpoints, sends each real key event, and has bounded waits. A stable per-user
-lock serializes this runner, and System Events confirms the launched Blender PID is frontmost
+persistent kernel lock serializes this runner with release-receipt promotion, and System Events
+confirms the launched Blender PID is frontmost
 immediately before each key event. The run fails unless its Blender-side state checkpoints and
 result JSON say `"success": true`. By default it leaves a
 unique run directory outside the checkout;
