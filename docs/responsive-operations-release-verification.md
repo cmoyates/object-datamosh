@@ -148,6 +148,11 @@ through an undocumented API. See
 
 ## Commands and results
 
+The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates, captures each exit
+code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
+machine-readable receipt at `docs/evidence/issue-26-release-gates.json` only with explicit
+`--update-evidence`.
+
 Run from the repository root with
 `BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender`:
 
@@ -176,7 +181,11 @@ root where the release gate ran.
 - `scripts/issue26_foreground_probe.py` — runs the foreground Blender assertions and writes evidence.
 - `scripts/run_issue26_foreground_probe.sh` — launches the probe and sends real raw/processing
   Escape events through macOS System Events.
+- `scripts/issue26_release_gates.py` — executes and receipts static, pure-Python, Blender background,
+  validation, and package-build gates.
 - `docs/evidence/issue-26-foreground-result.json` — retains the successful foreground assertion
   receipt for the tested source tree and probe revision.
 - `docs/evidence/issue-26-foreground-events-<sha256>.jsonl` — retains the receipt-bound monotonic
-  event trace used to verify active-render Escape timing.
+  event trace used to verify active-render Escape timing; explicit evidence updates promote the new
+  receipt before pruning superseded traces, so interrupted updates remain recoverable and bounded.
+- `docs/evidence/issue-26-release-gates.json` — retains the HEAD-bound command and ZIP receipt.

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import bpy
 
@@ -69,6 +69,35 @@ class ProbeStage(StrEnum):
     RESTART_AFTER_RESUME = "restart_after_resume"
 
 
+class Snapshot(TypedDict):
+    stage: str
+    active: bool
+    cancel_requested: bool
+    phase: str
+    current_frame: int
+    completed_work: int
+    total_work: int
+    phase_completed_work: int
+    phase_total_work: int
+    progress: float
+    runtime_status: str
+    settings_status: str
+    scene_frame: int
+
+
+SidebarObservation = tuple[str, str, int, int, int, int, int, float]
+
+
+class Evidence(TypedDict, total=False):
+    combined_success: dict[str, object]
+    raw_button_cancel: dict[str, object]
+    raw_escape_cancel: dict[str, object]
+    processing_button_cancel: dict[str, object]
+    processing_escape_cancel: dict[str, object]
+    processing_resumes_completed: bool
+    immediate_restart_completed: bool
+
+
 _ALLOWED_TRANSITIONS = {
     ProbeStage.INITIALIZE: ProbeStage.COMBINED_SUCCESS,
     ProbeStage.COMBINED_SUCCESS: ProbeStage.RAW_BUTTON_CANCEL,
@@ -84,14 +113,14 @@ _ALLOWED_TRANSITIONS = {
 @dataclass
 class ProbeState:
     stage: ProbeStage = ProbeStage.INITIALIZE
-    snapshots: list[dict[str, Any]] = field(default_factory=list)
+    snapshots: list[Snapshot] = field(default_factory=list)
     seen: set[tuple[Any, ...]] = field(default_factory=set)
     original_frame: int = 7
     render_active: bool = False
     heartbeat_count: int = 0
     heartbeats_during_render: int = 0
-    sidebar_draws: list[tuple[Any, ...]] = field(default_factory=list)
-    evidence: dict[str, Any] = field(default_factory=dict)
+    sidebar_draws: list[SidebarObservation] = field(default_factory=list)
+    evidence: Evidence = field(default_factory=Evidence)
     baseline_complete_handlers: int = 0
     baseline_cancel_handlers: int = 0
     cancel_sent: bool = False
@@ -153,7 +182,7 @@ class ODM_PT_issue26_observer(_bpy.types.Panel):
         layout.label(text=f"Observed {runtime.completed_work}/{runtime.total_work}")
 
 
-def snapshot(stage: str) -> dict[str, Any]:
+def snapshot(stage: str) -> Snapshot:
     scene = _bpy.context.scene
     runtime = runtime_for_scene(scene)
     settings = settings_for_scene(scene)
@@ -174,7 +203,7 @@ def snapshot(stage: str) -> dict[str, Any]:
     }
 
 
-def record_snapshot() -> dict[str, Any]:
+def record_snapshot() -> Snapshot:
     stage = str(state.stage)
     item = snapshot(stage)
     key = tuple(item.values())
@@ -285,7 +314,11 @@ def assert_raw_escape_sent_during_render() -> None:
         and event["marker"] == "raw_render_active"
     ]
     assert len(escape_times) == 2
-    assert all(any(start < escape < end for start, end in intervals) for escape in escape_times)
+    escape_start, escape_sent = escape_times
+    assert any(
+        render_start < escape_start < escape_sent < render_end
+        for render_start, render_end in intervals
+    )
 
 
 def start_combined(name: str, *, end: int = 10) -> None:
@@ -354,7 +387,7 @@ def fail(error: BaseException) -> None:
     _bpy.ops.wm.quit_blender()
 
 
-def _handle_initialize(item: dict[str, Any], active: bool) -> None:
+def _handle_initialize(item: Snapshot, active: bool) -> None:
     object_datamosh.register()
     scene = _bpy.context.scene
     scene.frame_set(int(state.original_frame))
@@ -381,7 +414,7 @@ def _handle_initialize(item: dict[str, Any], active: bool) -> None:
     start_combined("combined-success")
 
 
-def _handle_combined_success(item: dict[str, Any], active: bool) -> None:
+def _handle_combined_success(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if not active:
         assert item["phase"] == "COMPLETED", item
@@ -433,7 +466,7 @@ def _handle_combined_success(item: dict[str, Any], active: bool) -> None:
         start_combined("raw-button-cancel")
 
 
-def _handle_raw_button_cancel(item: dict[str, Any], active: bool) -> None:
+def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if (
         active
@@ -474,13 +507,13 @@ def _handle_raw_button_cancel(item: dict[str, Any], active: bool) -> None:
         state.transition(ProbeStage.RAW_ESCAPE_CANCEL)
         state.escape_seen = False
         scene = _bpy.context.scene
-        scene.cycles.samples = 16
+        scene.cycles.samples = 64
         scene.render.resolution_x = 512
         scene.render.resolution_y = 512
         start_combined("raw-escape-cancel", end=100)
 
 
-def _handle_raw_escape_cancel(item: dict[str, Any], active: bool) -> None:
+def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if active and bool(item["cancel_requested"]):
         state.escape_seen = True
@@ -535,7 +568,7 @@ def _handle_raw_escape_cancel(item: dict[str, Any], active: bool) -> None:
         raise RuntimeError(f"Raw Escape ended unexpectedly: {item!r}")
 
 
-def _handle_processing_cancel(item: dict[str, Any], active: bool) -> None:
+def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if active and (not state.processing_cancel_sent) and (int(item["completed_work"]) >= 2):
         result = _bpy.ops.object_datamosh.cancel_operation()
@@ -570,7 +603,7 @@ def _handle_processing_cancel(item: dict[str, Any], active: bool) -> None:
         start_existing("processing-cancel", mode="RESUME")
 
 
-def _handle_processing_resume(item: dict[str, Any], active: bool) -> None:
+def _handle_processing_resume(item: Snapshot, active: bool) -> None:
     if not active:
         assert item["phase"] == "COMPLETED", item
         assert all_frame_files(ROOT / "processing-cancel", processed=True)
@@ -585,7 +618,7 @@ def _handle_processing_resume(item: dict[str, Any], active: bool) -> None:
         emit("processing_escape_ready")
 
 
-def _handle_processing_escape_cancel(item: dict[str, Any], active: bool) -> None:
+def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if active and bool(item["cancel_requested"]):
         assert item["phase"] == "CANCELLING"
@@ -629,7 +662,7 @@ def _handle_processing_escape_cancel(item: dict[str, Any], active: bool) -> None
         raise RuntimeError(f"Processing Escape ended unexpectedly: {item!r}")
 
 
-def _handle_processing_escape_resume(item: dict[str, Any], active: bool) -> None:
+def _handle_processing_escape_resume(item: Snapshot, active: bool) -> None:
     if not active:
         assert item["phase"] == "COMPLETED", item
         assert all_frame_files(ROOT / "processing-escape", processed=True)
@@ -645,7 +678,7 @@ def _handle_processing_escape_resume(item: dict[str, Any], active: bool) -> None
         start_existing("restart-after-resume")
 
 
-def _handle_restart_after_resume(item: dict[str, Any], active: bool) -> None:
+def _handle_restart_after_resume(item: Snapshot, active: bool) -> None:
     if active and (not state.restart_cancel_sent):
         result = _bpy.ops.object_datamosh.cancel_operation()
         assert result == {"FINISHED"}
@@ -660,7 +693,7 @@ def _handle_restart_after_resume(item: dict[str, Any], active: bool) -> None:
         return None
 
 
-_STAGE_HANDLERS: dict[ProbeStage, Callable[[dict[str, Any], bool], None]] = {
+_STAGE_HANDLERS: dict[ProbeStage, Callable[[Snapshot, bool], None]] = {
     ProbeStage.INITIALIZE: _handle_initialize,
     ProbeStage.COMBINED_SUCCESS: _handle_combined_success,
     ProbeStage.RAW_BUTTON_CANCEL: _handle_raw_button_cancel,

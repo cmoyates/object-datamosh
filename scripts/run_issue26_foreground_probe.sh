@@ -13,29 +13,19 @@ if (( $# != 0 )); then
   exit 2
 fi
 
+if [[ "${ODM_ISSUE26_LOCK_HELD:-}" != "1" ]]; then
+  lock_file="/tmp/object-datamosh-issue26-$(id -u).lock"
+  if $update_evidence; then
+    exec /usr/bin/lockf -t 0 "$lock_file" \
+      env ODM_ISSUE26_LOCK_HELD=1 "$0" --update-evidence
+  fi
+  exec /usr/bin/lockf -t 0 "$lock_file" env ODM_ISSUE26_LOCK_HELD=1 "$0"
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 probe="$repo_root/scripts/issue26_foreground_probe.py"
 evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
-lock_dir="/tmp/object-datamosh-issue26-$(id -u).lock"
-lock_token="$$.$RANDOM.$(date +%s)"
-while ! mkdir "$lock_dir" 2>/dev/null; do
-  owner_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
-  if [[ -z "$owner_pid" ]]; then
-    echo "Issue #26 foreground-probe lock is being initialized: $lock_dir" >&2
-    exit 1
-  fi
-  if kill -0 "$owner_pid" 2>/dev/null; then
-    echo "Another issue #26 foreground probe is running as PID $owner_pid" >&2
-    exit 1
-  fi
-  stale_lock="$lock_dir.stale.$lock_token"
-  if mv "$lock_dir" "$stale_lock" 2>/dev/null; then
-    rm -r "$stale_lock"
-  fi
-done
-printf '%s\n' "$lock_token" > "$lock_dir/token"
-printf '%s\n' "$$" > "$lock_dir/pid"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
@@ -52,9 +42,6 @@ cleanup() {
   rm -f "$evidence_tmp"
   if [[ -n "$evidence_trace_tmp" ]]; then
     rm -f "$evidence_trace_tmp"
-  fi
-  if [[ "$(cat "$lock_dir/token" 2>/dev/null || true)" == "$lock_token" ]]; then
-    rm -r "$lock_dir"
   fi
 }
 trap cleanup EXIT
@@ -175,6 +162,11 @@ if $update_evidence; then
   fi
   cp "$run_result" "$evidence_tmp"
   mv "$evidence_tmp" "$evidence_result"
+  for old_trace in "$repo_root"/docs/evidence/issue-26-foreground-events-*.jsonl; do
+    if [[ -f "$old_trace" && "$old_trace" != "$evidence_trace" ]]; then
+      rm "$old_trace"
+    fi
+  done
   rm -r "$work_root"
   echo "Updated $evidence_result and $evidence_trace"
 else
