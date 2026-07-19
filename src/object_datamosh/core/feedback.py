@@ -5,107 +5,22 @@ from numbers import Integral
 import numpy as np
 from numpy.typing import NDArray
 
+from .block_preparation import prepare_blocks
 from .contracts import (
     FeedbackMode,
     FeedbackSettings,
     FeedbackState,
     FloatImage,
     FloatMask,
-    MotionChannels,
 )
 from .sampling import bilinear_sample
 
 
-def _block_reduce_expand(displacement: FloatImage, matte: FloatMask, block_size: int) -> FloatImage:
-    """Return one matte-weighted representative displacement per partial edge block."""
-    height, width = matte.shape
-    y_starts = np.arange(0, height, block_size)
-    x_starts = np.arange(0, width, block_size)
-    weights = np.clip(matte, 0.0, 1.0).astype(np.float64)
-    weighted_vectors = displacement.astype(np.float64) * weights[..., None]
-    block_weights = np.add.reduceat(np.add.reduceat(weights, y_starts, axis=0), x_starts, axis=1)
-    block_vectors = np.add.reduceat(
-        np.add.reduceat(weighted_vectors, y_starts, axis=0), x_starts, axis=1
-    )
-    representatives = np.divide(
-        block_vectors,
-        block_weights[..., None],
-        out=np.zeros_like(block_vectors),
-        where=block_weights[..., None] > 0.0,
-    ).astype(np.float32)
-    return np.repeat(np.repeat(representatives, block_size, axis=0), block_size, axis=1)[
-        :height, :width
-    ]
-
-
-_UINT64_MASK = (1 << 64) - 1
-
-
-def _unit_random_grid(
-    seed: int,
-    frame_number: int,
-    block_rows: int,
-    block_columns: int,
-    stream: int,
-) -> NDArray[np.float64]:
-    """Map deterministic integer block coordinates to floats in ``[0, 1)``."""
-    block_y = np.arange(block_rows, dtype=np.uint64)[:, None]
-    block_x = np.arange(block_columns, dtype=np.uint64)[None, :]
-    seed_value = int(seed)
-    frame_value = int(frame_number)
-    value = np.full((block_rows, block_columns), seed_value & _UINT64_MASK, dtype=np.uint64)
-    value ^= np.uint64((frame_value * 0xD6E8FEB86659FD93) & _UINT64_MASK)
-    value ^= block_y * np.uint64(0xA5A3564E27F8862F)
-    value ^= block_x * np.uint64(0x9E3779B97F4A7C15)
-    value ^= np.uint64((stream * 0x94D049BB133111EB) & _UINT64_MASK)
-    value += np.uint64(0x9E3779B97F4A7C15)
-    value = (value ^ (value >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
-    value = (value ^ (value >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
-    value ^= value >> np.uint64(31)
-    return (value >> np.uint64(11)).astype(np.float64) * (1.0 / (1 << 53))
-
-
 def _expand_blocks(block_values: NDArray, block_size: int, height: int, width: int) -> NDArray:
-    """Expand a block grid over pixels and trim partial edge blocks."""
+    """Expand a compact block grid over pixels and trim partial edge blocks."""
     return np.repeat(np.repeat(block_values, block_size, axis=0), block_size, axis=1)[
         :height, :width
     ]
-
-
-def _apply_block_randomness(
-    displacement: FloatImage,
-    block_size: int,
-    diffusion: float,
-    refresh_probability: float,
-    seed: int,
-    frame_number: int,
-) -> tuple[FloatImage, NDArray[np.bool_]]:
-    height, width = displacement.shape[:2]
-    block_rows = (height + block_size - 1) // block_size
-    block_columns = (width + block_size - 1) // block_size
-    block_shape = (block_rows, block_columns)
-    if diffusion > 0.0:
-        block_offsets = np.empty((*block_shape, 2), dtype=np.float64)
-        for component in range(2):
-            random_values = _unit_random_grid(
-                seed, frame_number, block_rows, block_columns, component
-            )
-            block_offsets[..., component] = (2.0 * random_values - 1.0) * diffusion
-        offsets = _expand_blocks(block_offsets, block_size, height, width)
-        float32_limit = np.finfo(np.float32).max
-        result = np.clip(displacement.astype(np.float64) + offsets, -float32_limit, float32_limit)
-        result = result.astype(np.float32)
-    else:
-        result = displacement.copy()
-    if refresh_probability > 0.0:
-        block_refresh = (
-            _unit_random_grid(seed, frame_number, block_rows, block_columns, 2)
-            < refresh_probability
-        )
-        refreshed = _expand_blocks(block_refresh, block_size, height, width)
-    else:
-        refreshed = np.zeros((height, width), dtype=np.bool_)
-    return result, refreshed
 
 
 def _validate_inputs(
@@ -157,41 +72,12 @@ def process_frame(
     if previous_state is None or force_reset:
         output = beauty.copy()
     else:
-        channels = (0, 1) if settings.motion_channels is MotionChannels.RG else (2, 3)
-        decoded_motion = motion[..., channels].astype(np.float64)
-        if settings.reverse_motion:
-            decoded_motion *= -1.0
-        if settings.flip_x:
-            decoded_motion[..., 0] *= -1.0
-        if settings.flip_y:
-            decoded_motion[..., 1] *= -1.0
-        lengths = np.linalg.norm(decoded_motion, axis=-1)
-        representable_clamp = min(settings.motion_clamp, np.finfo(np.float32).max)
-        clamp_scales = np.divide(
-            representable_clamp,
-            lengths,
-            out=np.full_like(lengths, np.inf),
-            where=lengths > 0.0,
-        )
-        scales = np.minimum(settings.motion_gain, clamp_scales)
-        displacement = (decoded_motion * scales[..., None]).astype(np.float32)
-        effective_block_size = min(settings.block_size, max(matte.shape))
-        displacement = _block_reduce_expand(displacement, matte, effective_block_size)
-        smallest_float32 = float(np.nextafter(np.float32(0.0), np.float32(1.0)))
-        if settings.motion_quantization >= smallest_float32:
-            step = settings.motion_quantization
-            quantized = np.rint(displacement.astype(np.float64) / step) * step
-            float32_limit = np.finfo(np.float32).max
-            displacement = np.clip(quantized, -float32_limit, float32_limit).astype(np.float32)
-        displacement, refreshed = _apply_block_randomness(
-            displacement,
-            effective_block_size,
-            settings.diffusion,
-            settings.refresh_probability,
-            settings.seed,
-            frame_number,
-        )
+        prepared_blocks = prepare_blocks(motion, matte, frame_number, settings)
 
+        height, width = matte.shape
+        displacement = _expand_blocks(
+            prepared_blocks.displacement, prepared_blocks.block_size, height, width
+        )
         sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
         sample_x -= displacement[..., 0]
         sample_y -= displacement[..., 1]
@@ -227,6 +113,9 @@ def process_frame(
         else:
             next_matte = matte
             localized_history = matte * warped_matte
+        refreshed = _expand_blocks(
+            prepared_blocks.refresh, prepared_blocks.block_size, height, width
+        )
         blend = (settings.persistence * localized_history * covered * ~refreshed)[..., None]
         output = (beauty * (1.0 - blend) + warped_history * blend).astype(np.float32, copy=False)
     if previous_state is None or force_reset:
