@@ -187,6 +187,33 @@ def test_finalize_runs_workflow_cleanup_once_and_releases_all_universal_state() 
     ]
 
 
+def test_progress_initialization_failure_attempts_matching_cleanup() -> None:
+    class FailingProgressWindowManager(WindowManager):
+        def progress_begin(self, minimum: int, maximum: int) -> None:
+            super().progress_begin(minimum, maximum)
+            raise RuntimeError("progress unavailable")
+
+    runtime = RuntimeState()
+    window_manager = FailingProgressWindowManager()
+    lifecycle = ModalOperationLifecycle(object(), runtime)
+
+    try:
+        lifecycle.begin(
+            Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1
+        )
+    except RuntimeError as error:
+        assert str(error) == "progress unavailable"
+    else:
+        raise AssertionError("progress initialization failure did not propagate")
+
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert window_manager.events == [
+        ("progress_begin", (0, 1)),
+        ("progress_end", None),
+    ]
+
+
 def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> None:
     class FailingWindowManager(WindowManager):
         def event_timer_add(self, interval: float, *, window: object) -> object:

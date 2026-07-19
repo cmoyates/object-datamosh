@@ -102,8 +102,10 @@ class ModalOperationLifecycle:
 
             window_manager = context.window_manager
             self._window_manager = window_manager
-            window_manager.progress_begin(0, total_work)
+            # Mark the resource before acquisition so cleanup still attempts ``progress_end`` if
+            # Blender raises after partially opening its progress display.
             self._progress_started = True
+            window_manager.progress_begin(0, total_work)
             self._timer = window_manager.event_timer_add(
                 self._timer_interval,
                 window=context.window,
