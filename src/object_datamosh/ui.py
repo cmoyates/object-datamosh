@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -265,9 +266,18 @@ class ODM_Settings(PropertyGroup):
     )
 
 
+def _active_operation_runtime() -> ODM_RuntimeState | None:
+    """Return the scene-owned runtime holding the process-wide operation lock, if any."""
+    for scene in bpy.data.scenes:
+        if hasattr(scene, _SCENE_RUNTIME_ATTRIBUTE):
+            runtime = runtime_for_scene(scene)
+            if runtime.active:
+                return runtime
+    return None
+
+
 def _operation_is_idle(context: Context) -> bool:
-    scene = context.scene
-    return scene is not None and not runtime_for_scene(scene).active
+    return context.scene is not None and _active_operation_runtime() is None
 
 
 class ODM_OT_cancel_operation(Operator):
@@ -279,14 +289,13 @@ class ODM_OT_cancel_operation(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return context.scene is not None and runtime_for_scene(context.scene).active
+        return context.scene is not None and _active_operation_runtime() is not None
 
     def execute(self, context: Context) -> set[Any]:
-        scene = context.scene
-        if scene is None:
-            self.report({"ERROR"}, "An active scene is required")
+        runtime = _active_operation_runtime()
+        if runtime is None:
+            self.report({"WARNING"}, "No cancellable Object Datamosh operation is active")
             return {"CANCELLED"}
-        runtime = runtime_for_scene(scene)
         if not request_cancellation(runtime, context.window_manager):
             self.report({"WARNING"}, "No cancellable Object Datamosh operation is active")
             return {"CANCELLED"}
@@ -552,6 +561,8 @@ class ODM_OT_process_sequence(Operator):
 
     _session: ProcessingSession | None
     _lifecycle: ModalOperationLifecycle | None
+    _settings: ODM_Settings | None
+    _runtime: ODM_RuntimeState | None
     _initial_completed_work: int
 
     @classmethod
@@ -569,6 +580,8 @@ class ODM_OT_process_sequence(Operator):
         settings = settings_for_scene(scene)
         runtime = runtime_for_scene(scene)
         self._session = None
+        self._settings = settings
+        self._runtime = runtime
         self._initial_completed_work = 0
         self._lifecycle = ModalOperationLifecycle(self, runtime, cleanup=self._cleanup_session)
         settings.status = "Processing existing passes..."
@@ -598,14 +611,24 @@ class ODM_OT_process_sequence(Operator):
                 frame_end=settings.frame_end,
                 total_work=total_work,
             )
+            recovery_frame = self._session.recovery_frame
+            current_frame = recovery_frame or self._session.current_frame
+            status = (
+                f"Restoring resume history at frame {recovery_frame}"
+                if recovery_frame is not None
+                else f"Processing frame {current_frame} of {self._session.frame_end}"
+            )
+            settings.status = status
             self._lifecycle.update(
                 phase=OperationPhase.PROCESSING,
-                current_frame=self._session.current_frame,
+                current_frame=current_frame,
                 completed_work=self._initial_completed_work,
-                status=f"Processing frame {self._session.current_frame} of {settings.frame_end}",
+                status=status,
             )
-        except (NotImplementedError, OSError, RuntimeError, TypeError, ValueError) as error:
-            message = f"Processing failed at frame {settings.frame_start}: {error}"
+        except Exception as error:
+            message = (
+                f"Processing failed during initialization at frame {settings.frame_start}: {error}"
+            )
             settings.status = message
             self._finalize(OperationPhase.FAILED, message)
             self.report({"ERROR"}, message)
@@ -613,12 +636,6 @@ class ODM_OT_process_sequence(Operator):
         return {"RUNNING_MODAL"}
 
     def modal(self, context: Context, event: Any) -> set[Any]:
-        scene = context.scene
-        if scene is None:
-            message = "Processing failed: the active scene is no longer available"
-            self._finalize(OperationPhase.FAILED, message)
-            self.report({"ERROR"}, message)
-            return {"CANCELLED"}
         if event.type == "ESC":
             if self._lifecycle is not None:
                 self._lifecycle.request_cancel()
@@ -628,45 +645,60 @@ class ODM_OT_process_sequence(Operator):
 
         session = self._session
         lifecycle = self._lifecycle
-        settings = settings_for_scene(scene)
-        if session is None or lifecycle is None:
+        settings = self._settings
+        if session is None or lifecycle is None or settings is None:
             message = "Processing failed: the incremental session is unavailable"
-            settings.status = message
+            if settings is not None:
+                settings.status = message
             self._finalize(OperationPhase.FAILED, message)
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
 
-        frame_number = session.current_frame
+        recovering_history = session.recovery_frame is not None
+        frame_number = session.recovery_frame or session.current_frame
         completed_before = len(session.completed_frames)
         try:
             session.process_next_frame()
+            completed = len(session.completed_frames)
+            if completed > completed_before:
+                status = f"Processed frame {frame_number} of {session.frame_end}"
+                settings.status = status
+                lifecycle.update(
+                    phase=OperationPhase.PROCESSING,
+                    current_frame=frame_number,
+                    completed_work=self._initial_completed_work + completed,
+                    status=status,
+                )
+            elif recovering_history:
+                status = f"Restored resume history through frame {frame_number}"
+                settings.status = status
+                lifecycle.update(
+                    phase=OperationPhase.PROCESSING,
+                    current_frame=frame_number,
+                    completed_work=self._initial_completed_work,
+                    status=status,
+                )
         except SequenceProcessingCancelled as error:
             message = f"Cancelled after {len(error.completed_frames)} frame(s)"
             settings.status = message
             self._finalize(OperationPhase.CANCELLED, message)
             self.report({"WARNING"}, message)
             return {"CANCELLED"}
-        except (NotImplementedError, OSError, RuntimeError, TypeError, ValueError) as error:
-            message = f"Processing failed at frame {frame_number}: {error}"
+        except Exception as error:
+            message = f"Processing failed during processing at frame {frame_number}: {error}"
             settings.status = message
-            lifecycle.update(
-                phase=OperationPhase.FAILED,
-                current_frame=frame_number,
-                completed_work=self._initial_completed_work + len(session.completed_frames),
-                status=message,
-            )
+            with suppress(Exception):
+                lifecycle.update(
+                    phase=OperationPhase.FAILED,
+                    current_frame=frame_number,
+                    completed_work=self._initial_completed_work + len(session.completed_frames),
+                    status=message,
+                )
             self._finalize(OperationPhase.FAILED, message)
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
 
         completed = len(session.completed_frames)
-        if completed > completed_before:
-            lifecycle.update(
-                phase=OperationPhase.PROCESSING,
-                current_frame=frame_number,
-                completed_work=self._initial_completed_work + completed,
-                status=f"Processed frame {frame_number} of {settings.frame_end}",
-            )
         if not session.is_finished:
             return {"RUNNING_MODAL"}
 
@@ -677,13 +709,27 @@ class ODM_OT_process_sequence(Operator):
         self.report({"INFO"}, message)
         return {"FINISHED"}
 
+    def cancel(self, context: Context) -> None:
+        """Release owned modal resources if Blender cancels the operator externally."""
+        message = "Cancelled by Blender"
+        if self._settings is not None:
+            self._settings.status = message
+        self._finalize(OperationPhase.CANCELLED, message)
+
     def _cleanup_session(self) -> None:
         self._session = None
         self._lifecycle = None
 
     def _finalize(self, phase: OperationPhase, status: str) -> None:
-        if self._lifecycle is not None:
-            self._lifecycle.finalize(phase, status)
+        lifecycle = self._lifecycle
+        if lifecycle is None:
+            return
+        # The lifecycle publishes a cleanup failure before re-raising. A Blender callback must
+        # still return control rather than strand the modal operator in an exception.
+        with suppress(Exception):
+            lifecycle.finalize(phase, status)
+        if self._settings is not None and self._runtime is not None:
+            self._settings.status = self._runtime.status
 
 
 class ODM_OT_create_vector_calibration(Operator):
@@ -775,7 +821,7 @@ class ODM_PT_sidebar(Panel):
 def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     """Emit the complete sidebar surface through Blender's layout interface."""
     settings = settings_for_scene(scene)
-    runtime = runtime_for_scene(scene)
+    runtime = _active_operation_runtime() or runtime_for_scene(scene)
     paths = sequence_paths_for_scene(scene)
 
     operation = layout.box()
@@ -797,6 +843,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     target.label(text=f"View Layer: {view_layer_name}")
 
     sequence = layout.box()
+    sequence.enabled = not runtime.active
     sequence.label(text="Sequence")
     row = sequence.row(align=True)
     row.prop(settings, "frame_start")
@@ -853,7 +900,8 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     feedback.prop(settings, "refresh_probability")
     feedback.prop(settings, "seed")
 
-    layout.label(text=f"Status: {settings.status}")
+    if not runtime.active:
+        layout.label(text=f"Status: {settings.status}")
 
 
 _CLASSES = (

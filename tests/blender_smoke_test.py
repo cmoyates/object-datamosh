@@ -21,8 +21,15 @@ import numpy as np
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPOSITORY_ROOT / "src"
-if str(SOURCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOURCE_ROOT))
+TEST_ROOT = REPOSITORY_ROOT / "tests"
+for import_root in (SOURCE_ROOT, TEST_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+from blender_modal_test_support import (  # noqa: E402
+    ModalWindowManagerRecorder,
+    ProcessOperatorHarness,
+)
 
 import object_datamosh  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
@@ -95,49 +102,6 @@ class ProgressRecorder:
 
     def end(self) -> None:
         self.events.append(("end", 0))
-
-
-class ModalWindowManagerRecorder:
-    """Deterministic Blender event-loop boundary for modal operator smoke checks."""
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.timer = object()
-        self.windows: tuple[object, ...] = ()
-
-    def progress_begin(self, minimum: int, maximum: int) -> None:
-        self.events.append(("progress_begin", (minimum, maximum)))
-
-    def progress_update(self, value: int) -> None:
-        self.events.append(("progress_update", value))
-
-    def progress_end(self) -> None:
-        self.events.append(("progress_end", None))
-
-    def event_timer_add(self, interval: float, *, window: object) -> object:
-        self.events.append(("timer_add", (interval, window)))
-        return self.timer
-
-    def event_timer_remove(self, timer: object) -> None:
-        self.events.append(("timer_remove", timer))
-
-    def modal_handler_add(self, operator: object) -> None:
-        self.events.append(("modal_handler_add", operator))
-
-
-class ProcessOperatorHarness:
-    """Call the registered operator's public methods with deterministic Blender boundaries."""
-
-    execute = ODM_OT_process_sequence.execute
-    modal = ODM_OT_process_sequence.modal
-    _cleanup_session = ODM_OT_process_sequence._cleanup_session
-    _finalize = ODM_OT_process_sequence._finalize
-
-    def __init__(self) -> None:
-        self.reports: list[tuple[set[str], str]] = []
-
-    def report(self, level: set[str], message: str) -> None:
-        self.reports.append((level, message))
 
 
 class LayoutRecorder:
@@ -660,7 +624,7 @@ def main() -> None:
                 "window": modal_window,
             },
         )()
-        process_operator = ProcessOperatorHarness()
+        process_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert process_operator.execute(modal_context) == {"RUNNING_MODAL"}
         assert runtime.active
         assert runtime.phase == "PROCESSING"
@@ -668,7 +632,8 @@ def main() -> None:
         assert runtime.completed_work == 0
         assert runtime.total_work == 2
         assert runtime.progress == 0.0
-        assert settings.status == "Processing existing passes..."
+        assert settings.status == "Processing frame 1 of 2"
+        assert runtime.status == settings.status
         assert modal_window_manager.events[:3] == [
             ("progress_begin", (0, 2)),
             ("timer_add", (0.1, modal_window)),
@@ -683,6 +648,7 @@ def main() -> None:
         assert runtime.completed_work == 1
         assert runtime.progress == 0.5
         assert runtime.status == "Processed frame 1 of 2"
+        assert settings.status == runtime.status
         assert not object_datamosh_ops.process_sequence.poll()
 
         assert process_operator.modal(modal_context, timer_event) == {"FINISHED"}
@@ -729,7 +695,7 @@ def main() -> None:
                 "window": object(),
             },
         )()
-        cancelled_operator = ProcessOperatorHarness()
+        cancelled_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert cancelled_operator.execute(cancelled_context) == {"RUNNING_MODAL"}
         assert cancelled_operator.modal(cancelled_context, timer_event) == {"RUNNING_MODAL"}
         assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
@@ -768,7 +734,7 @@ def main() -> None:
                 "window": object(),
             },
         )()
-        resumed_operator = ProcessOperatorHarness()
+        resumed_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert resumed_operator.execute(resumed_context) == {"RUNNING_MODAL"}
         assert runtime.current_frame == 2
         assert runtime.completed_work == 1
@@ -798,7 +764,7 @@ def main() -> None:
                 "window": object(),
             },
         )()
-        escape_operator = ProcessOperatorHarness()
+        escape_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         escape_event = type("EscapeEvent", (), {"type": "ESC"})()
         assert escape_operator.execute(escape_context) == {"RUNNING_MODAL"}
         assert escape_operator.modal(escape_context, escape_event) == {"RUNNING_MODAL"}
@@ -827,7 +793,7 @@ def main() -> None:
                 "window": object(),
             },
         )()
-        failed_operator = ProcessOperatorHarness()
+        failed_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert failed_operator.execute(failed_context) == {"RUNNING_MODAL"}
         assert failed_operator.modal(failed_context, timer_event) == {"RUNNING_MODAL"}
         assert failed_operator.modal(failed_context, timer_event) == {"CANCELLED"}
@@ -836,11 +802,94 @@ def main() -> None:
         assert runtime.phase == "FAILED"
         assert runtime.current_frame == 2
         assert runtime.completed_work == 1
-        assert "Processing failed at frame 2" in runtime.status
+        assert "Processing failed during processing at frame 2" in runtime.status
         assert failed_window_manager.events[-2:] == [
             ("timer_remove", failed_window_manager.timer),
             ("progress_end", None),
         ]
+
+        callback_paths = SequencePaths(Path(temp_directory) / "framework-cancel")
+        callback_frame = callback_paths.frame(1)
+        image_io.write_rgba(callback_frame.beauty, first_beauty)
+        image_io.write_rgba(callback_frame.vector, zero_vector)
+        image_io.write_rgba(callback_frame.matte, matte_rgba)
+        settings.output_directory = str(callback_paths.root)
+        settings.frame_end = 1
+        callback_window_manager = ModalWindowManagerRecorder()
+        callback_context = type(
+            "CallbackModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": callback_window_manager,
+                "window": object(),
+            },
+        )()
+        callback_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
+        assert callback_operator.execute(callback_context) == {"RUNNING_MODAL"}
+        other_scene = bpy.data.scenes.new("ODM_Other_Scene")
+        try:
+            other_context = type("OtherSceneContext", (), {"scene": other_scene})()
+            assert not ODM_OT_process_sequence.poll(other_context)
+            callback_operator.cancel(callback_context)
+        finally:
+            bpy.data.scenes.remove(other_scene)
+        assert not runtime.active
+        assert runtime.phase == "CANCELLED"
+        assert callback_window_manager.events[-2:] == [
+            ("timer_remove", callback_window_manager.timer),
+            ("progress_end", None),
+        ]
+
+        progress_failure_paths = SequencePaths(Path(temp_directory) / "progress-failure")
+        progress_failure_frame = progress_failure_paths.frame(1)
+        image_io.write_rgba(progress_failure_frame.beauty, first_beauty)
+        image_io.write_rgba(progress_failure_frame.vector, zero_vector)
+        image_io.write_rgba(progress_failure_frame.matte, matte_rgba)
+        settings.output_directory = str(progress_failure_paths.root)
+        progress_failure_window_manager = ModalWindowManagerRecorder(fail_progress_update_at=2)
+        progress_failure_context = type(
+            "ProgressFailureModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": progress_failure_window_manager,
+                "window": object(),
+            },
+        )()
+        progress_failure_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
+        assert progress_failure_operator.execute(progress_failure_context) == {"RUNNING_MODAL"}
+        assert progress_failure_operator.modal(progress_failure_context, timer_event) == {
+            "CANCELLED"
+        }
+        assert not runtime.active
+        assert runtime.phase == "FAILED"
+        assert "progress publication failed" in runtime.status
+        assert progress_failure_window_manager.events[-2:] == [
+            ("timer_remove", progress_failure_window_manager.timer),
+            ("progress_end", None),
+        ]
+
+        restart_paths = SequencePaths(Path(temp_directory) / "restart-after-failure")
+        restart_frame = restart_paths.frame(1)
+        image_io.write_rgba(restart_frame.beauty, first_beauty)
+        image_io.write_rgba(restart_frame.vector, zero_vector)
+        image_io.write_rgba(restart_frame.matte, matte_rgba)
+        settings.output_directory = str(restart_paths.root)
+        restart_window_manager = ModalWindowManagerRecorder()
+        restart_context = type(
+            "RestartModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": restart_window_manager,
+                "window": object(),
+            },
+        )()
+        restart_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
+        assert restart_operator.execute(restart_context) == {"RUNNING_MODAL"}
+        restart_operator.cancel(restart_context)
+        assert not runtime.active
 
         print(
             "Sequence processing outputs:",

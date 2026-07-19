@@ -357,11 +357,13 @@ is missing, unreadable, has invalid dimensions, or otherwise violates the state 
 **Missing History: Stop** fails without processing; **Reset** rolls the recoverable boundary back
 and reprocesses from that frame with clean history. Resume never skips a gap.
 
-**Process Existing Passes** runs as a modal, timer-driven operation. Each timer event processes at
-most one complete frame, publishes the phase, current frame, completed/total work, and normalized
-progress to the sidebar, requests a sidebar redraw, and then yields to Blender's event loop. The
-Blender progress display follows the same complete-frame boundaries. Other Object Datamosh setup,
-render, and process actions remain locked until this operation finishes cleanup.
+**Process Existing Passes** runs as a modal, timer-driven operation. Each timer event advances at
+most one complete output frame or one frame of Trail resume-history reconstruction, publishes the
+phase, current frame, completed/total work, and normalized progress to the sidebar, requests a
+sidebar redraw, and then yields to Blender's event loop. The Blender progress display follows the
+same complete-output-frame boundaries. The initiating scene and configured range remain the run's
+canonical context; sequence controls and Object Datamosh actions in every scene remain locked until
+this operation finishes cleanup.
 
 Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
 immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;

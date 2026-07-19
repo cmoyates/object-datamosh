@@ -103,6 +103,8 @@ class ProcessingSession:
     _completed_numbers: list[int]
     _state: FeedbackState | None = None
     _recovery_reset_frame: int | None = None
+    _trail_recovery_frames: tuple[int, ...] = ()
+    _trail_recovery_index: int = 0
     _is_finished: bool = False
     _terminal_error: Exception | None = None
 
@@ -145,6 +147,7 @@ class ProcessingSession:
         state: FeedbackState | None = None
         first_frame = frame_start
         recovery_reset_frame: int | None = None
+        trail_recovery_frames: tuple[int, ...] = ()
         completed: list[int] = []
         if run_mode is SequenceRunMode.RESUME:
             manifest = _read_manifest(manifest_path)
@@ -176,41 +179,33 @@ class ProcessingSession:
             if completed:
                 previous_number = completed[-1]
                 previous_frame = paths.frame(previous_number)
-                try:
-                    if settings.mode is FeedbackMode.TRAIL:
-                        state = _restore_trail_state(
-                            completed,
-                            paths=paths,
-                            matte_provider=matte_provider,
-                            settings=settings,
-                            image_io=image_io,
-                            reset_frames=reset_frames,
-                        )
-                    else:
+                if settings.mode is FeedbackMode.TRAIL and previous_number < frame_end:
+                    # Rebuilding trail coverage can be as expensive as processing the completed
+                    # prefix. Defer it so an incremental caller still performs one bounded step.
+                    trail_recovery_frames = tuple(completed)
+                    first_frame = max(first_frame, previous_number + 1)
+                elif settings.mode is FeedbackMode.TRAIL:
+                    # A fully completed resume has no pending frame that needs reconstructed state.
+                    first_frame = max(first_frame, previous_number + 1)
+                else:
+                    try:
                         previous_history = image_io.read_rgba(previous_frame.processed)
                         previous_matte = image_io.read_mask(
                             matte_provider.path_for_frame(previous_number, paths)
                         )
                         state = FeedbackState(previous_history, previous_matte, previous_number)
-                    if not np.all(np.isfinite(state.history)):
-                        raise ValueError("history must contain only finite values")
-                    if not np.all(np.isfinite(state.history_matte)) or np.any(
-                        (state.history_matte < 0.0) | (state.history_matte > 1.0)
-                    ):
-                        raise ValueError(
-                            "history_matte coverage must be finite and between 0 and 1"
-                        )
-                except (OSError, RuntimeError, TypeError, ValueError) as error:
-                    if missing_history is MissingHistoryPolicy.ERROR:
-                        raise RuntimeError(
-                            f"Resume history is invalid for frame {previous_number}: {error}"
-                        ) from error
-                    completed.pop()
-                    first_frame = previous_number
-                    recovery_reset_frame = previous_number
-                    state = None
-                else:
-                    first_frame = max(first_frame, previous_number + 1)
+                        _validate_history_state(state)
+                    except (OSError, RuntimeError, TypeError, ValueError) as error:
+                        if missing_history is MissingHistoryPolicy.ERROR:
+                            raise RuntimeError(
+                                f"Resume history is invalid for frame {previous_number}: {error}"
+                            ) from error
+                        completed.pop()
+                        first_frame = previous_number
+                        recovery_reset_frame = previous_number
+                        state = None
+                    else:
+                        first_frame = max(first_frame, previous_number + 1)
             if len(completed) != recorded_completion_count:
                 _write_manifest(
                     manifest_path,
@@ -267,13 +262,21 @@ class ProcessingSession:
             _completed_numbers=completed,
             _state=state,
             _recovery_reset_frame=recovery_reset_frame,
-            _is_finished=first_frame > frame_end,
+            _trail_recovery_frames=trail_recovery_frames,
+            _is_finished=first_frame > frame_end and not trail_recovery_frames,
         )
 
     @property
     def is_finished(self) -> bool:
         """Whether the session reached a terminal state."""
         return self._is_finished
+
+    @property
+    def recovery_frame(self) -> int | None:
+        """Completed frame whose trail state will be restored by the next step."""
+        if self._trail_recovery_index >= len(self._trail_recovery_frames):
+            return None
+        return self._trail_recovery_frames[self._trail_recovery_index]
 
     @property
     def result(self) -> SequenceProcessingResult:
@@ -287,15 +290,67 @@ class ProcessingSession:
         return SequenceProcessingResult(self.completed_frames)
 
     def process_next_frame(self) -> None:
-        """Process at most the current frame, then yield to the caller."""
+        """Advance at most one recovery or output frame, then yield to the caller."""
         if self._is_finished:
             return
         try:
-            self._process_current_frame()
+            if self.should_cancel is not None and self.should_cancel():
+                self._is_finished = True
+                raise SequenceProcessingCancelled(self.completed_frames)
+            if self.recovery_frame is not None:
+                self._restore_next_trail_frame()
+            else:
+                self._process_current_frame()
         except Exception as error:
             self._terminal_error = error
             self._is_finished = True
             raise
+
+    def _restore_next_trail_frame(self) -> None:
+        frame_number = self.recovery_frame
+        if frame_number is None:
+            return
+        previous_number = self._trail_recovery_frames[-1]
+        try:
+            self._state = _restore_trail_frame(
+                frame_number,
+                state=self._state,
+                paths=self.paths,
+                matte_provider=self.matte_provider,
+                settings=self.settings,
+                image_io=self.image_io,
+                reset_frames=self.reset_frames,
+            )
+            _validate_history_state(self._state)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            if self.missing_history is MissingHistoryPolicy.ERROR:
+                raise RuntimeError(
+                    f"Resume history is invalid for frame {previous_number}: {error}"
+                ) from error
+            self._completed_numbers.pop()
+            self.current_frame = previous_number
+            self._recovery_reset_frame = previous_number
+            self._state = None
+            self._trail_recovery_frames = ()
+            self._trail_recovery_index = 0
+            _write_manifest(
+                self.manifest_path,
+                _new_manifest(
+                    self.frame_start,
+                    self.frame_end,
+                    self.settings_fingerprint,
+                    self.reset_frames,
+                    self.resolution_change,
+                    self._completed_numbers,
+                ),
+            )
+            return
+        self._trail_recovery_index += 1
+        if self._trail_recovery_index == len(self._trail_recovery_frames):
+            self._trail_recovery_frames = ()
+            self._trail_recovery_index = 0
+            if self.current_frame > self.frame_end:
+                self._is_finished = True
 
     def _process_current_frame(self) -> None:
         if self.should_cancel is not None and self.should_cancel():
@@ -426,40 +481,43 @@ def process_sequence(
             progress.end()
 
 
-def _restore_trail_state(
-    completed: list[int],
+def _restore_trail_frame(
+    frame_number: int,
     *,
+    state: FeedbackState | None,
     paths: SequencePaths,
     matte_provider: MatteProvider,
     settings: FeedbackSettings,
     image_io: ImageSequenceIO,
     reset_frames: frozenset[int],
 ) -> FeedbackState:
-    """Rebuild trail coverage while trusting recorded processed color as history."""
-    state: FeedbackState | None = None
-    for frame_number in completed:
-        frame = paths.frame(frame_number)
-        history = image_io.read_rgba(frame.processed)
-        matte = image_io.read_mask(matte_provider.path_for_frame(frame_number, paths))
-        reset = (
-            state is None or frame_number in reset_frames or state.history.shape != history.shape
-        )
-        if reset:
-            state = FeedbackState(history, matte, frame_number)
-            continue
-        motion = image_io.read_rgba(frame.vector)
-        _output, next_state = process_frame(
-            history,
-            motion,
-            matte,
-            state,
-            frame_number,
-            settings,
-        )
-        state = FeedbackState(history, next_state.history_matte, frame_number)
-    if state is None:
-        raise ValueError("trail history requires at least one completed frame")
-    return state
+    """Rebuild one frame of trail coverage while trusting processed color as history."""
+    frame = paths.frame(frame_number)
+    history = image_io.read_rgba(frame.processed)
+    matte = image_io.read_mask(matte_provider.path_for_frame(frame_number, paths))
+    reset = state is None or frame_number in reset_frames or state.history.shape != history.shape
+    if reset:
+        return FeedbackState(history, matte, frame_number)
+    motion = image_io.read_rgba(frame.vector)
+    _output, next_state = process_frame(
+        history,
+        motion,
+        matte,
+        state,
+        frame_number,
+        settings,
+    )
+    return FeedbackState(history, next_state.history_matte, frame_number)
+
+
+def _validate_history_state(state: FeedbackState) -> None:
+    """Reject resume state that cannot safely seed another frame."""
+    if not np.all(np.isfinite(state.history)):
+        raise ValueError("history must contain only finite values")
+    if not np.all(np.isfinite(state.history_matte)) or np.any(
+        (state.history_matte < 0.0) | (state.history_matte > 1.0)
+    ):
+        raise ValueError("history_matte coverage must be finite and between 0 and 1")
 
 
 def _settings_fingerprint(settings: FeedbackSettings, matte_provider: MatteProvider) -> str:

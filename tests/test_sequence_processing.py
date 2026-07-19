@@ -39,14 +39,17 @@ class MemoryImageIO:
     def __init__(self, images: dict[Path, np.ndarray]) -> None:
         self.images = images
         self.written: dict[Path, np.ndarray] = {}
+        self.reads: list[Path] = []
 
     def read_rgba(self, path: str | Path) -> np.ndarray:
+        self.reads.append(Path(path))
         try:
             return self.images[Path(path)].copy()
         except KeyError:
             raise FileNotFoundError(path) from None
 
     def read_mask(self, path: str | Path) -> np.ndarray:
+        self.reads.append(Path(path))
         try:
             return self.images[Path(path)].copy()
         except KeyError:
@@ -582,6 +585,54 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
         io.written[paths.frame(3).processed][0, 0],
         np.full(4, 0.125, dtype=np.float32),
     )
+
+
+def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2, 3):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(frame_number / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    interrupted = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+    )
+    interrupted.process_next_frame()
+    interrupted.process_next_frame()
+
+    io.reads.clear()
+    resumed = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    assert io.reads == []
+    assert resumed.recovery_frame == 1
+    resumed.process_next_frame()
+    assert resumed.recovery_frame == 2
+    assert paths.frame(3).processed not in io.written
+    resumed.process_next_frame()
+    assert resumed.recovery_frame is None
+    assert not resumed.is_finished
+    resumed.process_next_frame()
+    assert resumed.is_finished
+    assert resumed.result.frames == (paths.frame(3).processed,)
 
 
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
