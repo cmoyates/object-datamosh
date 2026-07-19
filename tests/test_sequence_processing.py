@@ -351,6 +351,57 @@ def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
     assert result.frames == (paths.frame(1).processed, paths.frame(2).processed)
 
 
+def test_resume_resets_when_blender_reports_unreadable_history(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    first = paths.frame(1)
+    second = paths.frame(2)
+    matte = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(
+        {
+            first.beauty: _rgba(0.75),
+            first.vector: _rgba(0.0),
+            first.matte: matte,
+            second.beauty: _rgba(0.25),
+            second.vector: _rgba(0.0),
+            second.matte: matte,
+        }
+    )
+    progress = ProgressRecorder()
+    with pytest.raises(SequenceProcessingCancelled):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(persistence=1.0, block_size=1),
+            image_io=io,
+            progress=progress,
+            should_cancel=lambda: ("update", 1) in progress.events,
+        )
+
+    class UnreadableHistoryImageIO(MemoryImageIO):
+        def read_rgba(self, path: str | Path) -> np.ndarray:
+            if Path(path) == first.processed:
+                raise RuntimeError(f"Cannot decode image: {path}")
+            return super().read_rgba(path)
+
+    resume_io = UnreadableHistoryImageIO(io.images)
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=resume_io,
+        run_mode=SequenceRunMode.RESUME,
+        missing_history=MissingHistoryPolicy.RESET,
+    )
+
+    assert result.frames == (first.processed, second.processed)
+    np.testing.assert_array_equal(resume_io.written[first.processed], _rgba(0.75))
+    np.testing.assert_array_equal(resume_io.written[second.processed], _rgba(0.75))
+
+
 def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Path) -> None:
     paths = SequencePaths(tmp_path)
     frame = paths.frame(1)

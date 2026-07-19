@@ -148,7 +148,7 @@ def process_sequence(
                     (state.history_matte < 0.0) | (state.history_matte > 1.0)
                 ):
                     raise ValueError("history_matte coverage must be finite and between 0 and 1")
-            except (OSError, TypeError, ValueError) as error:
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
                 if missing_history is MissingHistoryPolicy.ERROR:
                     raise RuntimeError(
                         f"Resume history is invalid for frame {previous_number}: {error}"
