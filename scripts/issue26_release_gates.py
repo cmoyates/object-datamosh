@@ -294,10 +294,17 @@ def run_gate(
     timed_out = False
     termination_error: str | None = None
     try:
-        exit_code = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        exit_code, termination_error = terminate_timed_out_process(process)
+        try:
+            exit_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            exit_code, termination_error = terminate_timed_out_process(process)
+    except BaseException:
+        stop_process_group(process.pid, timeout_seconds=process_group_timeout_seconds)
+        stop_output_reader.set()
+        output_thread.join(timeout=1.0)
+        stdout.close()
+        raise
     descendants_remained = process_group_exists(process.pid)
     group_stopped = stop_process_group(
         process.pid,
@@ -507,30 +514,40 @@ def main() -> None:
         raise RuntimeError(f"Release-gate source is dirty:\n{identity.dirty}")
     foreground_content, foreground = validate_foreground_receipt(identity)
     real_escape_content, real_escape = validate_real_escape_receipt(identity)
-    if arguments.update_evidence and EVIDENCE.is_file():
-        current_aggregate = json.loads(EVIDENCE.read_text(encoding="utf-8"))
-        referenced = {
-            REPO / entry["path"]
-            for entry in current_aggregate.get("gate_receipts", [])
-            if isinstance(entry.get("path"), str)
-        }
-        for candidate in EVIDENCE_DIR.glob("issue-26-gate-*.json"):
-            if candidate not in referenced:
-                candidate.unlink()
-
     run_root = Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-"))
     worktree = run_root / "worktree"
     build_output = run_root / "build"
     build_output.mkdir()
     receipt_directory = run_root / "receipts"
     receipt_directory.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["git", "worktree", "add", "--detach", str(worktree), identity.git_head],
-        cwd=REPO,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    results: list[GateResult] = []
+    gate_receipts: list[Path] = []
+    try:
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), identity.git_head],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except BaseException as error:
+        if arguments.update_evidence:
+            write_release_failure(
+                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
+                error,
+                identity=identity,
+                results=results,
+            )
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=REPO,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if arguments.update_evidence:
+            shutil.rmtree(run_root, ignore_errors=True)
+        raise
     environment = gate_environment(run_root)
     quoted_blender = shlex.quote(str(blender_bin))
     specifications = [
@@ -575,12 +592,14 @@ def main() -> None:
         ),
     ]
 
-    results: list[GateResult] = []
-    gate_receipts: list[Path] = []
-
     def stop_after_receipting_failure(message: str) -> None:
         raise RuntimeError(message)
 
+    def interrupt_release_gate(signal_number: int, _frame: object) -> None:
+        raise RuntimeError(f"Release gate interrupted by signal {signal_number}")
+
+    previous_sigterm = signal.signal(signal.SIGTERM, interrupt_release_gate)
+    success_committed = False
     try:
         for name, command, display in specifications:
             result = run_gate(
@@ -687,14 +706,17 @@ def main() -> None:
             aggregate,
             (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode(),
         )
+        success_committed = True
         if arguments.update_evidence:
-            (EVIDENCE_DIR / "issue-26-last-failed-gate.json").unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                (EVIDENCE_DIR / "issue-26-last-failed-gate.json").unlink(missing_ok=True)
             for old_receipt in EVIDENCE_DIR.glob("issue-26-gate-*.json"):
                 if old_receipt not in promoted_gate_receipts:
-                    old_receipt.unlink()
+                    with contextlib.suppress(OSError):
+                        old_receipt.unlink()
         print(f"Release-gate receipt: {aggregate}")
     except BaseException as error:
-        if arguments.update_evidence:
+        if arguments.update_evidence and not success_committed:
             write_release_failure(
                 EVIDENCE_DIR / "issue-26-last-failed-gate.json",
                 error,
@@ -703,6 +725,7 @@ def main() -> None:
             )
         raise
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree)],
             cwd=REPO,
