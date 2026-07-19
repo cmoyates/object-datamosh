@@ -217,6 +217,7 @@ def test_staged_publish_never_clobbers_a_late_destination(tmp_path: Path) -> Non
     assert staged.read_bytes() == b"rendered"
 
 
+
 def test_session_rejects_output_created_after_initial_collision_check(tmp_path: Path) -> None:
     view_layer = SimpleNamespace(name="Main")
     scene = Scene(view_layer)
@@ -270,7 +271,9 @@ def test_synchronous_blender_cancellation_never_verifies_the_frame(
     monkeypatch.setattr(
         raw_render_module.bpy,
         "ops",
-        SimpleNamespace(render=SimpleNamespace(render=lambda **_kwargs: {"CANCELLED"})),
+        SimpleNamespace(
+            render=SimpleNamespace(render=lambda **_kwargs: {"CANCELLED"})
+        ),
         raising=False,
     )
 
