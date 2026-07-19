@@ -28,6 +28,7 @@ from bpy.types import (
 from .blender_image_io import BlenderImageIO
 from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
+from .combined_failures import CombinedRenderingFailure, render_with_frame_context
 from .combined_processing import CombinedProcessingConfiguration, CombinedProcessingFailure
 from .compositor_setup import (
     has_object_index_setup,
@@ -456,11 +457,13 @@ class _WindowManagerProgress:
 
     def __init__(self, window_manager: Any) -> None:
         self._window_manager = window_manager
+        self.completed = 0
 
     def begin(self, total: int) -> None:
         self._window_manager.progress_begin(0, total)
 
     def update(self, completed: int) -> None:
+        self.completed = completed
         self._window_manager.progress_update(completed)
 
     def end(self) -> None:
@@ -674,14 +677,19 @@ class ODM_OT_render_and_process(Operator):
             )
 
         def render_phase():
-            return render_raw_passes(
-                scene,
-                view_layer,
-                paths,
+            return render_with_frame_context(
+                lambda: render_raw_passes(
+                    scene,
+                    view_layer,
+                    paths,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    overwrite=overwrite_raw,
+                    progress=progress,
+                ),
                 frame_start=frame_start,
                 frame_end=frame_end,
-                overwrite=overwrite_raw,
-                progress=progress,
+                completed_count=lambda: progress.completed,
             )
 
         def process_phase(input_frames):
@@ -693,6 +701,11 @@ class ODM_OT_render_and_process(Operator):
             message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
             settings.status = message
             self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except CombinedRenderingFailure as error:
+            message = f"Render and Process failed during rendering at frame {error.frame}: {error}"
+            settings.status = message
+            self.report({"ERROR"}, message)
             return {"CANCELLED"}
         except CombinedProcessingFailure as error:
             message = f"Render and Process failed during processing at frame {error.frame}: {error}"
