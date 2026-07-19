@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -96,6 +97,32 @@ def signal_process_group(pid: int, signal_number: int) -> None:
         os.killpg(pid, signal_number)
 
 
+def process_group_exists(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_process_group(pid: int, *, timeout_seconds: float) -> bool:
+    """Terminate remaining gate descendants and report whether the group became empty."""
+    if not process_group_exists(pid):
+        return True
+    signal_process_group(pid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout_seconds
+    while process_group_exists(pid) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if process_group_exists(pid):
+        signal_process_group(pid, signal.SIGKILL)
+        deadline = time.monotonic() + timeout_seconds
+        while process_group_exists(pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+    return not process_group_exists(pid)
+
+
 def require_unchanged_identity(expected: SourceIdentity, actual: SourceIdentity) -> None:
     if actual != expected:
         raise RuntimeError(
@@ -123,6 +150,44 @@ def capture_identity() -> SourceIdentity:
     )
 
 
+def gate_environment(run_root: Path) -> dict[str, str]:
+    """Build a minimal gate environment with isolated Blender user resources."""
+    allowed = {
+        "ALL_PROXY",
+        "CURL_CA_BUNDLE",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "NO_PROXY",
+        "PATH",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "UV_CACHE_DIR",
+    }
+    environment = {key: value for key, value in os.environ.items() if key in allowed}
+    blender_user_root = run_root / "blender-user"
+    for directory in ("config", "datafiles", "extensions", "scripts"):
+        (blender_user_root / directory).mkdir(parents=True, exist_ok=True)
+    environment.update(
+        {
+            "BLENDER_USER_CONFIG": str(blender_user_root / "config"),
+            "BLENDER_USER_DATAFILES": str(blender_user_root / "datafiles"),
+            "BLENDER_USER_EXTENSIONS": str(blender_user_root / "extensions"),
+            "BLENDER_USER_RESOURCES": str(blender_user_root),
+            "BLENDER_USER_SCRIPTS": str(blender_user_root / "scripts"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "UV_FROZEN": "1",
+            "UV_PROJECT_ENVIRONMENT": str(run_root / "environment"),
+        }
+    )
+    return environment
+
+
 def run_gate(
     name: str,
     arguments: list[str],
@@ -133,6 +198,7 @@ def run_gate(
     timeout_seconds: float = 600.0,
     output_close_timeout_seconds: float = 10.0,
     output_termination_timeout_seconds: float = 1.0,
+    process_group_timeout_seconds: float = 1.0,
 ) -> GateResult:
     print(f"$ {display}")
     try:
@@ -219,10 +285,20 @@ def run_gate(
         except subprocess.TimeoutExpired:
             signal_process_group(process.pid, signal.SIGKILL)
             exit_code = process.wait(timeout=5.0)
+    descendants_remained = process_group_exists(process.pid)
+    group_stopped = stop_process_group(
+        process.pid,
+        timeout_seconds=process_group_timeout_seconds,
+    )
     output_thread.join(timeout=output_close_timeout_seconds)
     output_error: str | None = None
-    if output_thread.is_alive():
+    if descendants_remained:
+        output_error = f"Gate left descendant processes running: {display}"
+    if not group_stopped:
+        output_error = f"Gate process group could not be stopped: {display}"
+    if output_thread.is_alive() and output_error is None:
         output_error = f"Output pipe remained open after gate process exited: {display}"
+    if output_thread.is_alive():
         signal_process_group(process.pid, signal.SIGTERM)
         output_thread.join(timeout=output_termination_timeout_seconds)
     if output_thread.is_alive():
@@ -425,10 +501,7 @@ def main() -> None:
         capture_output=True,
         text=True,
     )
-    environment = os.environ.copy()
-    environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    environment["UV_FROZEN"] = "1"
-    environment["UV_PROJECT_ENVIRONMENT"] = str(run_root / "environment")
+    environment = gate_environment(run_root)
     quoted_blender = shlex.quote(str(blender_bin))
     specifications = [
         (

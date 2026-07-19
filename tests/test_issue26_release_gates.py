@@ -14,6 +14,7 @@ _SCRIPT = Path(__file__).parents[1] / "scripts" / "issue26_release_gates.py"
 _NAMESPACE = runpy.run_path(str(_SCRIPT), run_name="issue26_release_gates_test")
 SourceIdentity = _NAMESPACE["SourceIdentity"]
 capture_identity = cast(Callable[[], Any], _NAMESPACE["capture_identity"])
+gate_environment = _NAMESPACE["gate_environment"]
 _capture_identity_globals = cast(dict[str, Any], cast(Any, capture_identity).__globals__)
 require_unchanged_identity = cast(
     Callable[[Any, Any], None], _NAMESPACE["require_unchanged_identity"]
@@ -35,6 +36,21 @@ def identity(*, git_head: str = "abc", dirty: str = "") -> Any:
         runner_sha256="runner",
         source_tree="tree",
         uv_lock_sha256="lock",
+    )
+
+
+def test_gate_environment_isolates_blender_and_drops_python_injection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/untrusted/python")
+    monkeypatch.setenv("BLENDER_USER_SCRIPTS", "/untrusted/blender")
+
+    environment = gate_environment(tmp_path)
+
+    assert "PYTHONPATH" not in environment
+    assert environment["BLENDER_USER_SCRIPTS"] == str(tmp_path / "blender-user" / "scripts")
+    assert environment["BLENDER_USER_EXTENSIONS"] == str(
+        tmp_path / "blender-user" / "extensions"
     )
 
 
@@ -177,10 +193,40 @@ def test_gate_receipt_captures_and_kills_an_inherited_output_pipe(tmp_path: Path
         time.sleep(0.01)
 
     assert result.output_error is not None
-    assert "Output pipe remained open" in result.output_error
+    assert "left descendant processes running" in result.output_error
     assert "parent complete" in result.output_head
     assert not child_alive
     assert receipt.is_file()
+
+
+def test_gate_kills_a_closed_output_descendant_before_it_can_mutate(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    marker = tmp_path / "late-marker"
+    child_code = (
+        "import pathlib, signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "time.sleep(1); pathlib.Path(sys.argv[1]).touch()"
+    )
+    parent_code = (
+        "import subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}, {str(marker)!r}], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "print('parent complete', flush=True)"
+    )
+
+    result = run_gate(
+        "closed-descendant",
+        ["/usr/bin/python3", "-c", parent_code],
+        "closed output descendant",
+        worktree=tmp_path,
+        environment={},
+        process_group_timeout_seconds=0.05,
+    )
+    time.sleep(1.1)
+
+    assert result.output_error is not None
+    assert "left descendant processes running" in result.output_error
+    assert not marker.exists()
 
 
 def test_gate_receipt_captures_a_launch_failure(tmp_path: Path) -> None:
