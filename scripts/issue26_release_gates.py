@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import selectors
 import shlex
 import shutil
 import signal
@@ -28,6 +29,7 @@ REAL_ESCAPE_RUNNER_SHA256 = "106be8a7ea82d05f8d17b545432f4a6e96cedd8f660bb4d51b5
 @dataclass(frozen=True)
 class SourceIdentity:
     dirty: str
+    evidence_helper_sha256: str
     git_head: str
     probe_sha256: str
     release_gate_sha256: str
@@ -41,6 +43,7 @@ class GateResult:
     command: str
     exit_code: int
     launch_error: str | None
+    output_error: str | None
     output_head: str
     output_retained_bytes: int
     output_sha256: str
@@ -103,6 +106,9 @@ def capture_identity() -> SourceIdentity:
     scope = ("src", "tests", "scripts", "pyproject.toml", "uv.lock")
     return SourceIdentity(
         dirty=git_output(REPO, "status", "--porcelain", "--untracked-files=all", "--", *scope),
+        evidence_helper_sha256=sha256_bytes(
+            (REPO / "scripts" / "issue26_evidence.py").read_bytes()
+        ),
         git_head=git_output(REPO, "rev-parse", "HEAD"),
         probe_sha256=sha256_bytes((REPO / "scripts" / "issue26_foreground_probe.py").read_bytes()),
         release_gate_sha256=sha256_bytes(Path(__file__).read_bytes()),
@@ -121,6 +127,7 @@ def run_gate(
     worktree: Path,
     environment: dict[str, str],
     timeout_seconds: float = 600.0,
+    output_close_timeout_seconds: float = 10.0,
 ) -> GateResult:
     print(f"$ {display}")
     try:
@@ -139,6 +146,7 @@ def run_gate(
             command=display,
             exit_code=127,
             launch_error=message,
+            output_error=None,
             output_head=message,
             output_retained_bytes=len(message.encode()),
             output_sha256=sha256_bytes(message.encode()),
@@ -158,23 +166,40 @@ def run_gate(
     retained_head = bytearray()
     retained_tail = bytearray()
     total_bytes = 0
+    stop_output_reader = threading.Event()
+    output_reader_failures: list[str] = []
 
     def consume_output() -> None:
         nonlocal total_bytes
-        while chunk := stdout.read(8192):
-            total_bytes += len(chunk)
-            digest.update(chunk)
-            sys.stdout.buffer.write(chunk)
-            sys.stdout.buffer.flush()
-            full_remaining = MAX_RETAINED_OUTPUT_BYTES - len(retained_full)
-            if full_remaining > 0:
-                retained_full.extend(chunk[:full_remaining])
-            head_remaining = head_limit - len(retained_head)
-            if head_remaining > 0:
-                retained_head.extend(chunk[:head_remaining])
-            retained_tail.extend(chunk)
-            if len(retained_tail) > tail_limit:
-                del retained_tail[:-tail_limit]
+        selector = selectors.DefaultSelector()
+        try:
+            os.set_blocking(stdout.fileno(), False)
+            selector.register(stdout, selectors.EVENT_READ)
+            while not stop_output_reader.is_set():
+                for _key, _mask in selector.select(timeout=0.1):
+                    try:
+                        chunk = os.read(stdout.fileno(), 8192)
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        return
+                    total_bytes += len(chunk)
+                    digest.update(chunk)
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+                    full_remaining = MAX_RETAINED_OUTPUT_BYTES - len(retained_full)
+                    if full_remaining > 0:
+                        retained_full.extend(chunk[:full_remaining])
+                    head_remaining = head_limit - len(retained_head)
+                    if head_remaining > 0:
+                        retained_head.extend(chunk[:head_remaining])
+                    retained_tail.extend(chunk)
+                    if len(retained_tail) > tail_limit:
+                        del retained_tail[:-tail_limit]
+        except OSError as error:
+            output_reader_failures.append(f"{type(error).__name__}: {error}")
+        finally:
+            selector.close()
 
     output_thread = threading.Thread(target=consume_output, name=f"{name}-output")
     output_thread.start()
@@ -189,9 +214,18 @@ def run_gate(
         except subprocess.TimeoutExpired:
             signal_process_group(process.pid, signal.SIGKILL)
             exit_code = process.wait(timeout=5.0)
-    output_thread.join(timeout=10.0)
+    output_thread.join(timeout=output_close_timeout_seconds)
+    output_error: str | None = None
     if output_thread.is_alive():
-        raise RuntimeError(f"Output reader did not stop for gate: {display}")
+        output_error = f"Output pipe remained open after gate process exited: {display}"
+        signal_process_group(process.pid, signal.SIGTERM)
+        stop_output_reader.set()
+        output_thread.join(timeout=1.0)
+    if output_thread.is_alive():
+        output_error = f"Output reader could not be stopped after gate process exited: {display}"
+    elif output_reader_failures:
+        output_error = f"Output reader failed for gate {display}: {output_reader_failures[0]}"
+    stdout.close()
     truncated = total_bytes > MAX_RETAINED_OUTPUT_BYTES
     if truncated:
         output_head = retained_head.decode("utf-8", errors="replace")
@@ -206,6 +240,7 @@ def run_gate(
         command=display,
         exit_code=exit_code,
         launch_error=None,
+        output_error=output_error,
         output_head=output_head,
         output_retained_bytes=retained_bytes,
         output_sha256=digest.hexdigest(),
@@ -259,6 +294,7 @@ def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[s
     if payload.get("success") is not True:
         raise RuntimeError("Foreground receipt is not successful")
     expected = {
+        "evidence_helper_sha256": identity.evidence_helper_sha256,
         "extension_source_tree": identity.source_tree,
         "probe_sha256": identity.probe_sha256,
         "runner_sha256": identity.runner_sha256,
@@ -447,6 +483,10 @@ def main() -> None:
             if result.launch_error is not None:
                 stop_after_receipting_failure(
                     f"Release gate could not launch: {display}: {result.launch_error}"
+                )
+            if result.output_error is not None:
+                stop_after_receipting_failure(
+                    f"Release gate output capture failed: {result.output_error}"
                 )
             if result.timed_out:
                 stop_after_receipting_failure(

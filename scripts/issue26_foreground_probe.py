@@ -458,6 +458,7 @@ def finish_success() -> None:
         "blender_version": _app.version_string,
         "event_log_jsonl": event_log_jsonl,
         "event_log_sha256_before_completion": trace_sha256,
+        "evidence_helper_sha256": file_sha256(REPO / "scripts" / "issue26_evidence.py"),
         "extension_source_tree": git_output("rev-parse", "HEAD:src/object_datamosh"),
         "git_head": git_output("rev-parse", "HEAD"),
         "probe_sha256": file_sha256(Path(__file__)),

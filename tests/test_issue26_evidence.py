@@ -5,6 +5,8 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from object_datamosh.core.paths import SequencePaths
 
 _SCRIPT = Path(__file__).parents[1] / "scripts" / "issue26_evidence.py"
@@ -26,6 +28,20 @@ def test_completed_raw_prefix_requires_all_passes_and_no_next_frame(tmp_path: Pa
             path.touch()
 
     assert completed_raw_prefix(paths, end=10) == [1, 2]
+
+
+def test_completed_raw_prefix_rejects_a_partial_pass_after_a_gap(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    first = paths.frame(1)
+    for path in (first.beauty, first.vector, first.matte):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    stray_vector = paths.frame(3).vector
+    stray_vector.parent.mkdir(parents=True, exist_ok=True)
+    stray_vector.touch()
+
+    with pytest.raises(AssertionError, match="after the complete prefix at frame 3"):
+        completed_raw_prefix(paths, end=10)
 
 
 def test_completed_processed_prefix_matches_manifest(tmp_path: Path) -> None:

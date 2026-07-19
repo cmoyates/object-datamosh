@@ -8,16 +8,16 @@ from object_datamosh.core.paths import SequencePaths
 
 def completed_raw_prefix(paths: SequencePaths, *, end: int) -> list[int]:
     """Validate and return the contiguous, complete raw-frame prefix."""
-    completed = [number for number in range(1, end + 1) if paths.frame(number).beauty.is_file()]
-    if not completed or completed != list(range(1, len(completed) + 1)):
-        raise AssertionError(f"Raw outputs are not a non-empty contiguous prefix: {completed}")
-    for number in completed:
+    completed: list[int] = []
+    for number in range(1, end + 1):
         frame = paths.frame(number)
-        assert all(path.is_file() for path in (frame.beauty, frame.vector, frame.matte))
-    next_frame = paths.frame(len(completed) + 1)
-    assert not any(
-        path.exists() for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
-    )
+        pass_paths = (frame.beauty, frame.vector, frame.matte)
+        if number == len(completed) + 1 and all(path.is_file() for path in pass_paths):
+            completed.append(number)
+        elif any(path.exists() for path in pass_paths):
+            raise AssertionError(f"Raw output exists after the complete prefix at frame {number}")
+    if not completed:
+        raise AssertionError("Raw outputs have no complete frame prefix")
     return completed
 
 

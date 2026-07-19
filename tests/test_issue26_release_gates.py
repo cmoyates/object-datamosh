@@ -25,6 +25,7 @@ write_gate_result = _NAMESPACE["write_gate_result"]
 def identity(*, git_head: str = "abc", dirty: str = "") -> Any:
     return SourceIdentity(
         dirty=dirty,
+        evidence_helper_sha256="helper",
         git_head=git_head,
         probe_sha256="probe",
         release_gate_sha256="gate",
@@ -131,6 +132,33 @@ def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:
     assert receipt.is_file()
 
 
+def test_gate_receipt_captures_an_inherited_output_pipe(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    result = run_gate(
+        "inherited-pipe",
+        [
+            "/usr/bin/python3",
+            "-c",
+            (
+                "import subprocess, sys; "
+                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+                "print('parent complete', flush=True)"
+            ),
+        ],
+        "inherited output pipe",
+        worktree=tmp_path,
+        environment={},
+        output_close_timeout_seconds=0.05,
+    )
+
+    receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
+
+    assert result.output_error is not None
+    assert "Output pipe remained open" in result.output_error
+    assert "parent complete" in result.output_head
+    assert receipt.is_file()
+
+
 def test_gate_receipt_captures_a_launch_failure(tmp_path: Path) -> None:
     initialize_empty_repository(tmp_path)
     result = run_gate(
@@ -156,6 +184,7 @@ def test_capture_identity_detects_a_mid_run_project_file_edit(
     (tmp_path / "scripts").mkdir()
     for relative, content in {
         "src/object_datamosh/__init__.py": "",
+        "scripts/issue26_evidence.py": "# helper\n",
         "scripts/issue26_foreground_probe.py": "# probe\n",
         "scripts/issue26_release_gates.py": "# gate\n",
         "scripts/run_issue26_foreground_probe.sh": "# runner\n",

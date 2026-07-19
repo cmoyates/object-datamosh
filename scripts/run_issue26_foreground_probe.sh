@@ -32,8 +32,12 @@ event_log="$work_root/events.jsonl"
 run_result="$work_root/result.json"
 evidence_tmp="$evidence_result.tmp.$$"
 blender_pid=""
+escape_sender_pid=""
 
 cleanup() {
+  if [[ -n "$escape_sender_pid" ]] && kill -0 "$escape_sender_pid" 2>/dev/null; then
+    kill "$escape_sender_pid" 2>/dev/null || true
+  fi
   if [[ -n "$blender_pid" ]] && kill -0 "$blender_pid" 2>/dev/null; then
     kill "$blender_pid" 2>/dev/null || true
   fi
@@ -101,7 +105,7 @@ send_escape_after() {
     sleep 0.01
   done
   record_escape_event external_escape_send_started "$marker"
-  osascript - "$blender_pid" <<'APPLESCRIPT'
+  osascript - "$blender_pid" <<'APPLESCRIPT' &
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
@@ -116,6 +120,22 @@ on run argv
   end tell
 end run
 APPLESCRIPT
+  escape_sender_pid=$!
+  local send_deadline=$((SECONDS + 10))
+  while kill -0 "$escape_sender_pid" 2>/dev/null; do
+    if (( SECONDS >= send_deadline )); then
+      kill "$escape_sender_pid" 2>/dev/null || true
+      wait "$escape_sender_pid" 2>/dev/null || true
+      escape_sender_pid=""
+      fail_with_log "Timed out sending Escape for $marker"
+    fi
+    sleep 0.05
+  done
+  if ! wait "$escape_sender_pid"; then
+    escape_sender_pid=""
+    fail_with_log "Failed to send Escape for $marker"
+  fi
+  escape_sender_pid=""
   record_escape_event external_escape_sent "$marker"
 }
 
