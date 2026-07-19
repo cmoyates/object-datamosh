@@ -532,7 +532,9 @@ mkdir -p dist
 
 The development-only Blender 5.0 stubs support static checking outside Blender. NumPy is a
 development dependency and is bundled with Blender at runtime; the extension declares no
-third-party runtime dependency.
+third-party runtime dependency. The current foreground observations, gate results, archive path,
+and checksum are recorded in
+[Responsive operations release verification](docs/responsive-operations-release-verification.md).
 
 ## Performance expectations
 
@@ -600,6 +602,9 @@ remain explicit interactive checks; they were not claimed by the background gate
   collision refusal, deterministic modal event boundaries, and real registered-operator dispatch
   through Blender's window manager. Background Blender does not pump foreground modal events while
   the smoke script owns the main thread, so deterministic timer advancement/final cleanup use a
-  recorded window-manager boundary; interactive event dispatch, visual node layout, sidebar polish,
-  calibration interpretation (especially Y-axis and reversed-motion checks), and foreground control
-  behavior still require a manual Blender check.
+  recorded window-manager boundary. Foreground modal dispatch, visible per-frame sidebar redraws,
+  Escape and Cancel-button boundaries, Resume, cleanup, and immediate restart were separately
+  verified in Blender 5.0.0 and are recorded in the
+  [responsive operations release report](docs/responsive-operations-release-verification.md).
+  Visual node layout, broader sidebar polish, and calibration interpretation (especially Y-axis and
+  reversed-motion checks) remain manual production-scene checks.
