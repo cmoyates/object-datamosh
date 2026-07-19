@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import runpy
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -28,9 +30,11 @@ def identity(*, git_head: str = "abc", dirty: str = "") -> Any:
         evidence_helper_sha256="helper",
         git_head=git_head,
         probe_sha256="probe",
+        pyproject_sha256="pyproject",
         release_gate_sha256="gate",
         runner_sha256="runner",
         source_tree="tree",
+        uv_lock_sha256="lock",
     )
 
 
@@ -132,30 +136,50 @@ def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:
     assert receipt.is_file()
 
 
-def test_gate_receipt_captures_an_inherited_output_pipe(tmp_path: Path) -> None:
+def test_gate_receipt_captures_and_kills_an_inherited_output_pipe(tmp_path: Path) -> None:
     initialize_empty_repository(tmp_path)
+    child_pid_path = tmp_path / "child.pid"
+    ready_path = tmp_path / "child.ready"
+    child_code = (
+        "import os, pathlib, signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
+        "pathlib.Path(sys.argv[2]).touch(); "
+        "time.sleep(30)"
+    )
+    parent_code = (
+        "import pathlib, subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}, "
+        f"{str(child_pid_path)!r}, {str(ready_path)!r}]); "
+        f"ready = pathlib.Path({str(ready_path)!r}); "
+        "[(time.sleep(0.01)) for _ in range(100) if not ready.exists()]; "
+        "print('parent complete', flush=True)"
+    )
     result = run_gate(
         "inherited-pipe",
-        [
-            "/usr/bin/python3",
-            "-c",
-            (
-                "import subprocess, sys; "
-                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
-                "print('parent complete', flush=True)"
-            ),
-        ],
+        ["/usr/bin/python3", "-c", parent_code],
         "inherited output pipe",
         worktree=tmp_path,
         environment={},
         output_close_timeout_seconds=0.05,
+        output_termination_timeout_seconds=0.05,
     )
 
     receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
+    child_pid = int(child_pid_path.read_text())
+    child_alive = True
+    for _ in range(100):
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            child_alive = False
+            break
+        time.sleep(0.01)
 
     assert result.output_error is not None
     assert "Output pipe remained open" in result.output_error
     assert "parent complete" in result.output_head
+    assert not child_alive
     assert receipt.is_file()
 
 

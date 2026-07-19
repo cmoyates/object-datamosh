@@ -6,6 +6,12 @@ from collections.abc import Mapping, Sequence
 from object_datamosh.core.paths import SequencePaths
 
 
+def require_debug_mode() -> None:
+    """Reject optimized Python because release-evidence assertions must execute."""
+    if not __debug__:
+        raise RuntimeError("Issue #26 release evidence requires Python assertions")
+
+
 def completed_raw_prefix(paths: SequencePaths, *, end: int) -> list[int]:
     """Validate and return the contiguous, complete raw-frame prefix."""
     completed: list[int] = []

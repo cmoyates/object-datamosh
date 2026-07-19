@@ -32,9 +32,11 @@ class SourceIdentity:
     evidence_helper_sha256: str
     git_head: str
     probe_sha256: str
+    pyproject_sha256: str
     release_gate_sha256: str
     runner_sha256: str
     source_tree: str
+    uv_lock_sha256: str
 
 
 @dataclass(frozen=True)
@@ -111,11 +113,13 @@ def capture_identity() -> SourceIdentity:
         ),
         git_head=git_output(REPO, "rev-parse", "HEAD"),
         probe_sha256=sha256_bytes((REPO / "scripts" / "issue26_foreground_probe.py").read_bytes()),
+        pyproject_sha256=sha256_bytes((REPO / "pyproject.toml").read_bytes()),
         release_gate_sha256=sha256_bytes(Path(__file__).read_bytes()),
         runner_sha256=sha256_bytes(
             (REPO / "scripts" / "run_issue26_foreground_probe.sh").read_bytes()
         ),
         source_tree=git_output(REPO, "rev-parse", "HEAD:src/object_datamosh"),
+        uv_lock_sha256=sha256_bytes((REPO / "uv.lock").read_bytes()),
     )
 
 
@@ -128,6 +132,7 @@ def run_gate(
     environment: dict[str, str],
     timeout_seconds: float = 600.0,
     output_close_timeout_seconds: float = 10.0,
+    output_termination_timeout_seconds: float = 1.0,
 ) -> GateResult:
     print(f"$ {display}")
     try:
@@ -219,9 +224,13 @@ def run_gate(
     if output_thread.is_alive():
         output_error = f"Output pipe remained open after gate process exited: {display}"
         signal_process_group(process.pid, signal.SIGTERM)
+        output_thread.join(timeout=output_termination_timeout_seconds)
+    if output_thread.is_alive():
+        signal_process_group(process.pid, signal.SIGKILL)
+        output_thread.join(timeout=output_termination_timeout_seconds)
+    if output_thread.is_alive():
         stop_output_reader.set()
         output_thread.join(timeout=1.0)
-    if output_thread.is_alive():
         output_error = f"Output reader could not be stopped after gate process exited: {display}"
     elif output_reader_failures:
         output_error = f"Output reader failed for gate {display}: {output_reader_failures[0]}"
@@ -263,7 +272,9 @@ def write_gate_result(
     payload = {
         "gate": asdict(result),
         "git_head": identity.git_head,
+        "pyproject_sha256": identity.pyproject_sha256,
         "source_tree": identity.source_tree,
+        "uv_lock_sha256": identity.uv_lock_sha256,
     }
     atomic_write(path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode())
     return path
@@ -416,10 +427,15 @@ def main() -> None:
     )
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    environment["UV_NO_SYNC"] = "1"
-    environment["UV_PROJECT_ENVIRONMENT"] = str(REPO / ".venv")
+    environment["UV_FROZEN"] = "1"
+    environment["UV_PROJECT_ENVIRONMENT"] = str(run_root / "environment")
     quoted_blender = shlex.quote(str(blender_bin))
     specifications = [
+        (
+            "environment-sync",
+            ["uv", "sync", "--frozen", "--no-install-project"],
+            "uv sync --frozen --no-install-project",
+        ),
         ("ty", ["uv", "run", "ty", "check"], "uv run ty check"),
         ("pytest", ["uv", "run", "pytest", "-q"], "uv run pytest -q"),
         ("ruff", ["uv", "run", "ruff", "check", "."], "uv run ruff check ."),
@@ -562,9 +578,11 @@ def main() -> None:
                 "git_head": real_escape["git_head"],
                 "receipt_sha256": sha256_bytes(real_escape_content),
             },
+            "pyproject_sha256": identity.pyproject_sha256,
             "release_gate_script_sha256": identity.release_gate_sha256,
             "source_tree": identity.source_tree,
             "success": True,
+            "uv_lock_sha256": identity.uv_lock_sha256,
         }
         aggregate = EVIDENCE if arguments.update_evidence else receipt_directory / EVIDENCE.name
         atomic_write(

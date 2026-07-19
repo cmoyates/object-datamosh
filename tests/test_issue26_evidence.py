@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import runpy
+import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -13,10 +16,37 @@ _SCRIPT = Path(__file__).parents[1] / "scripts" / "issue26_evidence.py"
 _NAMESPACE = runpy.run_path(str(_SCRIPT), run_name="issue26_evidence_test")
 completed_processed_prefix = _NAMESPACE["completed_processed_prefix"]
 completed_raw_prefix = _NAMESPACE["completed_raw_prefix"]
+require_debug_mode = _NAMESPACE["require_debug_mode"]
 raw_render_intervals = cast(
     Callable[[Sequence[Mapping[str, object]]], list[tuple[float, float]]],
     _NAMESPACE["raw_render_intervals"],
 )
+
+
+def test_release_evidence_rejects_optimized_python() -> None:
+    repository = Path(__file__).parents[1]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(repository / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-O",
+            "-c",
+            (
+                "import runpy; "
+                "ns = runpy.run_path('scripts/issue26_evidence.py'); "
+                "ns['require_debug_mode']()"
+            ),
+        ],
+        cwd=repository,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "requires Python assertions" in result.stderr
 
 
 def test_completed_raw_prefix_requires_all_passes_and_no_next_frame(tmp_path: Path) -> None:

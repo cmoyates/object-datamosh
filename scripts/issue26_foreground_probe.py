@@ -29,6 +29,7 @@ from issue26_evidence import (  # noqa: E402
     completed_processed_prefix,
     completed_raw_prefix,
     raw_render_intervals,
+    require_debug_mode,
 )
 
 import object_datamosh  # noqa: E402
@@ -38,6 +39,8 @@ from object_datamosh.ui import (  # noqa: E402
     runtime_for_scene,
     settings_for_scene,
 )
+
+require_debug_mode()
 
 configured_work_root = os.environ.get("ODM_ISSUE26_WORK_ROOT")
 WORK_ROOT = (

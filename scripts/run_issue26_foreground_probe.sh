@@ -125,6 +125,14 @@ APPLESCRIPT
   while kill -0 "$escape_sender_pid" 2>/dev/null; do
     if (( SECONDS >= send_deadline )); then
       kill "$escape_sender_pid" 2>/dev/null || true
+      local terminate_deadline=$((SECONDS + 2))
+      while kill -0 "$escape_sender_pid" 2>/dev/null; do
+        if (( SECONDS >= terminate_deadline )); then
+          kill -9 "$escape_sender_pid" 2>/dev/null || true
+          break
+        fi
+        sleep 0.05
+      done
       wait "$escape_sender_pid" 2>/dev/null || true
       escape_sender_pid=""
       fail_with_log "Timed out sending Escape for $marker"
