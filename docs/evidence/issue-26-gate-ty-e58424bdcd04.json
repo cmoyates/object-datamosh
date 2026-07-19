@@ -5,9 +5,9 @@
     "launch_error": null,
     "name": "ty",
     "output_error": null,
-    "output_head": "   Building object-datamosh @ file:///private/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-8tn9ttwt/worktree\n      Built object-datamosh @ file:///private/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-8tn9ttwt/worktree\nInstalled 1 package in 1ms\nAll checks passed!\n",
+    "output_head": "   Building object-datamosh @ file:///private/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-3ighr1nu/worktree\n      Built object-datamosh @ file:///private/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-3ighr1nu/worktree\nInstalled 1 package in 1ms\nAll checks passed!\n",
     "output_retained_bytes": 330,
-    "output_sha256": "371eb8ba1ec3019ba647bac6813f81d9d9dd49ecf9c2580193e9f1727e702fa6",
+    "output_sha256": "c35becc8916499a98444fb504858d9f8e9e1ff2c6fa9832c2dae2ee05d934c63",
     "output_tail": "",
     "output_total_bytes": 330,
     "output_truncated": false,
@@ -15,7 +15,7 @@
     "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "396c106efc03bde3d238154dd7132acb0afb2999",
+  "git_head": "35b1147cbf17fc19206932ab008fa52070f9244b",
   "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"

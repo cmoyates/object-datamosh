@@ -10,9 +10,9 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation, verification tooling, tests, and evidence only)
 
-Foreground UI probe revision: `b571912161c3de50ac304c2d11c1e922c81b8477`
+Foreground UI probe revision: `35b1147cbf17fc19206932ab008fa52070f9244b`
 
-Release-gate revision: `396c106efc03bde3d238154dd7132acb0afb2999`
+Release-gate revision: `35b1147cbf17fc19206932ab008fa52070f9244b`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -146,7 +146,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (739 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (743 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
@@ -177,7 +177,7 @@ Run from the repository root with
 |---|---|
 | `uv sync --frozen --no-install-project` | Passed in the isolated detached-worktree environment |
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 217 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 218 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -185,8 +185,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-40563fee40df.zip` (53,328 bytes), SHA-256
-`40563fee40dfe3c5a744f3154284f085a4e3c2503f478ae22d80f9e412167a56`.
+The installation archive is `dist/object_datamosh-0.1.0-1a0f06aa656d.zip` (53,328 bytes), SHA-256
+`1a0f06aa656dcb0cd1c0f7b7787864386a2237e1af50a6b25c6a28880320bebf`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
