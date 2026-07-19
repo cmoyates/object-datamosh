@@ -155,9 +155,10 @@ class IncrementalProcessingSession(Protocol):
     """Processing session surface coordinated by the combined workflow."""
 
     current_frame: int
-    recovery_frame: int | None
     completed_frames: tuple[Path, ...]
-    is_finished: bool
+
+    @property
+    def is_finished(self) -> bool: ...
 
     @property
     def result(self) -> ProcessingResult: ...
@@ -302,7 +303,7 @@ class RenderAndProcessModalController:
             processing = self._create_processing(frames, lambda: self.cancel_requested)
             self._processing_session = processing
             state.begin_processing()
-            current_frame = processing.recovery_frame or processing.current_frame
+            current_frame = processing.current_frame
             self._lifecycle.update(
                 phase=OperationPhase.PROCESSING,
                 current_frame=current_frame,
@@ -324,8 +325,7 @@ class RenderAndProcessModalController:
             )
         if self.cancel_requested:
             return self._finish_cancelled()
-        recovering_history = session.recovery_frame is not None
-        frame_number = session.recovery_frame or session.current_frame
+        frame_number = session.current_frame
         completed_before = len(session.completed_frames)
         completed_frame = False
         try:
@@ -337,18 +337,13 @@ class RenderAndProcessModalController:
             return self._finish_cancelled()
         except Exception as error:
             return self._fail("processing", frame_number, error)
-        status: str | None = None
         if completed_frame:
-            status = f"Processed frame {frame_number} of {state.frame_end}"
-        elif recovering_history:
-            status = f"Restored resume history through frame {frame_number}"
-        if status is not None:
             try:
                 self._lifecycle.update(
                     phase=OperationPhase.PROCESSING,
                     current_frame=frame_number,
                     completed_work=state.completed_work,
-                    status=status,
+                    status=f"Processed frame {frame_number} of {state.frame_end}",
                     phase_completed_work=state.processed_count,
                     phase_total_work=state.frame_count,
                 )
@@ -358,9 +353,9 @@ class RenderAndProcessModalController:
             return {"RUNNING_MODAL"}
         try:
             result = session.result
+            state.complete()
         except Exception as error:
             return self._fail("processing", frame_number, error)
-        state.complete()
         message = f"Render and Process complete: {len(result.frames)} frame(s)"
         return self._finalize(OperationPhase.COMPLETED, message, {"FINISHED"}, {"INFO"})
 

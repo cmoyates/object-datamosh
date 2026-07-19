@@ -28,6 +28,7 @@ from bpy.types import (
 from .blender_image_io import BlenderImageIO
 from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
+from .combined_processing import CombinedProcessingConfiguration
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
@@ -53,7 +54,6 @@ from .sequence_processing import (
     SequenceProcessingCancelled,
     SequenceRunMode,
     parse_reset_frames,
-    process_sequence,
 )
 from .sidebar import draw_sidebar
 
@@ -614,48 +614,40 @@ class ODM_OT_render_and_process(Operator):
         frame_start = settings.frame_start
         frame_end = settings.frame_end
         overwrite_raw = settings.overwrite_raw
-        overwrite_processed = settings.overwrite_processed
-        reset_frames_text = settings.reset_frames
-        resolution_change_value = settings.resolution_change
-        missing_history_value = settings.missing_history
+        try:
+            processing = CombinedProcessingConfiguration(
+                paths=paths,
+                frame_start=frame_start,
+                frame_end=frame_end,
+                matte_provider=_matte_provider_for_settings(settings),
+                feedback_settings=feedback_settings_for_scene(scene),
+                image_io=BlenderImageIO(scene),
+                overwrite=settings.overwrite_processed,
+                reset_frames=parse_reset_frames(settings.reset_frames),
+                resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                missing_history=MissingHistoryPolicy(settings.missing_history),
+            )
+        except (TypeError, ValueError) as error:
+            message = (
+                f"Render and Process failed during initialization at frame {frame_start}: {error}"
+            )
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
         if not (bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager)):
             runtime = runtime_for_scene(scene)
-
-            def create_processing(input_frames, should_cancel):
-                return ProcessingSession.create(
-                    paths,
-                    frame_start=frame_start,
-                    frame_end=frame_end,
-                    matte_provider=matte_provider,
-                    settings=feedback_settings,
-                    image_io=image_io,
-                    overwrite=overwrite_processed,
-                    reset_frames=reset_frames,
-                    resolution_change=resolution_change,
-                    run_mode=SequenceRunMode.REPROCESS,
-                    missing_history=missing_history,
-                    should_cancel=should_cancel,
-                    input_frames=input_frames,
-                )
-
             controller = RenderAndProcessModalController(
                 self,
                 runtime,
                 settings,
                 adapter=BlenderRenderAdapter(runtime),
-                create_processing=create_processing,
+                create_processing=processing.create_session,
                 on_cleanup=_clear_active_modal_controller,
             )
             self._controller = controller
             _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
             settings.status = "Initializing Render and Process..."
             try:
-                matte_provider = _matte_provider_for_settings(settings)
-                feedback_settings = feedback_settings_for_scene(scene)
-                image_io = BlenderImageIO(scene)
-                reset_frames = parse_reset_frames(reset_frames_text)
-                resolution_change = ResolutionChangePolicy(resolution_change_value)
-                missing_history = MissingHistoryPolicy(missing_history_value)
                 render_session = RawRenderSession.create(
                     scene,
                     view_layer,
@@ -694,29 +686,9 @@ class ODM_OT_render_and_process(Operator):
             )
 
         def process_phase(input_frames):
-            return process_sequence(
-                paths,
-                frame_start=frame_start,
-                frame_end=frame_end,
-                matte_provider=matte_provider,
-                settings=feedback_settings,
-                image_io=image_io,
-                overwrite=overwrite_processed,
-                reset_frames=reset_frames,
-                resolution_change=resolution_change,
-                run_mode=SequenceRunMode.REPROCESS,
-                missing_history=missing_history,
-                progress=progress,
-                input_frames=input_frames,
-            )
+            return processing.process(input_frames, progress)
 
         try:
-            matte_provider = _matte_provider_for_settings(settings)
-            feedback_settings = feedback_settings_for_scene(scene)
-            image_io = BlenderImageIO(scene)
-            reset_frames = parse_reset_frames(reset_frames_text)
-            resolution_change = ResolutionChangePolicy(resolution_change_value)
-            missing_history = MissingHistoryPolicy(missing_history_value)
             result = render_and_process(render_phase, process_phase, on_phase=update_phase)
         except (RawRenderCancelled, SequenceProcessingCancelled) as error:
             message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
