@@ -31,8 +31,7 @@ The sidebar currently provides:
 - a **Create Vector Calibration Scene** action for a separate manual-calibration scene;
 - the active view-layer name;
 - sequence start/end frames, an optional output-directory override, a conservative raw-output
-  overwrite toggle, **Render Raw Passes**, a separate processed-output overwrite toggle, and
-  **Process Existing Passes**;
+  overwrite toggle, **Render Raw Passes**, reset/recovery policy, and **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
   refresh-probability, and deterministic-seed controls; and
@@ -172,15 +171,33 @@ channel and must have matching dimensions. Unsupported channels, unreadable file
 frames, non-finite values, and dimension mismatches stop processing with the affected pass or
 shape identified.
 
-The first frame initializes clean history. Every later frame receives the state returned by the
-preceding frame, and each result is written to
-`processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed, full-float RGBA OpenEXR.
-Existing processed files stop the run before processing unless **Overwrite Processed Frames** is
-explicitly enabled. Progress always closes on success or failure; the service also observes a
-cancellation callback between complete frames. Completed output files are retained and are never
-deleted automatically. Advanced resume, stale-state detection, reset expressions, and partial-run
-recovery are intentionally deferred; after an interrupted run, resolve the cause and reprocess
-the complete configured range, enabling overwrite only when replacing those outputs is intended.
+The configured first frame always initializes clean history. **Reset Frames** accepts a
+comma-separated expression such as `12, 24, 36`; duplicates and whitespace are ignored, and each
+listed frame also initializes from clean beauty. Every other frame receives the state returned by
+the preceding frame. A resolution change either stops before history is reused (the conservative
+default) or performs a documented clean reset, according to **Resolution Change**.
+
+Each result is written to `processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed,
+full-float RGBA OpenEXR. Processing also atomically updates
+`processed/ODM_sequence_manifest.json`. This compact JSON manifest records the frame range,
+ordered completed-frame prefix, explicit resets, resolution policy, and a SHA-256 fingerprint of
+feedback and matte-provider settings. It contains no image data. Output from different settings,
+a changed range, or discontinuous completion metadata is rejected rather than silently reused.
+
+**Reprocess** starts from the configured first frame. Existing outputs stop it unless **Overwrite
+Processed Frames** is enabled; enabling overwrite is explicit permission to replace the complete
+range. If a reprocess is interrupted, old files later in the range remain on disk but stay pending
+in the manifest and are never trusted as current output. **Resume** requires a compatible
+manifest, reconstructs state only from its last contiguous completed output and selected-object
+matte, and continues with pending frames. Existing pending files are replaced. If recorded history
+is missing, unreadable, has invalid dimensions, or otherwise violates the state contract,
+**Missing History: Stop** fails without processing; **Reset** rolls the recoverable boundary back
+and reprocesses from that frame with clean history. Resume never skips a gap.
+
+Progress and manifest updates occur at complete-frame boundaries and progress always closes after
+success, failure, or cancellation. A cancellation therefore leaves an exact safe restart point.
+Completed files are retained and are never deleted automatically. Use Resume for the same range
+and settings, or choose Reprocess with overwrite when deliberately replacing the full sequence.
 
 ## Hard-localized feedback semantics
 
@@ -260,7 +277,7 @@ Blender sidebar / operators
         │
         ├── Object Index setup/restore ───────────────── owned compositor nodes
         ├── Render Raw Passes ────────────────────────── sequential Blender render service
-        ├── Process Existing Passes ─────────────────── sequential feedback + EXR output
+        ├── Process Existing Passes ─────────────────── feedback + EXR + recovery manifest
         ├── Create Vector Calibration Scene ─────────── separate owned Blender scene
         ├── SequencePaths + matte-provider contracts ── render/process boundaries
         │
@@ -303,10 +320,11 @@ third-party runtime dependency.
 
 ## Current limitations
 
-- Existing pass sequences can be processed, but advanced resume, partial-run recovery, reset
-  expressions, and stale-settings detection are deferred to a subsequent ticket.
+- Resume is deliberately range-based and sequential. It does not splice arbitrary processed
+  fragments, migrate old manifest schemas, or delete stale files; incompatible or discontinuous
+  runs require explicit full-range reprocessing.
 - Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
-  mode and sequence-level reset/recovery policy are deferred to later tickets.
+  mode is deferred to a later ticket.
 - Object Index is the MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
   is not implemented. Object Index availability remains render-engine dependent.
