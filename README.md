@@ -391,8 +391,9 @@ suite reported 121 passed and one Blender-runtime skip; and the factory-startup 
 printed `Object Datamosh Blender smoke test passed` (1.12 seconds wall time for its tiny fixtures).
 Manifest validation succeeded, and Blender built `dist/object_datamosh-0.1.0.zip` (31,094 bytes,
 SHA-256 `f15d92386176847b66a0c6f6e859de38577f17f2b52d86d2181c3621ac46a022`). Archive inspection
-found the manifest, 9 top-level Python modules, and 9 `core/` Python modules, with no caches,
-tests, development dependencies, or compiled third-party libraries. Visual node layout, sidebar
+found the manifest, 8 top-level Python modules, and 9 `core/` Python modules, with no caches,
+tests, development dependencies, or compiled third-party libraries. Issue #10 changed only this
+README; the generated ZIP remains ignored under `dist/`. Visual node layout, sidebar
 polish, interactive cancellation, calibration interpretation, and foreground control behavior
 remain explicit interactive checks; they were not claimed by the background gate.
 
