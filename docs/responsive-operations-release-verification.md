@@ -12,7 +12,7 @@ this issue changes release documentation, verification tooling, tests, and evide
 
 Foreground UI probe revision: `1c3e2a74ec9e1e6dd545e0f49dbf9912b8694a22`
 
-Release-gate revision: `1c3e2a74ec9e1e6dd545e0f49dbf9912b8694a22`
+Release-gate revision: `2b4ca230b0ca4695a23638100617396651bbf6c0`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -178,7 +178,7 @@ Run from the repository root with
 |---|---|
 | `uv sync --frozen --no-install-project` | Passed in the isolated detached-worktree environment |
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 226 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 227 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -186,8 +186,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-baec98125ae9.zip` (53,328 bytes), SHA-256
-`baec98125ae92783d042a4e65a80e492546e54c385ce2e9ae55e83667f52c352`.
+The installation archive is `dist/object_datamosh-0.1.0-c000ca9e6c3a.zip` (53,328 bytes), SHA-256
+`c000ca9e6c3a9888fcc22119dec8a30d952cebe17937ef6aede20891d44f8bf7`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
