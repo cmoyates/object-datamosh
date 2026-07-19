@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation and its release probe only)
 
-Foreground probe revision: `d8a1c0f5a7ce3a8f2a4807264865610493f88627`
+Foreground probe revision: `3da75659dbcd259ea2be64d7822759af0bc6e03b`
 
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
@@ -30,7 +30,9 @@ Blender application through System
 Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
 The retained assertion receipt is
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json); its
-`event_log_file` names the immutable retained JSONL whose SHA-256 the receipt records.
+`event_log_file` names the immutable retained
+[JSONL trace](evidence/issue-26-foreground-events-d8f3aeb5a868535ca0fa164891be558af945bc6da38836c510570127f0aaf837.jsonl)
+whose SHA-256 the receipt records.
 
 ## Foreground Blender 5.0.0 observations
 
@@ -57,8 +59,8 @@ Two separate runs covered both user inputs:
   beauty, Vector, or matte files for frames 2–10 was created.
 - A real **Escape** key event was sent by macOS System Events during an active 100-frame raw render.
   Retained monotonic markers prove that both the send invocation and its completion occurred inside
-  raw render intervals. Blender queued the event while blocked, completed a contiguous two-frame
-  prefix, and then moved directly to the terminal state at the next safe boundary; no frame 3 pass
+  raw render intervals. Blender queued the event while blocked, completed a contiguous three-frame
+  prefix, and then moved directly to the terminal state at the next safe boundary; no frame 4 pass
   was created. Unlike the button path, this active-render path did not visibly dwell in the pending
   state. That Blender 5.0 limitation is documented below rather than reported as responsiveness.
 - Both runs restored scene frame 7. The owned render-complete/render-cancel handler counts returned
@@ -136,7 +138,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (596 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (544 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
