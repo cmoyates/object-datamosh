@@ -39,11 +39,12 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
-from .modal_lifecycle import OperationPhase, request_cancellation
+from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, render_raw_passes
 from .sequence_processing import (
     MissingHistoryPolicy,
+    ProcessingSession,
     ResolutionChangePolicy,
     SequenceProcessingCancelled,
     SequenceRunMode,
@@ -543,11 +544,15 @@ class ODM_OT_render_and_process(Operator):
 
 
 class ODM_OT_process_sequence(Operator):
-    """Process existing pass files through localized temporal feedback."""
+    """Advance existing-pass processing one frame per Blender timer event."""
 
     bl_idname = "object_datamosh.process_sequence"
     bl_label = "Process Existing Passes"
     bl_description = "Process existing beauty, vector, and matte EXR sequences"
+
+    _session: ProcessingSession | None
+    _lifecycle: ModalOperationLifecycle | None
+    _initial_completed_work: int
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -562,14 +567,17 @@ class ODM_OT_process_sequence(Operator):
             self.report({"ERROR"}, "An active scene is required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
+        runtime = runtime_for_scene(scene)
+        self._session = None
+        self._initial_completed_work = 0
+        self._lifecycle = ModalOperationLifecycle(self, runtime, cleanup=self._cleanup_session)
         settings.status = "Processing existing passes..."
         try:
-            matte_provider = _matte_provider_for_settings(settings)
-            result = process_sequence(
+            self._session = ProcessingSession.create(
                 sequence_paths_for_scene(scene),
                 frame_start=settings.frame_start,
                 frame_end=settings.frame_end,
-                matte_provider=matte_provider,
+                matte_provider=_matte_provider_for_settings(settings),
                 settings=feedback_settings_for_scene(scene),
                 image_io=BlenderImageIO(),
                 overwrite=settings.overwrite_processed,
@@ -577,28 +585,105 @@ class ODM_OT_process_sequence(Operator):
                 resolution_change=ResolutionChangePolicy(settings.resolution_change),
                 run_mode=SequenceRunMode(settings.sequence_run_mode),
                 missing_history=MissingHistoryPolicy(settings.missing_history),
-                progress=_WindowManagerProgress(context.window_manager),
+                should_cancel=lambda: runtime.cancel_requested,
             )
-        except SequenceProcessingCancelled as error:
-            message = str(error)
+            total_work = settings.frame_end - settings.frame_start + 1
+            self._initial_completed_work = min(
+                total_work,
+                max(0, self._session.current_frame - settings.frame_start),
+            )
+            self._lifecycle.begin(
+                context,
+                frame_start=settings.frame_start,
+                frame_end=settings.frame_end,
+                total_work=total_work,
+            )
+            self._lifecycle.update(
+                phase=OperationPhase.PROCESSING,
+                current_frame=self._session.current_frame,
+                completed_work=self._initial_completed_work,
+                status=f"Processing frame {self._session.current_frame} of {settings.frame_end}",
+            )
+        except (NotImplementedError, OSError, RuntimeError, TypeError, ValueError) as error:
+            message = f"Processing failed at frame {settings.frame_start}: {error}"
             settings.status = message
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-        except (
-            NotImplementedError,
-            OSError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            message = str(error)
-            settings.status = message
+            self._finalize(OperationPhase.FAILED, message)
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context: Context, event: Any) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            message = "Processing failed: the active scene is no longer available"
+            self._finalize(OperationPhase.FAILED, message)
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        if event.type == "ESC":
+            if self._lifecycle is not None:
+                self._lifecycle.request_cancel()
+            return {"RUNNING_MODAL"}
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        session = self._session
+        lifecycle = self._lifecycle
+        settings = settings_for_scene(scene)
+        if session is None or lifecycle is None:
+            message = "Processing failed: the incremental session is unavailable"
+            settings.status = message
+            self._finalize(OperationPhase.FAILED, message)
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+
+        frame_number = session.current_frame
+        completed_before = len(session.completed_frames)
+        try:
+            session.process_next_frame()
+        except SequenceProcessingCancelled as error:
+            message = f"Cancelled after {len(error.completed_frames)} frame(s)"
+            settings.status = message
+            self._finalize(OperationPhase.CANCELLED, message)
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except (NotImplementedError, OSError, RuntimeError, TypeError, ValueError) as error:
+            message = f"Processing failed at frame {frame_number}: {error}"
+            settings.status = message
+            lifecycle.update(
+                phase=OperationPhase.FAILED,
+                current_frame=frame_number,
+                completed_work=self._initial_completed_work + len(session.completed_frames),
+                status=message,
+            )
+            self._finalize(OperationPhase.FAILED, message)
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+
+        completed = len(session.completed_frames)
+        if completed > completed_before:
+            lifecycle.update(
+                phase=OperationPhase.PROCESSING,
+                current_frame=frame_number,
+                completed_work=self._initial_completed_work + completed,
+                status=f"Processed frame {frame_number} of {settings.frame_end}",
+            )
+        if not session.is_finished:
+            return {"RUNNING_MODAL"}
+
+        result = session.result
         message = f"Processed {len(result.frames)} frame(s)"
         settings.status = message
+        self._finalize(OperationPhase.COMPLETED, message)
         self.report({"INFO"}, message)
         return {"FINISHED"}
+
+    def _cleanup_session(self) -> None:
+        self._session = None
+        self._lifecycle = None
+
+    def _finalize(self, phase: OperationPhase, status: str) -> None:
+        if self._lifecycle is not None:
+            self._lifecycle.finalize(phase, status)
 
 
 class ODM_OT_create_vector_calibration(Operator):

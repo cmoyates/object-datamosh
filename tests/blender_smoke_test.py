@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import struct
 import sys
@@ -24,7 +25,6 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 import object_datamosh  # noqa: E402
-import object_datamosh.ui as ui_module  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.compositor_setup import (  # noqa: E402
     restore_object_index_passes,
@@ -37,6 +37,7 @@ from object_datamosh.raw_render import (  # noqa: E402
     render_raw_passes,
 )
 from object_datamosh.ui import (  # noqa: E402
+    ODM_OT_process_sequence,
     _draw_sidebar,
     feedback_settings_for_scene,
     runtime_for_scene,
@@ -94,6 +95,49 @@ class ProgressRecorder:
 
     def end(self) -> None:
         self.events.append(("end", 0))
+
+
+class ModalWindowManagerRecorder:
+    """Deterministic Blender event-loop boundary for modal operator smoke checks."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+        self.timer = object()
+        self.windows: tuple[object, ...] = ()
+
+    def progress_begin(self, minimum: int, maximum: int) -> None:
+        self.events.append(("progress_begin", (minimum, maximum)))
+
+    def progress_update(self, value: int) -> None:
+        self.events.append(("progress_update", value))
+
+    def progress_end(self) -> None:
+        self.events.append(("progress_end", None))
+
+    def event_timer_add(self, interval: float, *, window: object) -> object:
+        self.events.append(("timer_add", (interval, window)))
+        return self.timer
+
+    def event_timer_remove(self, timer: object) -> None:
+        self.events.append(("timer_remove", timer))
+
+    def modal_handler_add(self, operator: object) -> None:
+        self.events.append(("modal_handler_add", operator))
+
+
+class ProcessOperatorHarness:
+    """Call the registered operator's public methods with deterministic Blender boundaries."""
+
+    execute = ODM_OT_process_sequence.execute
+    modal = ODM_OT_process_sequence.modal
+    _cleanup_session = ODM_OT_process_sequence._cleanup_session
+    _finalize = ODM_OT_process_sequence._finalize
+
+    def __init__(self) -> None:
+        self.reports: list[tuple[set[str], str]] = []
+
+    def report(self, level: set[str], message: str) -> None:
+        self.reports.append((level, message))
 
 
 class LayoutRecorder:
@@ -605,10 +649,54 @@ def main() -> None:
         settings.persistence = 1.0
         settings.block_size = 1
         settings.overwrite_processed = False
-        assert object_datamosh_ops.process_sequence() == {"FINISHED"}
-        assert settings.status == "Processed 2 frame(s)"
+        modal_window_manager = ModalWindowManagerRecorder()
+        modal_window = object()
+        modal_context = type(
+            "ModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": modal_window_manager,
+                "window": modal_window,
+            },
+        )()
+        process_operator = ProcessOperatorHarness()
+        assert process_operator.execute(modal_context) == {"RUNNING_MODAL"}
+        assert runtime.active
+        assert runtime.phase == "PROCESSING"
+        assert runtime.current_frame == 1
+        assert runtime.completed_work == 0
+        assert runtime.total_work == 2
+        assert runtime.progress == 0.0
+        assert settings.status == "Processing existing passes..."
+        assert modal_window_manager.events[:3] == [
+            ("progress_begin", (0, 2)),
+            ("timer_add", (0.1, modal_window)),
+            ("modal_handler_add", process_operator),
+        ]
+        timer_event = type("TimerEvent", (), {"type": "TIMER"})()
+        assert process_operator.modal(modal_context, timer_event) == {"RUNNING_MODAL"}
         assert first.processed.is_file()
+        assert not second.processed.exists()
+        assert runtime.active
+        assert runtime.current_frame == 1
+        assert runtime.completed_work == 1
+        assert runtime.progress == 0.5
+        assert runtime.status == "Processed frame 1 of 2"
+        assert not object_datamosh_ops.process_sequence.poll()
+
+        assert process_operator.modal(modal_context, timer_event) == {"FINISHED"}
         assert second.processed.is_file()
+        assert not runtime.active
+        assert runtime.phase == "COMPLETED"
+        assert runtime.current_frame == 2
+        assert runtime.completed_work == 2
+        assert runtime.progress == 1.0
+        assert runtime.status == "Processed 2 frame(s)"
+        assert modal_window_manager.events[-2:] == [
+            ("timer_remove", modal_window_manager.timer),
+            ("progress_end", None),
+        ]
         assert exr_contract(second.processed) == ((2, 3), (2, 2, 2, 2))
         processed = image_io.read_rgba(second.processed)
         assert np.allclose(processed[:, 1], first_beauty[:, 1], atol=1e-6)
@@ -622,23 +710,137 @@ def main() -> None:
             raise AssertionError("processing overwrote existing outputs without permission")
         assert "overwrite is disabled" in settings.status
 
-        original_process_sequence = ui_module.process_sequence
+        cancelled_processing_paths = SequencePaths(Path(temp_directory) / "cancelled")
+        for frame_paths, beauty in (
+            (cancelled_processing_paths.frame(1), first_beauty),
+            (cancelled_processing_paths.frame(2), second_beauty),
+        ):
+            image_io.write_rgba(frame_paths.beauty, beauty)
+            image_io.write_rgba(frame_paths.vector, zero_vector)
+            image_io.write_rgba(frame_paths.matte, matte_rgba)
+        settings.output_directory = str(cancelled_processing_paths.root)
+        cancelled_window_manager = ModalWindowManagerRecorder()
+        cancelled_context = type(
+            "CancelledModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": cancelled_window_manager,
+                "window": object(),
+            },
+        )()
+        cancelled_operator = ProcessOperatorHarness()
+        assert cancelled_operator.execute(cancelled_context) == {"RUNNING_MODAL"}
+        assert cancelled_operator.modal(cancelled_context, timer_event) == {"RUNNING_MODAL"}
+        assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
+        assert runtime.active
+        assert runtime.cancel_requested
+        assert runtime.phase == "CANCELLING"
+        assert runtime.status == "Cancel requested; waiting for a safe boundary..."
+        assert cancelled_operator.modal(cancelled_context, timer_event) == {"CANCELLED"}
+        assert not runtime.active
+        assert not runtime.cancel_requested
+        assert runtime.phase == "CANCELLED"
+        assert runtime.status == "Cancelled after 1 frame(s)"
+        assert cancelled_processing_paths.frame(1).processed.is_file()
+        assert not cancelled_processing_paths.frame(2).processed.exists()
+        recovery_manifest = json.loads(
+            (
+                cancelled_processing_paths.root
+                / "processed"
+                / "ODM_sequence_manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert recovery_manifest["completed_frames"] == [1]
+        assert cancelled_window_manager.events[-2:] == [
+            ("timer_remove", cancelled_window_manager.timer),
+            ("progress_end", None),
+        ]
 
-        def permission_denied(*args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            raise PermissionError("Processed output directory is not writable")
+        settings.sequence_run_mode = "RESUME"
+        resumed_window_manager = ModalWindowManagerRecorder()
+        resumed_context = type(
+            "ResumedModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": resumed_window_manager,
+                "window": object(),
+            },
+        )()
+        resumed_operator = ProcessOperatorHarness()
+        assert resumed_operator.execute(resumed_context) == {"RUNNING_MODAL"}
+        assert runtime.current_frame == 2
+        assert runtime.completed_work == 1
+        assert runtime.progress == 0.5
+        assert resumed_operator.modal(resumed_context, timer_event) == {"FINISHED"}
+        assert cancelled_processing_paths.frame(2).processed.is_file()
+        assert not runtime.active
+        assert runtime.phase == "COMPLETED"
+        assert runtime.completed_work == 2
+        assert runtime.progress == 1.0
+        settings.sequence_run_mode = "REPROCESS"
 
-        try:
-            ui_module.process_sequence = permission_denied
-            try:
-                object_datamosh_ops.process_sequence()
-            except RuntimeError as error:
-                assert "not writable" in str(error)
-            else:
-                raise AssertionError("processing did not report an output permission failure")
-            assert settings.status == "Processed output directory is not writable"
-        finally:
-            ui_module.process_sequence = original_process_sequence
+        escape_paths = SequencePaths(Path(temp_directory) / "escape")
+        escape_frame = escape_paths.frame(1)
+        image_io.write_rgba(escape_frame.beauty, first_beauty)
+        image_io.write_rgba(escape_frame.vector, zero_vector)
+        image_io.write_rgba(escape_frame.matte, matte_rgba)
+        settings.output_directory = str(escape_paths.root)
+        settings.frame_end = 1
+        escape_window_manager = ModalWindowManagerRecorder()
+        escape_context = type(
+            "EscapeModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": escape_window_manager,
+                "window": object(),
+            },
+        )()
+        escape_operator = ProcessOperatorHarness()
+        escape_event = type("EscapeEvent", (), {"type": "ESC"})()
+        assert escape_operator.execute(escape_context) == {"RUNNING_MODAL"}
+        assert escape_operator.modal(escape_context, escape_event) == {"RUNNING_MODAL"}
+        assert runtime.active
+        assert runtime.cancel_requested
+        assert runtime.phase == "CANCELLING"
+        assert escape_operator.modal(escape_context, timer_event) == {"CANCELLED"}
+        assert not runtime.active
+        assert runtime.phase == "CANCELLED"
+        assert not escape_frame.processed.exists()
+
+        failed_paths = SequencePaths(Path(temp_directory) / "failed")
+        failed_first = failed_paths.frame(1)
+        image_io.write_rgba(failed_first.beauty, first_beauty)
+        image_io.write_rgba(failed_first.vector, zero_vector)
+        image_io.write_rgba(failed_first.matte, matte_rgba)
+        settings.output_directory = str(failed_paths.root)
+        settings.frame_end = 2
+        failed_window_manager = ModalWindowManagerRecorder()
+        failed_context = type(
+            "FailedModalContext",
+            (),
+            {
+                "scene": scene,
+                "window_manager": failed_window_manager,
+                "window": object(),
+            },
+        )()
+        failed_operator = ProcessOperatorHarness()
+        assert failed_operator.execute(failed_context) == {"RUNNING_MODAL"}
+        assert failed_operator.modal(failed_context, timer_event) == {"RUNNING_MODAL"}
+        assert failed_operator.modal(failed_context, timer_event) == {"CANCELLED"}
+        assert failed_first.processed.is_file()
+        assert not runtime.active
+        assert runtime.phase == "FAILED"
+        assert runtime.current_frame == 2
+        assert runtime.completed_work == 1
+        assert "Processing failed at frame 2" in runtime.status
+        assert failed_window_manager.events[-2:] == [
+            ("timer_remove", failed_window_manager.timer),
+            ("progress_end", None),
+        ]
 
         print(
             "Sequence processing outputs:",

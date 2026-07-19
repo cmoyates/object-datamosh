@@ -357,10 +357,18 @@ is missing, unreadable, has invalid dimensions, or otherwise violates the state 
 **Missing History: Stop** fails without processing; **Reset** rolls the recoverable boundary back
 and reprocesses from that frame with clean history. Resume never skips a gap.
 
-Progress and manifest updates occur at complete-frame boundaries and progress always closes after
-success, failure, or cancellation. A cancellation therefore leaves an exact safe restart point.
-Completed files are retained and are never deleted automatically. Use Resume for the same range
-and settings, or choose Reprocess with overwrite when deliberately replacing the full sequence.
+**Process Existing Passes** runs as a modal, timer-driven operation. Each timer event processes at
+most one complete frame, publishes the phase, current frame, completed/total work, and normalized
+progress to the sidebar, requests a sidebar redraw, and then yields to Blender's event loop. The
+Blender progress display follows the same complete-frame boundaries. Other Object Datamosh setup,
+render, and process actions remain locked until this operation finishes cleanup.
+
+Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
+immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;
+no subsequent frame starts. It then shows **Cancelled**, removes the owned timer, closes progress,
+and unlocks the controls. Completed files and the atomically updated manifest are retained as the
+exact restart point. Choose **Resume** with the same range and settings to continue, or choose
+Reprocess with overwrite when deliberately replacing the full sequence.
 
 ## Localized feedback semantics
 
