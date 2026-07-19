@@ -89,13 +89,20 @@ class ExistingPassModalController:
 
     @property
     def cancel_requested(self) -> bool:
-        """Whether cancellation was requested independently of scene RNA lifetime."""
-        return self._cancel_requested
+        """Whether either the controller or its scene-visible runtime has a pending request."""
+        if self._cancel_requested:
+            return True
+        try:
+            return self._runtime.cancel_requested
+        except Exception:
+            return False
 
     def request_cancel(self) -> bool:
         """Publish cancellation without relying on the initiating scene remaining valid."""
-        if self._finalized or self._cancel_requested:
+        if self._finalized:
             return False
+        if self.cancel_requested:
+            return True
         self._cancel_requested = True
         with suppress(Exception):
             self._lifecycle.request_cancel()
@@ -136,7 +143,7 @@ class ExistingPassModalController:
                 RuntimeError("the incremental session is unavailable"),
             )
 
-        if self._cancel_requested:
+        if self.cancel_requested:
             message = f"Cancelled after {len(session.completed_frames)} frame(s)"
             self._set_status(message)
             cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)

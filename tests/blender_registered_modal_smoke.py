@@ -41,7 +41,7 @@ def main() -> None:
         settings.matte_source = "OBJECT_INDEX"
 
         operators = cast(Any, bpy.ops).object_datamosh
-        assert operators.process_sequence() == {"RUNNING_MODAL"}
+        assert operators.process_sequence("INVOKE_DEFAULT") == {"RUNNING_MODAL"}
         runtime = runtime_for_scene(scene)
         assert runtime.active
         assert runtime.phase == "PROCESSING"

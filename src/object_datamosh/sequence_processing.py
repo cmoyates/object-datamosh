@@ -412,8 +412,7 @@ class ProcessingSession:
         logging.getLogger(__name__).info(
             "Wrote processed frame %d: %s", frame_number, frame.processed
         )
-        self.completed_frames = (*self.completed_frames, frame.processed)
-        self._completed_numbers.append(frame_number)
+        committed_numbers = [*self._completed_numbers, frame_number]
         _write_manifest(
             self.manifest_path,
             _new_manifest(
@@ -422,9 +421,12 @@ class ProcessingSession:
                 self.settings_fingerprint,
                 self.reset_frames,
                 self.resolution_change,
-                self._completed_numbers,
+                committed_numbers,
             ),
         )
+        # Publish completion only after the recovery manifest atomically commits the frame.
+        self._completed_numbers = committed_numbers
+        self.completed_frames = (*self.completed_frames, frame.processed)
         if frame_number == self.frame_end:
             self._is_finished = True
         else:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -83,11 +84,8 @@ def run_processing_modal_scenarios(
         )()
         assert process_operator.modal(modal_context, foreign_timer_event) == {"PASS_THROUGH"}
         assert not first.processed.exists()
-        timer_event = type(
-            "TimerEvent",
-            (),
-            {"type": "TIMER", "timer": modal_window_manager.timer},
-        )()
+        time.sleep(0.11)
+        timer_event = type("TimerEvent", (), {"type": "TIMER"})()
         assert process_operator.modal(modal_context, timer_event) == {"RUNNING_MODAL"}
         assert first.processed.is_file()
         assert not second.processed.exists()
@@ -99,7 +97,12 @@ def run_processing_modal_scenarios(
         assert settings.status == runtime.status
         assert not object_datamosh_ops.process_sequence.poll()
 
-        assert process_operator.modal(modal_context, timer_event) == {"FINISHED"}
+        owned_timer_event = type(
+            "OwnedTimerEvent",
+            (),
+            {"type": "TIMER", "timer": modal_window_manager.timer},
+        )()
+        assert process_operator.modal(modal_context, owned_timer_event) == {"FINISHED"}
         assert second.processed.is_file()
         assert not runtime.active
         assert runtime.phase == "COMPLETED"
@@ -178,6 +181,7 @@ def run_processing_modal_scenarios(
             ("timer_remove", cancelled_window_manager.timer),
             ("progress_end", None),
         ]
+        assert object_datamosh_ops.process_sequence.poll()
 
         settings.sequence_run_mode = "RESUME"
         resumed_window_manager = ModalWindowManagerRecorder()
@@ -278,6 +282,7 @@ def run_processing_modal_scenarios(
             ("timer_remove", failed_window_manager.timer),
             ("progress_end", None),
         ]
+        assert object_datamosh_ops.process_sequence.poll()
 
         callback_paths = SequencePaths(Path(temp_directory) / "framework-cancel")
         callback_frame = callback_paths.frame(1)

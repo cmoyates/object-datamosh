@@ -617,6 +617,11 @@ class ODM_OT_process_sequence(Operator):
         settings = settings_for_scene(context.scene)
         return _operation_is_idle(context) and settings.frame_start <= settings.frame_end
 
+    def invoke(self, context: Context, event: Any) -> set[Any]:
+        """Enter the same bounded setup path from Blender's interactive invoke dispatch."""
+        del event
+        return self.execute(context)
+
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
         if scene is None:

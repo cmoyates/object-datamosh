@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import object_datamosh.sequence_processing as sequence_processing
 from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
@@ -69,6 +70,46 @@ def _rgba(value: float) -> np.ndarray:
 
 def test_reset_expression_is_parsed_deterministically() -> None:
     assert parse_reset_frames(" 8, 3,8, 5 ") == frozenset({3, 5, 8})
+
+
+def test_manifest_failure_does_not_publish_an_uncommitted_frame(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+    original_replace = sequence_processing.os.replace
+
+    def fail_manifest_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == sequence_manifest_path(paths):
+            raise OSError("manifest replace failed")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", fail_manifest_replace)
+
+    with pytest.raises(OSError, match="manifest replace failed"):
+        session.process_next_frame()
+
+    assert session.completed_frames == ()
+    assert session.retained_frames == ()
+    assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
+        "completed_frames"
+    ] == []
 
 
 def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> None:
