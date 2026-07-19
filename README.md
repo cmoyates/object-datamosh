@@ -522,6 +522,7 @@ Set `BLENDER_BIN` to the tested Blender executable, then run all repository gate
 ```bash
 uv run ty check
 uv run pytest -q
+uv run ruff check .
 "$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py
 "$BLENDER_BIN" --command extension validate src/object_datamosh
 mkdir -p dist

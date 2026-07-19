@@ -6,6 +6,10 @@ Release: Object Datamosh 0.1.0
 
 Platform: Blender 5.0.0 (`a37564c4df7a`), macOS, Apple Silicon
 
+Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
+`src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
+this issue changes release documentation only)
+
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
 ## Result
@@ -44,9 +48,12 @@ Two separate runs covered both user inputs:
   `Cancel requested; waiting for a safe boundary...`, remained active while cancellation was
   pending, then ended inactive at `CANCELLED`. Frame 1's three raw files remained; frame 10 was not
   created.
-- A real **Escape** key event was delivered during a 100-frame raw phase. The run stopped after its
-  contiguous two-frame prefix, displayed the pending and terminal cancellation states, retained
-  those completed raw files, and did not create frame 100.
+- A real **Escape** key event was sent by macOS System Events during a 100-frame raw phase. Blender
+  first dispatched it at the safe boundary after frame 2: the visible sidebar then showed the
+  pending state before the terminal state, the run retained its contiguous two-frame prefix, and
+  frame 100 was not created. The probe could not distinguish whether the OS delivered the key
+  during frame 2's blocking `EXEC_DEFAULT` call or in the following boundary; as documented below,
+  within-frame feedback is neither expected nor claimed.
 - Both runs restored scene frame 7. The owned render-complete/render-cancel handler counts returned
   to their baseline, and another operation started immediately, demonstrating that the modal timer,
   handlers, and operation lock no longer owned an active run.
@@ -55,13 +62,43 @@ Two separate runs covered both user inputs:
 
 - **Process Existing Passes** was cancelled with the sidebar button after two complete frames. The
   pending status appeared immediately, no third frame started, and the run ended inactive at
-  `CANCELLED` with progress 2/10.
+  `CANCELLED` with progress 2/10. Scene frame 7 was unchanged, the active-controller entry was
+  cleared, and no stale modal event changed the terminal state. Blender exposes no public event-
+  timer enumeration, so timer cleanup was verified indirectly by the cleared controller/lock and
+  immediate successful restart; the background smoke fixture separately observes `timer_remove`.
 - Processed frames 1–2 and the recovery manifest remained. The manifest recorded exactly the
   contiguous prefix `[1, 2]`.
 - With the same range and settings, **Resume** started immediately, completed frames 3–10, and
   retained a complete ten-frame processed sequence. Scene frame 7 remained restored.
 - A further processing operation started immediately after Resume completed and could itself be
   cancelled before frame 1, confirming restart and cleanup after recovery.
+
+## Repeatable foreground checklist
+
+The foreground observations can be repeated without relying on Blender's background event-loop
+substitute:
+
+1. Build and install the extension source tree identified above, start Blender 5.0.0 with factory
+   settings, and create a saved 32×24 Cycles scene with one sample and frames 1–10. Set the scene
+   frame to 7, configure Object Index, and keep the Object Datamosh sidebar visible.
+2. Run **Render and Process**. At every redraw, record phase, current frame, phase work, overall
+   work, and progress. Require rendering boundaries 0–9, processing boundaries 10–19, terminal
+   20/20, all four ten-file sequences, restored frame 7, and an immediately startable second run.
+3. Cancel one raw run with the sidebar button after frame 1. In a separate 100-frame raw run, use a
+   real Escape key. Require visible pending then terminal states at the first safe boundary, a
+   contiguous retained raw prefix, no final-frame file, restored frame 7, inactive runtime, a
+   cleared active-controller lock, unchanged render-handler counts, and immediate restart.
+4. Copy the successful raw inputs to a fresh output root, cancel **Process Existing Passes** after
+   frame 2, and inspect `ODM_sequence_manifest.json`. Require `[1, 2]`, restored frame 7, inactive
+   runtime, a cleared controller lock, and no later output. Select **Resume**, require frames 3–10
+   and the complete sequence, then start and cancel one further operation immediately.
+5. To check the remaining UI limitation, register a 10 ms `bpy.app.timers` heartbeat and
+   `render_pre`/`render_complete` markers before step 2. Compare heartbeat timestamps with each raw
+   render interval; do not claim within-frame responsiveness if no heartbeat occurs there.
+
+Record the Blender build hash, tested Git commit or extension-source tree, command results, archive
+path/size/SHA-256, observed state transitions, handler baselines, and any deviation from these
+expected results in the release report.
 
 ## Remaining Blender UI limitation
 
