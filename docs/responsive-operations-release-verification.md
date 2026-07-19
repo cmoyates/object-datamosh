@@ -51,11 +51,11 @@ Two separate runs covered both user inputs:
   pending, then ended inactive at `CANCELLED`. Frame 1's three raw files remained, and none of the
   beauty, Vector, or matte files for frames 2–10 was created.
 - A real **Escape** key event was sent by macOS System Events during a 100-frame raw phase. Blender
-  first dispatched it at the safe boundary after frame 2: the visible sidebar then showed the
-  pending state before the terminal state, the run retained its contiguous two-frame prefix, and
-  frame 100 was not created. The probe could not distinguish whether the OS delivered the key
-  during frame 2's blocking `EXEC_DEFAULT` call or in the following boundary; as documented below,
-  within-frame feedback is neither expected nor claimed.
+  dispatched it at the next safe complete-frame boundary: the visible sidebar then showed the
+  pending state before the terminal state, the latest run retained exactly frame 1, and frame 2 did
+  not start. The probe cannot distinguish whether the OS delivers a key during a blocking
+  `EXEC_DEFAULT` call or at the following boundary; as documented below, within-frame feedback is
+  neither expected nor claimed.
 - Both runs restored scene frame 7. The owned render-complete/render-cancel handler counts returned
   to their baseline, and another operation started immediately, demonstrating that the modal timer,
   handlers, and operation lock no longer owned an active run.
@@ -125,7 +125,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (624 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (625 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The sidebar redraws at the next verified safe boundary; the extension does
 not claim within-frame render responsiveness or force-cancel through an undocumented API. See

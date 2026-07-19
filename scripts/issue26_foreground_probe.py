@@ -46,6 +46,7 @@ state: dict[str, object] = {
     "heartbeats_during_render": 0,
     "render_cancel_requested": False,
     "sidebar_draws": [],
+    "evidence": {},
 }
 
 
@@ -192,17 +193,16 @@ def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
 
 
 def finish_success() -> None:
-    snapshots = state["snapshots"]
-    assert isinstance(snapshots, list)
+    evidence = state["evidence"]
+    assert isinstance(evidence, dict)
     result = {
         "blender_version": bpy.app.version_string,
-        "snapshots": snapshots,
+        "evidence": evidence,
         "heartbeat_count": state["heartbeat_count"],
         "heartbeats_during_render": state["heartbeats_during_render"],
         "render_complete_handlers": len(bpy.app.handlers.render_complete),
         "render_cancel_handlers": len(bpy.app.handlers.render_cancel),
         "scene_frame": bpy.context.scene.frame_current,
-        "sidebar_draws": state["sidebar_draws"],
         "success": True,
     }
     RESULT.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
@@ -276,13 +276,17 @@ def tick() -> float | None:
             draw_process_counts = {entry[3] for entry in combined_draws if entry[1] == "PROCESSING"}
             assert set(range(0, 10)).issubset(draw_render_counts), draw_render_counts
             assert set(range(10, 20)).issubset(draw_process_counts), draw_process_counts
-            emit(
-                "combined_success_verified",
-                render_counts=sorted(rendered_counts),
-                process_counts=sorted(processed_counts),
-                sidebar_render_counts=sorted(draw_render_counts),
-                sidebar_process_counts=sorted(draw_process_counts),
-            )
+            evidence = state["evidence"]
+            assert isinstance(evidence, dict)
+            evidence["combined_success"] = {
+                "render_counts": sorted(rendered_counts),
+                "process_counts": sorted(processed_counts),
+                "sidebar_render_counts": sorted(draw_render_counts),
+                "sidebar_process_counts": sorted(draw_process_counts),
+                "completed_work": item["completed_work"],
+                "progress": item["progress"],
+            }
+            emit("combined_success_verified", **evidence["combined_success"])
             state["stage"] = "raw_button_cancel"
             state["cancel_sent"] = False
             start_combined("raw-button-cancel")
@@ -318,6 +322,9 @@ def tick() -> float | None:
                 assert_controller_cleared()
                 assert len(bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
                 assert len(bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
+                evidence = state["evidence"]
+                assert isinstance(evidence, dict)
+                evidence["raw_button_cancel"] = {"completed_frames": [1]}
                 state["stage"] = "raw_escape_cancel"
                 state["escape_seen"] = False
                 start_combined("raw-escape-cancel", end=100)
@@ -337,6 +344,9 @@ def tick() -> float | None:
                 assert len(completed) < 100, completed
                 assert not paths.frame(100).beauty.exists()
                 assert item["scene_frame"] == state["original_frame"]
+                evidence = state["evidence"]
+                assert isinstance(evidence, dict)
+                evidence["raw_escape_cancel"] = {"completed_frames": completed}
                 emit("escape_verified", completed_frames=completed)
                 process_root = ROOT / "processing-cancel"
                 shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
@@ -366,6 +376,9 @@ def tick() -> float | None:
                 assert payload["completed_frames"] == completed
                 assert item["scene_frame"] == state["original_frame"]
                 assert_controller_cleared()
+                evidence = state["evidence"]
+                assert isinstance(evidence, dict)
+                evidence["processing_button_cancel"] = {"completed_frames": completed}
                 state["stage"] = "processing_resume"
                 start_existing("processing-cancel", mode="RESUME")
 
@@ -397,6 +410,9 @@ def tick() -> float | None:
                 assert payload["completed_frames"] == completed
                 assert item["scene_frame"] == state["original_frame"]
                 assert_controller_cleared()
+                evidence = state["evidence"]
+                assert isinstance(evidence, dict)
+                evidence["processing_escape_cancel"] = {"completed_frames": completed}
                 emit("processing_escape_verified", completed_frames=completed)
                 state["stage"] = "processing_escape_resume"
                 start_existing("processing-escape", mode="RESUME")
@@ -406,6 +422,9 @@ def tick() -> float | None:
             assert all_frame_files(ROOT / "processing-escape", processed=True)
             assert item["scene_frame"] == state["original_frame"]
             assert_controller_cleared()
+            evidence = state["evidence"]
+            assert isinstance(evidence, dict)
+            evidence["processing_resumes_completed"] = True
             # A completed Resume can immediately be followed by another operation.
             process_root = ROOT / "restart-after-resume"
             shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
@@ -421,6 +440,9 @@ def tick() -> float | None:
             elif not active and state.get("restart_cancel_sent"):
                 assert item["phase"] == "CANCELLED"
                 assert_controller_cleared()
+                evidence = state["evidence"]
+                assert isinstance(evidence, dict)
+                evidence["immediate_restart_completed"] = True
                 finish_success()
                 return None
 
