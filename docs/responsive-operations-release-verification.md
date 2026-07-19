@@ -10,7 +10,9 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation, verification tooling, tests, and evidence only)
 
-Foreground UI probe and release-gate revision: `b571912161c3de50ac304c2d11c1e922c81b8477`
+Foreground UI probe revision: `b571912161c3de50ac304c2d11c1e922c81b8477`
+
+Release-gate revision: `396c106efc03bde3d238154dd7132acb0afb2999`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -159,8 +161,8 @@ code, output digest/tail, Git/source identity, and ZIP metadata, and writes the 
 machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
 `--update-evidence`. It validates the foreground result, trace digest, extension source tree, and
 probe/helper/runner hashes, while retaining the foreground run's Git revision for provenance. It then
-creates a fresh environment from the locked dependencies and executes each gate from an isolated
-detached worktree. Each command
+creates a fresh environment from the locked dependencies, redirects Blender's user resources to
+empty per-run directories, and executes each gate from an isolated detached worktree. Each command
 stages a receipt with exit status, output digest, and up to 64 KiB complete output (or bounded
 32 KiB head plus 32 KiB tail) with explicit truncation metadata. Launch, timeout, command, and
 tracked-mutation failures are atomically receipted before stopping. Successful content-addressed
@@ -175,7 +177,7 @@ Run from the repository root with
 |---|---|
 | `uv sync --frozen --no-install-project` | Passed in the isolated detached-worktree environment |
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 215 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 217 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -183,8 +185,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-815036f7a537.zip` (53,328 bytes), SHA-256
-`815036f7a537b0362e9994520be48ac40f35a13fd7446e1951184a11b2d254f6`.
+The installation archive is `dist/object_datamosh-0.1.0-40563fee40df.zip` (53,328 bytes), SHA-256
+`40563fee40dfe3c5a744f3154284f085a4e3c2503f478ae22d80f9e412167a56`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 

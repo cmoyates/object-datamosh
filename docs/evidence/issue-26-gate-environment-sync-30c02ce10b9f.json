@@ -1,0 +1,22 @@
+{
+  "gate": {
+    "command": "uv sync --frozen --no-install-project",
+    "exit_code": 0,
+    "launch_error": null,
+    "name": "environment-sync",
+    "output_error": null,
+    "output_head": "Using CPython 3.12.8\nCreating virtual environment at: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-8tn9ttwt/environment\nInstalled 9 packages in 30ms\n + fake-bpy-module-5-0==20260128\n + iniconfig==2.3.0\n + numpy==2.5.1\n + packaging==26.2\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==9.1.1\n + ruff==0.15.22\n + ty==0.0.61\n",
+    "output_retained_bytes": 356,
+    "output_sha256": "92d8af4a19908d49e8be2369ac9ebf94b7bc4147343ccbea970e0e67b56ad90b",
+    "output_tail": "",
+    "output_total_bytes": 356,
+    "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
+    "tracked_changes": ""
+  },
+  "git_head": "396c106efc03bde3d238154dd7132acb0afb2999",
+  "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
+}
