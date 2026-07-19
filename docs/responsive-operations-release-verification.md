@@ -159,11 +159,11 @@ code, output digest/tail, Git/source identity, and ZIP metadata, and writes the 
 machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
 `--update-evidence`. It validates the foreground result, trace digest, tested revision, source tree,
 and probe/runner hashes, then executes each gate from an isolated detached worktree. Each command
-atomically writes a fixed-name receipt with exit status, output digest, and bounded 32 KiB head plus
-32 KiB tail with explicit truncation metadata; launch, command, and tracked-mutation failures are
-receipted before stopping. The package builds in a
-unique temporary directory and is published to `dist/` only if it does not conflict with an existing
-archive. Receipt-publication commits change evidence/documentation only; the recorded revisions
+stages a receipt with exit status, output digest, and up to 64 KiB complete output (or bounded
+32 KiB head plus 32 KiB tail) with explicit truncation metadata. Launch, timeout, command, and
+tracked-mutation failures are atomically receipted before stopping. Successful content-addressed
+receipts and the uniquely built ZIP are promoted only after final identity checks, then one aggregate
+manifest is atomically switched and superseded receipts are pruned. Receipt-publication commits change evidence/documentation only; the recorded revisions
 identify the executable trees that were actually run.
 
 Run from the repository root with
@@ -172,7 +172,7 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 205 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 207 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -201,8 +201,9 @@ root where the release gate ran.
   deterministic Blender-event assertions plus the exact trace for the current probe revision.
 - `docs/evidence/issue-26-real-escape-result.json` — retains real macOS System Events Escape results
   for the same extension source tree, without Blender event simulation.
-- `docs/evidence/issue-26-gate-<name>.json` — atomically retains each gate's tested revision, exit
-  status, bounded output, digest, byte counts, and truncation state, including failures.
+- `docs/evidence/issue-26-gate-<name>-<digest>.json` — atomically retains each successful gate's
+tested revision, exit status, bounded output, digest, byte counts, timeout, and truncation state.
+A fixed last-failure receipt is written before any failed run stops.
 - `docs/evidence/issue-26-release-gates.json` — atomically references the successful per-gate
   receipts and retains foreground-receipt identity plus ZIP metadata.
 - `tests/test_issue26_release_gates.py` — verifies identity comparison and detects a real mid-run

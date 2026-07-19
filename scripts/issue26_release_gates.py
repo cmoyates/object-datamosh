@@ -7,9 +7,11 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -17,6 +19,9 @@ REPO = Path(__file__).resolve().parents[1]
 EVIDENCE_DIR = REPO / "docs" / "evidence"
 EVIDENCE = EVIDENCE_DIR / "issue-26-release-gates.json"
 MAX_RETAINED_OUTPUT_BYTES = 64 * 1024
+REAL_ESCAPE_GIT_HEAD = "e6628a8a595aaa53416fc205c15f82836c3819ae"
+REAL_ESCAPE_PROBE_SHA256 = "576e3252a7244f6144234477879d678cdde550125eab882745991363505600d8"
+REAL_ESCAPE_RUNNER_SHA256 = "106be8a7ea82d05f8d17b545432f4a6e96cedd8f660bb4d51b5da36180b770ed"
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,8 @@ class GateResult:
     output_tail: str
     output_total_bytes: int
     output_truncated: bool
+    timed_out: bool
+    timeout_seconds: float
     tracked_changes: str
 
 
@@ -106,6 +113,7 @@ def run_gate(
     *,
     worktree: Path,
     environment: dict[str, str],
+    timeout_seconds: float = 600.0,
 ) -> GateResult:
     print(f"$ {display}")
     try:
@@ -115,6 +123,7 @@ def run_gate(
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
@@ -129,36 +138,62 @@ def run_gate(
             output_tail="",
             output_total_bytes=len(message.encode()),
             output_truncated=False,
+            timed_out=False,
+            timeout_seconds=timeout_seconds,
             tracked_changes="",
         )
     assert process.stdout is not None
+    stdout = process.stdout
     digest = hashlib.sha256()
     head_limit = MAX_RETAINED_OUTPUT_BYTES // 2
     tail_limit = MAX_RETAINED_OUTPUT_BYTES - head_limit
+    retained_full = bytearray()
     retained_head = bytearray()
     retained_tail = bytearray()
     total_bytes = 0
-    while chunk := process.stdout.read(8192):
-        total_bytes += len(chunk)
-        digest.update(chunk)
-        sys.stdout.buffer.write(chunk)
-        sys.stdout.buffer.flush()
-        head_remaining = head_limit - len(retained_head)
-        if head_remaining > 0:
-            retained_head.extend(chunk[:head_remaining])
-        retained_tail.extend(chunk)
-        if len(retained_tail) > tail_limit:
-            del retained_tail[:-tail_limit]
-    exit_code = process.wait()
+
+    def consume_output() -> None:
+        nonlocal total_bytes
+        while chunk := stdout.read(8192):
+            total_bytes += len(chunk)
+            digest.update(chunk)
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+            full_remaining = MAX_RETAINED_OUTPUT_BYTES - len(retained_full)
+            if full_remaining > 0:
+                retained_full.extend(chunk[:full_remaining])
+            head_remaining = head_limit - len(retained_head)
+            if head_remaining > 0:
+                retained_head.extend(chunk[:head_remaining])
+            retained_tail.extend(chunk)
+            if len(retained_tail) > tail_limit:
+                del retained_tail[:-tail_limit]
+
+    output_thread = threading.Thread(target=consume_output, name=f"{name}-output")
+    output_thread.start()
+    timed_out = False
+    try:
+        exit_code = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            exit_code = process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            exit_code = process.wait(timeout=5.0)
+    output_thread.join(timeout=10.0)
+    if output_thread.is_alive():
+        raise RuntimeError(f"Output reader did not stop for gate: {display}")
     truncated = total_bytes > MAX_RETAINED_OUTPUT_BYTES
     if truncated:
         output_head = retained_head.decode("utf-8", errors="replace")
         output_tail = retained_tail.decode("utf-8", errors="replace")
         retained_bytes = len(retained_head) + len(retained_tail)
     else:
-        output_head = retained_tail.decode("utf-8", errors="replace")
+        output_head = retained_full.decode("utf-8", errors="replace")
         output_tail = ""
-        retained_bytes = len(retained_tail)
+        retained_bytes = len(retained_full)
     return GateResult(
         name=name,
         command=display,
@@ -170,6 +205,8 @@ def run_gate(
         output_tail=output_tail,
         output_total_bytes=total_bytes,
         output_truncated=truncated,
+        timed_out=timed_out,
+        timeout_seconds=timeout_seconds,
         tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=no"),
     )
 
@@ -235,9 +272,36 @@ def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[
     payload = json.loads(content)
     if payload.get("success") is not True:
         raise RuntimeError("Real-Escape receipt is not successful")
-    if payload.get("extension_source_tree") != identity.source_tree:
-        raise RuntimeError("Real-Escape receipt tested a different extension source tree")
+    expected_identity = {
+        "extension_source_tree": identity.source_tree,
+        "git_head": REAL_ESCAPE_GIT_HEAD,
+        "probe_sha256": REAL_ESCAPE_PROBE_SHA256,
+        "runner_sha256": REAL_ESCAPE_RUNNER_SHA256,
+    }
+    for field, expected in expected_identity.items():
+        if payload.get(field) != expected:
+            raise RuntimeError(
+                f"Real-Escape receipt {field} mismatch: "
+                f"expected {expected!r}, got {payload.get(field)!r}"
+            )
     validate_embedded_event_log(payload, "real-Escape")
+    event_log = payload["event_log_jsonl"]
+    assert isinstance(event_log, str)
+    events = [json.loads(line) for line in event_log.splitlines()]
+    for marker in ("raw_render_active", "processing_escape_ready"):
+        started = [
+            event
+            for event in events
+            if event.get("event") == "external_escape_send_started"
+            and event.get("marker") == marker
+        ]
+        sent = [
+            event
+            for event in events
+            if event.get("event") == "external_escape_sent" and event.get("marker") == marker
+        ]
+        if len(started) != 1 or len(sent) != 1 or started[0]["time"] >= sent[0]["time"]:
+            raise RuntimeError(f"Real-Escape receipt lacks ordered System Events markers: {marker}")
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict):
         raise RuntimeError("Real-Escape receipt has no evidence summary")
@@ -247,6 +311,18 @@ def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[
             raise RuntimeError(f"Real-Escape receipt lacks {scenario}")
         if scenario_evidence.get("blender_escape_event_simulated"):
             raise RuntimeError(f"Real-Escape receipt used simulation for {scenario}")
+        completed = scenario_evidence.get("completed_frames")
+        if not isinstance(completed, list) or completed != list(range(1, len(completed) + 1)):
+            raise RuntimeError(f"Real-Escape receipt has invalid prefix for {scenario}")
+        if scenario_evidence.get("controller_cleared") is not True:
+            raise RuntimeError(f"Real-Escape receipt lacks cleanup for {scenario}")
+    raw = evidence["raw_escape_cancel"]
+    processing = evidence["processing_escape_cancel"]
+    assert isinstance(raw, dict) and isinstance(processing, dict)
+    if raw.get("escape_sent_during_render") is not True:
+        raise RuntimeError("Real-Escape receipt lacks active-render injection evidence")
+    if processing.get("escape_received_by_runtime") is not True:
+        raise RuntimeError("Real-Escape receipt lacks processing runtime receipt")
     return content, payload
 
 
@@ -271,12 +347,22 @@ def main() -> None:
         raise RuntimeError(f"Release-gate source is dirty:\n{identity.dirty}")
     foreground_content, foreground = validate_foreground_receipt(identity)
     real_escape_content, real_escape = validate_real_escape_receipt(identity)
+    if arguments.update_evidence and EVIDENCE.is_file():
+        current_aggregate = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+        referenced = {
+            REPO / entry["path"]
+            for entry in current_aggregate.get("gate_receipts", [])
+            if isinstance(entry.get("path"), str)
+        }
+        for candidate in EVIDENCE_DIR.glob("issue-26-gate-*.json"):
+            if candidate not in referenced:
+                candidate.unlink()
 
     run_root = Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-"))
     worktree = run_root / "worktree"
     build_output = run_root / "build"
     build_output.mkdir()
-    receipt_directory = EVIDENCE_DIR if arguments.update_evidence else run_root / "receipts"
+    receipt_directory = run_root / "receipts"
     receipt_directory.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["git", "worktree", "add", "--detach", str(worktree), identity.git_head],
@@ -329,6 +415,15 @@ def main() -> None:
 
     results: list[GateResult] = []
     gate_receipts: list[Path] = []
+
+    def stop_after_receipting_failure(message: str) -> None:
+        if arguments.update_evidence and gate_receipts:
+            atomic_write(
+                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
+                gate_receipts[-1].read_bytes(),
+            )
+        raise RuntimeError(message)
+
     try:
         for name, command, display in specifications:
             result = run_gate(
@@ -343,15 +438,21 @@ def main() -> None:
                 write_gate_result(result, identity=identity, directory=receipt_directory)
             )
             if result.launch_error is not None:
-                raise RuntimeError(
+                stop_after_receipting_failure(
                     f"Release gate could not launch: {display}: {result.launch_error}"
                 )
+            if result.timed_out:
+                stop_after_receipting_failure(
+                    f"Release gate timed out after {result.timeout_seconds}s: {display}"
+                )
             if result.tracked_changes:
-                raise RuntimeError(
+                stop_after_receipting_failure(
                     f"Release gate modified tracked files: {display}: {result.tracked_changes}"
                 )
             if result.exit_code != 0:
-                raise RuntimeError(f"Release gate failed ({result.exit_code}): {display}")
+                stop_after_receipting_failure(
+                    f"Release gate failed ({result.exit_code}): {display}"
+                )
 
         archives = sorted(build_output.glob("object_datamosh-*.zip"))
         if len(archives) != 1:
@@ -365,11 +466,8 @@ def main() -> None:
             published_archive = published_archive.with_name(
                 f"{published_archive.stem}-{built_archive_sha256[:12]}{published_archive.suffix}"
             )
-        if published_archive.exists():
-            if published_archive.read_bytes() != built_archive_content:
-                raise RuntimeError(f"Archive-name digest collision: {published_archive}")
-        else:
-            atomic_copy(built_archive, published_archive)
+        if published_archive.exists() and published_archive.read_bytes() != built_archive_content:
+            raise RuntimeError(f"Archive-name digest collision: {published_archive}")
 
         require_unchanged_identity(identity, capture_identity())
         latest_foreground_content, _ = validate_foreground_receipt(identity)
@@ -379,13 +477,26 @@ def main() -> None:
         if latest_real_escape_content != real_escape_content:
             raise RuntimeError("Real-Escape receipt changed during release gates")
 
-        gate_receipt_entries = [
-            {
-                "path": str(path.relative_to(REPO if arguments.update_evidence else run_root)),
-                "sha256": sha256_bytes(path.read_bytes()),
-            }
-            for path in gate_receipts
-        ]
+        if not published_archive.exists():
+            atomic_copy(built_archive, published_archive)
+
+        gate_receipt_entries: list[dict[str, str]] = []
+        promoted_gate_receipts: set[Path] = set()
+        for path in gate_receipts:
+            content = path.read_bytes()
+            digest = sha256_bytes(content)
+            if arguments.update_evidence:
+                destination = EVIDENCE_DIR / f"{path.stem}-{digest[:12]}{path.suffix}"
+                if destination.exists():
+                    if destination.read_bytes() != content:
+                        raise RuntimeError(f"Gate-receipt digest collision: {destination}")
+                else:
+                    atomic_write(destination, content)
+                promoted_gate_receipts.add(destination)
+                recorded_path = destination.relative_to(REPO)
+            else:
+                recorded_path = path.relative_to(run_root)
+            gate_receipt_entries.append({"path": str(recorded_path), "sha256": digest})
         receipt = {
             "archive": {
                 "path": str(published_archive.relative_to(REPO)),
@@ -413,6 +524,11 @@ def main() -> None:
             aggregate,
             (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode(),
         )
+        if arguments.update_evidence:
+            (EVIDENCE_DIR / "issue-26-last-failed-gate.json").unlink(missing_ok=True)
+            for old_receipt in EVIDENCE_DIR.glob("issue-26-gate-*.json"):
+                if old_receipt not in promoted_gate_receipts:
+                    old_receipt.unlink()
         print(f"Release-gate receipt: {aggregate}")
     finally:
         subprocess.run(

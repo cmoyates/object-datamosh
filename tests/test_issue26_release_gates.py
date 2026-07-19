@@ -84,6 +84,40 @@ def test_gate_receipt_retains_a_bounded_failure_tail(tmp_path: Path) -> None:
     assert receipt.is_file()
 
 
+def test_gate_receipt_retains_complete_output_below_limit(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    result = run_gate(
+        "medium",
+        ["/usr/bin/python3", "-c", "print('B' * 40959)"],
+        "medium output",
+        worktree=tmp_path,
+        environment={},
+    )
+
+    assert not result.output_truncated
+    assert result.output_total_bytes == 40960
+    assert len(result.output_head.encode()) == 40960
+    assert result.output_tail == ""
+
+
+def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    result = run_gate(
+        "timeout",
+        ["/usr/bin/python3", "-c", "import time; print('started', flush=True); time.sleep(10)"],
+        "synthetic timeout",
+        worktree=tmp_path,
+        environment={},
+        timeout_seconds=0.05,
+    )
+
+    receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
+
+    assert result.timed_out
+    assert "started" in result.output_head
+    assert receipt.is_file()
+
+
 def test_gate_receipt_captures_a_launch_failure(tmp_path: Path) -> None:
     initialize_empty_repository(tmp_path)
     result = run_gate(

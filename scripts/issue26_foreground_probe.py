@@ -620,6 +620,7 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         emit("cancel_button_click_attempt", x=coordinate[0], y=coordinate[1])
     elif not active and item["phase"] == "CANCELLED" and state.last_click_coordinate is not None:
         state.cancel_sent = True
+        state.cancel_button_coordinate = state.last_click_coordinate
         assert any(
             entry[0] == stage
             and entry[1] == "CANCELLING"
