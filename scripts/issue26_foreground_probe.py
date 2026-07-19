@@ -19,9 +19,13 @@ import bpy
 from bpy.types import Context, Object, Scene, Screen
 
 REPO = Path(__file__).resolve().parents[1]
+SCRIPTS = REPO / "scripts"
 SRC = REPO / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+for import_root in (SCRIPTS, SRC):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+from issue26_evidence import raw_render_intervals  # noqa: E402
 
 import object_datamosh  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
@@ -388,18 +392,7 @@ def git_output(*arguments: str) -> str:
 
 def assert_raw_escape_sent_during_render() -> None:
     events = [json.loads(line) for line in LOG.read_text(encoding="utf-8").splitlines()]
-    intervals: list[tuple[float, float]] = []
-    for render_pre in events:
-        if render_pre["event"] != "raw_render_active":
-            continue
-        render_complete = next(
-            event
-            for event in events
-            if event["event"] == "render_complete"
-            and event["stage"] == "raw_escape_cancel"
-            and event["frame"] == render_pre["frame"]
-        )
-        intervals.append((render_pre["time"], render_complete["time"]))
+    intervals = raw_render_intervals(events)
     escape_times = [
         event["time"]
         for event in events

@@ -8,7 +8,7 @@ Platform: Blender 5.0.0 (`a37564c4df7a`), macOS, Apple Silicon
 
 Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
-this issue changes release documentation and its release probe only)
+this issue changes release documentation, verification tooling, tests, and evidence only)
 
 Foreground UI probe and release-gate revision: `70f5a3ee07baeb83e573b66f97e3fb42e0974172`
 
@@ -20,7 +20,7 @@ Issue: [#26 — Verify and release responsive operations](https://github.com/cmo
 
 The responsive modal operations passed the pure-Python, static-analysis, Blender background,
 extension-validation, packaging, and foreground Blender checks listed below. No implementation
-defect was found, so this release-verification change is documentation-only.
+defect was found, so this release-verification change does not modify the extension implementation.
 
 The foreground checks used an actual Blender window and window-manager event loop, not
 `--background`. The tracked `scripts/issue26_foreground_probe.py` fixture rendered a 32×24 Cycles
@@ -157,8 +157,9 @@ through an undocumented API. See
 The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates, captures each exit
 code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
 machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
-`--update-evidence`. It validates the foreground result, trace digest, tested revision, source tree,
-and probe/runner hashes, then executes each gate from an isolated detached worktree. Each command
+`--update-evidence`. It validates the foreground result, trace digest, extension source tree, and
+probe/runner hashes, while retaining the foreground run's Git revision for provenance. It then
+executes each gate from an isolated detached worktree. Each command
 stages a receipt with exit status, output digest, and up to 64 KiB complete output (or bounded
 32 KiB head plus 32 KiB tail) with explicit truncation metadata. Launch, timeout, command, and
 tracked-mutation failures are atomically receipted before stopping. Successful content-addressed
