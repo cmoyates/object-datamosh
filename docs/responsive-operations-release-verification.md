@@ -23,7 +23,7 @@ defect was found, so this release-verification change is documentation-only.
 The foreground checks used an actual Blender window and window-manager event loop, not
 `--background`. The tracked `scripts/issue26_foreground_probe.py` fixture rendered a 32×24 Cycles
 scene at one sample so ten complete frames could be checked quickly. It observed scene-owned
-runtime values while an instrumented visible panel called the production `ODM_PT_sidebar.draw`
+runtime values while an instrumented visible panel called the canonical production `_draw_sidebar`
 layout at every redraw. This verifies the production layout and redraw data, not Blender's sidebar-
 category selection itself. The tracked shell runner sent real macOS Escape key events to the foreground
 Blender application through System
@@ -151,7 +151,10 @@ through an undocumented API. See
 The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates, captures each exit
 code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
 machine-readable receipt at `docs/evidence/issue-26-release-gates.json` only with explicit
-`--update-evidence`.
+`--update-evidence`. The receipt validates the foreground result, trace digest, tested revision,
+source tree, and probe/runner hashes before running, and each command entry links a retained full
+stdout/stderr log by content hash. Receipt-publication commits change evidence/documentation only;
+the recorded revisions identify the executable trees that were actually run.
 
 Run from the repository root with
 `BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender`:
@@ -188,4 +191,6 @@ root where the release gate ran.
 - `docs/evidence/issue-26-foreground-events-<sha256>.jsonl` — retains the receipt-bound monotonic
   event trace used to verify active-render Escape timing; explicit evidence updates promote the new
   receipt before pruning superseded traces, so interrupted updates remain recoverable and bounded.
-- `docs/evidence/issue-26-release-gates.json` — retains the HEAD-bound command and ZIP receipt.
+- `docs/evidence/issue-26-release-gates.json` — retains the tested-revision command and ZIP receipt.
+- `docs/evidence/issue-26-gate-output-<sha256>.log` — retains complete content-addressed output for
+  every receipted command; explicit updates prune logs not referenced by the current receipt.

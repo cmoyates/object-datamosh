@@ -26,6 +26,12 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 probe="$repo_root/scripts/issue26_foreground_probe.py"
 evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
+current_trace="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_log_file"])' "$evidence_result")"
+for orphan_trace in "$repo_root"/docs/evidence/issue-26-foreground-events-*.jsonl; do
+  if [[ -f "$orphan_trace" && "$(basename "$orphan_trace")" != "$current_trace" ]]; then
+    rm "$orphan_trace"
+  fi
+done
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
