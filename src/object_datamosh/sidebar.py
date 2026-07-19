@@ -21,9 +21,7 @@ def draw_sidebar(
     operation.label(text=f"Phase: {phase_label}")
     operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
     operation.label(text=f"Current Frame: {runtime.current_frame}")
-    operation.label(
-        text=f"Phase Work: {runtime.phase_completed_work}/{runtime.phase_total_work}"
-    )
+    operation.label(text=f"Phase Work: {runtime.phase_completed_work}/{runtime.phase_total_work}")
     operation.label(text=f"Overall Work: {runtime.completed_work}/{runtime.total_work}")
     operation.label(text=f"Progress: {runtime.progress:.0%}")
     operation.label(text=f"Status: {runtime.status}")

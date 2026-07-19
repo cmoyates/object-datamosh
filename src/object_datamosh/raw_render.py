@@ -227,9 +227,7 @@ class RawRenderSession:
         staged = self._staging_paths.frame(self.current_frame)
         if not self._overwrite:
             late_collisions = tuple(
-                path
-                for path in (expected.beauty, expected.vector, expected.matte)
-                if path.exists()
+                path for path in (expected.beauty, expected.vector, expected.matte) if path.exists()
             )
             if late_collisions:
                 preview = ", ".join(str(path) for path in late_collisions)
@@ -373,9 +371,7 @@ def render_raw_passes(
                 if "CANCELLED" in render_result:
                     raise RawRenderCancelled(session.completed_frames)
                 if "FINISHED" not in render_result:
-                    raise RuntimeError(
-                        f"Unexpected Blender render result: {sorted(render_result)}"
-                    )
+                    raise RuntimeError(f"Unexpected Blender render result: {sorted(render_result)}")
                 session.complete_frame(request)
             except RawRenderCancelled:
                 raise

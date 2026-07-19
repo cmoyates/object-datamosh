@@ -499,9 +499,7 @@ class ODM_OT_render_raw_passes(Operator):
             self.report({"ERROR"}, "An active scene and view layer are required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
-        if bpy.app.background and isinstance(
-            context.window_manager, bpy.types.WindowManager
-        ):
+        if bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager):
             # Registered background operators have no window event loop to deliver modal timers.
             # Deterministic smoke harnesses provide a recorder instead and exercise modal startup.
             progress = _WindowManagerProgress(context.window_manager)
@@ -613,18 +611,15 @@ class ODM_OT_render_and_process(Operator):
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
         paths = sequence_paths_for_scene(scene)
-        if not (
-            bpy.app.background
-            and isinstance(context.window_manager, bpy.types.WindowManager)
-        ):
+        frame_start = settings.frame_start
+        frame_end = settings.frame_end
+        overwrite_raw = settings.overwrite_raw
+        overwrite_processed = settings.overwrite_processed
+        reset_frames_text = settings.reset_frames
+        resolution_change_value = settings.resolution_change
+        missing_history_value = settings.missing_history
+        if not (bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager)):
             runtime = runtime_for_scene(scene)
-            frame_start = settings.frame_start
-            frame_end = settings.frame_end
-            overwrite_raw = settings.overwrite_raw
-            overwrite_processed = settings.overwrite_processed
-            reset_frames_text = settings.reset_frames
-            resolution_change_value = settings.resolution_change
-            missing_history_value = settings.missing_history
 
             def create_processing(input_frames, should_cancel):
                 return ProcessingSession.create(
@@ -692,30 +687,36 @@ class ODM_OT_render_and_process(Operator):
                 scene,
                 view_layer,
                 paths,
-                frame_start=settings.frame_start,
-                frame_end=settings.frame_end,
-                overwrite=settings.overwrite_raw,
+                frame_start=frame_start,
+                frame_end=frame_end,
+                overwrite=overwrite_raw,
                 progress=progress,
             )
 
         def process_phase(input_frames):
             return process_sequence(
                 paths,
-                frame_start=settings.frame_start,
-                frame_end=settings.frame_end,
-                matte_provider=_matte_provider_for_settings(settings),
-                settings=feedback_settings_for_scene(scene),
-                image_io=BlenderImageIO(scene),
-                overwrite=settings.overwrite_processed,
-                reset_frames=parse_reset_frames(settings.reset_frames),
-                resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                frame_start=frame_start,
+                frame_end=frame_end,
+                matte_provider=matte_provider,
+                settings=feedback_settings,
+                image_io=image_io,
+                overwrite=overwrite_processed,
+                reset_frames=reset_frames,
+                resolution_change=resolution_change,
                 run_mode=SequenceRunMode.REPROCESS,
-                missing_history=MissingHistoryPolicy(settings.missing_history),
+                missing_history=missing_history,
                 progress=progress,
                 input_frames=input_frames,
             )
 
         try:
+            matte_provider = _matte_provider_for_settings(settings)
+            feedback_settings = feedback_settings_for_scene(scene)
+            image_io = BlenderImageIO(scene)
+            reset_frames = parse_reset_frames(reset_frames_text)
+            resolution_change = ResolutionChangePolicy(resolution_change_value)
+            missing_history = MissingHistoryPolicy(missing_history_value)
             result = render_and_process(render_phase, process_phase, on_phase=update_phase)
         except (RawRenderCancelled, SequenceProcessingCancelled) as error:
             message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
@@ -743,9 +744,7 @@ class ODM_OT_render_and_process(Operator):
     def modal(self, context: Context, event: Any) -> set[Any]:
         controller = self._controller
         if controller is None:
-            self.report(
-                {"ERROR"}, "Render and Process failed: the modal controller is unavailable"
-            )
+            self.report({"ERROR"}, "Render and Process failed: the modal controller is unavailable")
             return {"CANCELLED"}
         return controller.handle_event(event)
 

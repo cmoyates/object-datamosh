@@ -368,8 +368,7 @@ class RenderAndProcessModalController:
         state = self._require_state()
         state.cancel()
         message = (
-            f"Render and Process cancelled after {state.completed_work} "
-            f"of {state.total_work} steps"
+            f"Render and Process cancelled after {state.completed_work} of {state.total_work} steps"
         )
         return self._finalize(OperationPhase.CANCELLED, message, {"CANCELLED"}, {"WARNING"})
 

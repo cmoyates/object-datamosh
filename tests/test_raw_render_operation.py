@@ -167,9 +167,7 @@ def test_timer_launches_one_frame_and_advances_only_after_completion() -> None:
     timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
 
     assert controller.handle_event(timer) == {"RUNNING_MODAL"}
-    assert [(request.frame, identity) for request, identity in adapter.launches] == [
-        (3, "raw-run")
-    ]
+    assert [(request.frame, identity) for request, identity in adapter.launches] == [(3, "raw-run")]
     assert session.completed_requests == []
     assert controller.handle_event(timer) == {"RUNNING_MODAL"}
     assert len(adapter.launches) == 1
@@ -270,9 +268,9 @@ def test_cancellation_requested_during_preparation_prevents_launch() -> None:
         CancellingSession(),
     )
 
-    assert controller.handle_event(
-        SimpleNamespace(type="TIMER", timer=window_manager.timer)
-    ) == {"CANCELLED"}
+    assert controller.handle_event(SimpleNamespace(type="TIMER", timer=window_manager.timer)) == {
+        "CANCELLED"
+    }
     assert adapter.launches == []
     assert runtime.phase == "CANCELLED"
 
@@ -296,9 +294,9 @@ def test_escape_before_first_launch_cancels_without_rendering() -> None:
     )
 
     assert controller.handle_event(SimpleNamespace(type="ESC")) == {"RUNNING_MODAL"}
-    assert controller.handle_event(
-        SimpleNamespace(type="TIMER", timer=window_manager.timer)
-    ) == {"CANCELLED"}
+    assert controller.handle_event(SimpleNamespace(type="TIMER", timer=window_manager.timer)) == {
+        "CANCELLED"
+    }
     assert adapter.launches == []
     assert runtime.phase == "CANCELLED"
 

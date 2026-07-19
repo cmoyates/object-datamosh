@@ -135,9 +135,7 @@ def run_combined_modal_scenario(
     }
     assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
     assert runtime.phase == "CANCELLING"
-    assert render_cancel_operator.modal(render_cancel_context, render_cancel_timer) == {
-        "CANCELLED"
-    }
+    assert render_cancel_operator.modal(render_cancel_context, render_cancel_timer) == {"CANCELLED"}
     render_cancel_paths = SequencePaths(render_cancel_root)
     assert render_cancel_paths.frame(1).beauty.is_file()
     assert not render_cancel_paths.frame(2).beauty.exists()
