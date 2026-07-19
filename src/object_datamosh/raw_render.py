@@ -87,7 +87,9 @@ def _discover_output(directory: Path, before: dict[Path, tuple[int, int]], pass_
 def _publish_output(staged: Path, destination: Path, *, overwrite: bool) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if overwrite:
-        os.replace(staged, destination)
+        replacement = destination.with_name(f"ODM_publish_{uuid4().hex}_{destination.name}")
+        os.link(staged, replacement)
+        os.replace(replacement, destination)
     else:
         # A hard link publishes without a check/write race and never replaces user data. Retain
         # the owned staging link because output deletion requires a separate explicit action.

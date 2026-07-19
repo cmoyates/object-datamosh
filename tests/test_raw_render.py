@@ -201,6 +201,7 @@ def test_partial_publication_reports_overwrite_recovery(tmp_path: Path) -> None:
         path.read_bytes() == b"rendered"
         for path in (expected.beauty, expected.vector, expected.matte)
     )
+    assert all(path.read_bytes() == b"rendered" for path in staged)
 
 
 def test_staged_publish_never_clobbers_a_late_destination(tmp_path: Path) -> None:
