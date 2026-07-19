@@ -9,6 +9,7 @@ from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
 from object_datamosh.sequence_processing import (
     MissingHistoryPolicy,
+    ProcessingSession,
     ResolutionChangePolicy,
     SequenceProcessingCancelled,
     SequenceRunMode,
@@ -81,6 +82,161 @@ def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> Non
         assert str(error) == "frame_start must not be greater than frame_end"
     else:
         raise AssertionError("processing accepted an inverted frame range")
+
+
+def test_processing_session_exposes_its_initial_frame_without_processing_it(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(4)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+
+    session = ProcessingSession.create(
+        paths,
+        frame_start=4,
+        frame_end=4,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+
+    assert session.current_frame == 4
+    assert session.completed_frames == ()
+    assert not session.is_finished
+    assert io.written == {}
+
+
+def test_processing_session_advances_one_frame_to_successful_completion(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(4)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    session = ProcessingSession.create(
+        paths,
+        frame_start=4,
+        frame_end=4,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+
+    session.process_next_frame()
+
+    assert session.is_finished
+    assert session.completed_frames == (frame.processed,)
+    assert session.result.frames == (frame.processed,)
+    np.testing.assert_array_equal(io.written[frame.processed], _rgba(0.5))
+
+    session.process_next_frame()
+    assert session.completed_frames == (frame.processed,)
+
+
+def test_processing_session_processes_at_most_one_frame_per_advancement(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(float(frame_number))
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(images)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+
+    session.process_next_frame()
+
+    assert session.current_frame == 2
+    assert session.completed_frames == (paths.frame(1).processed,)
+    assert not session.is_finished
+    assert paths.frame(2).processed not in io.written
+
+
+def test_processing_session_does_not_advance_after_a_frame_failure(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(7)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    session = ProcessingSession.create(
+        paths,
+        frame_start=7,
+        frame_end=7,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+
+    with pytest.raises(FileNotFoundError, match="Missing vector input for frame 7"):
+        session.process_next_frame()
+    io.images[frame.vector] = _rgba(0.0)
+    session.process_next_frame()
+
+    assert session.is_finished
+    assert session.completed_frames == ()
+    assert io.written == {}
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["completed_frames"] == []
+    with pytest.raises(RuntimeError, match="did not complete successfully"):
+        _ = session.result
+
+
+def test_processing_session_resumes_after_its_last_complete_frame(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number, beauty_value in ((1, 0.75), (2, 0.0)):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(beauty_value)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(images)
+    cancellation_requested = False
+    first_session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=io,
+        should_cancel=lambda: cancellation_requested,
+    )
+    first_session.process_next_frame()
+    cancellation_requested = True
+    with pytest.raises(SequenceProcessingCancelled):
+        first_session.process_next_frame()
+
+    resumed = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    assert resumed.current_frame == 2
+    resumed.process_next_frame()
+    np.testing.assert_array_equal(io.written[paths.frame(2).processed], _rgba(0.75))
 
 
 def test_process_sequence_reads_the_exact_discovered_raw_paths(tmp_path: Path) -> None:

@@ -79,6 +79,303 @@ class SequenceProcessingResult:
     frames: tuple[Path, ...]
 
 
+@dataclass(slots=True)
+class ProcessingSession:
+    """A sequence run that advances no more than one complete frame at a time."""
+
+    paths: SequencePaths
+    frame_start: int
+    frame_end: int
+    matte_provider: MatteProvider
+    settings: FeedbackSettings
+    image_io: ImageSequenceIO
+    overwrite: bool
+    reset_frames: frozenset[int]
+    resolution_change: ResolutionChangePolicy
+    run_mode: SequenceRunMode
+    missing_history: MissingHistoryPolicy
+    should_cancel: Callable[[], bool] | None
+    resolved_inputs: dict[int, FramePaths]
+    settings_fingerprint: str
+    manifest_path: Path
+    current_frame: int
+    completed_frames: tuple[Path, ...]
+    _completed_numbers: list[int]
+    _state: FeedbackState | None = None
+    _recovery_reset_frame: int | None = None
+    _is_finished: bool = False
+    _terminal_error: Exception | None = None
+
+    @classmethod
+    def create(
+        cls,
+        paths: SequencePaths,
+        *,
+        frame_start: int,
+        frame_end: int,
+        matte_provider: MatteProvider,
+        settings: FeedbackSettings,
+        image_io: ImageSequenceIO,
+        overwrite: bool = False,
+        reset_frames: frozenset[int] = frozenset(),
+        resolution_change: ResolutionChangePolicy = ResolutionChangePolicy.ERROR,
+        run_mode: SequenceRunMode = SequenceRunMode.REPROCESS,
+        missing_history: MissingHistoryPolicy = MissingHistoryPolicy.ERROR,
+        should_cancel: Callable[[], bool] | None = None,
+        input_frames: tuple[FramePaths, ...] | None = None,
+    ) -> "ProcessingSession":
+        """Initialize one sequence run without processing a frame."""
+        if frame_start > frame_end:
+            raise ValueError("frame_start must not be greater than frame_end")
+        frame_numbers = tuple(range(frame_start, frame_end + 1))
+        if (
+            input_frames is not None
+            and tuple(frame.frame for frame in input_frames) != frame_numbers
+        ):
+            raise ValueError(
+                "input_frames must contain the complete configured frame range in order"
+            )
+        resolved_inputs = (
+            {frame.frame: frame for frame in input_frames}
+            if input_frames is not None
+            else {frame: paths.frame(frame) for frame in frame_numbers}
+        )
+        manifest_path = sequence_manifest_path(paths)
+        fingerprint = _settings_fingerprint(settings, matte_provider)
+        state: FeedbackState | None = None
+        first_frame = frame_start
+        recovery_reset_frame: int | None = None
+        completed: list[int] = []
+        if run_mode is SequenceRunMode.RESUME:
+            manifest = _read_manifest(manifest_path)
+            _validate_manifest(
+                manifest,
+                frame_start=frame_start,
+                frame_end=frame_end,
+                fingerprint=fingerprint,
+                reset_frames=reset_frames,
+                resolution_change=resolution_change,
+            )
+            completed = _completed_frames(manifest)
+            recorded_completion_count = len(completed)
+            missing_index = next(
+                (
+                    index
+                    for index, frame_number in enumerate(completed)
+                    if not paths.frame(frame_number).processed.exists()
+                ),
+                None,
+            )
+            if missing_index is not None:
+                missing_frame = completed[missing_index]
+                if missing_history is MissingHistoryPolicy.ERROR:
+                    raise RuntimeError(f"Resume history is missing for frame {missing_frame}")
+                completed = completed[:missing_index]
+                first_frame = missing_frame
+                recovery_reset_frame = missing_frame
+            if completed:
+                previous_number = completed[-1]
+                previous_frame = paths.frame(previous_number)
+                try:
+                    if settings.mode is FeedbackMode.TRAIL:
+                        state = _restore_trail_state(
+                            completed,
+                            paths=paths,
+                            matte_provider=matte_provider,
+                            settings=settings,
+                            image_io=image_io,
+                            reset_frames=reset_frames,
+                        )
+                    else:
+                        previous_history = image_io.read_rgba(previous_frame.processed)
+                        previous_matte = image_io.read_mask(
+                            matte_provider.path_for_frame(previous_number, paths)
+                        )
+                        state = FeedbackState(previous_history, previous_matte, previous_number)
+                    if not np.all(np.isfinite(state.history)):
+                        raise ValueError("history must contain only finite values")
+                    if not np.all(np.isfinite(state.history_matte)) or np.any(
+                        (state.history_matte < 0.0) | (state.history_matte > 1.0)
+                    ):
+                        raise ValueError(
+                            "history_matte coverage must be finite and between 0 and 1"
+                        )
+                except (OSError, RuntimeError, TypeError, ValueError) as error:
+                    if missing_history is MissingHistoryPolicy.ERROR:
+                        raise RuntimeError(
+                            f"Resume history is invalid for frame {previous_number}: {error}"
+                        ) from error
+                    completed.pop()
+                    first_frame = previous_number
+                    recovery_reset_frame = previous_number
+                    state = None
+                else:
+                    first_frame = max(first_frame, previous_number + 1)
+            if len(completed) != recorded_completion_count:
+                _write_manifest(
+                    manifest_path,
+                    _new_manifest(
+                        frame_start,
+                        frame_end,
+                        fingerprint,
+                        reset_frames,
+                        resolution_change,
+                        completed,
+                    ),
+                )
+        else:
+            if not overwrite:
+                collisions = tuple(
+                    paths.frame(frame_number).processed
+                    for frame_number in frame_numbers
+                    if paths.frame(frame_number).processed.exists()
+                )
+                if collisions:
+                    preview = ", ".join(str(path) for path in collisions[:3])
+                    raise FileExistsError(
+                        f"Processed output exists and overwrite is disabled: {preview}"
+                    )
+            _write_manifest(
+                manifest_path,
+                _new_manifest(
+                    frame_start,
+                    frame_end,
+                    fingerprint,
+                    reset_frames,
+                    resolution_change,
+                    completed,
+                ),
+            )
+        return cls(
+            paths=paths,
+            frame_start=frame_start,
+            frame_end=frame_end,
+            matte_provider=matte_provider,
+            settings=settings,
+            image_io=image_io,
+            overwrite=overwrite,
+            reset_frames=reset_frames,
+            resolution_change=resolution_change,
+            run_mode=run_mode,
+            missing_history=missing_history,
+            should_cancel=should_cancel,
+            resolved_inputs=resolved_inputs,
+            settings_fingerprint=fingerprint,
+            manifest_path=manifest_path,
+            current_frame=first_frame,
+            completed_frames=(),
+            _completed_numbers=completed,
+            _state=state,
+            _recovery_reset_frame=recovery_reset_frame,
+            _is_finished=first_frame > frame_end,
+        )
+
+    @property
+    def is_finished(self) -> bool:
+        """Whether the session reached a terminal state."""
+        return self._is_finished
+
+    @property
+    def result(self) -> SequenceProcessingResult:
+        """Return outputs after successful completion."""
+        if not self._is_finished:
+            raise RuntimeError("Sequence processing is not finished")
+        if self._terminal_error is not None:
+            raise RuntimeError(
+                "Sequence processing did not complete successfully"
+            ) from self._terminal_error
+        return SequenceProcessingResult(self.completed_frames)
+
+    def process_next_frame(self) -> None:
+        """Process at most the current frame, then yield to the caller."""
+        if self._is_finished:
+            return
+        try:
+            self._process_current_frame()
+        except Exception as error:
+            self._terminal_error = error
+            self._is_finished = True
+            raise
+
+    def _process_current_frame(self) -> None:
+        if self.should_cancel is not None and self.should_cancel():
+            self._is_finished = True
+            raise SequenceProcessingCancelled(self.completed_frames)
+
+        frame_number = self.current_frame
+        frame = self.paths.frame(frame_number)
+        raw_frame = self.resolved_inputs[frame_number]
+        matte_path = self.matte_provider.path_for_frame(frame_number, self.paths)
+        if matte_path == frame.matte:
+            matte_path = raw_frame.matte
+        try:
+            beauty = self.image_io.read_rgba(raw_frame.beauty)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Missing beauty input for frame {frame_number}: {raw_frame.beauty}"
+            ) from None
+        try:
+            motion = self.image_io.read_rgba(raw_frame.vector)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Missing vector input for frame {frame_number}: {raw_frame.vector}"
+            ) from None
+        try:
+            matte = self.image_io.read_mask(matte_path)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Missing matte input for frame {frame_number}: {matte_path}"
+            ) from None
+        logging.getLogger(__name__).info(
+            "Processing frame %d: beauty=%s, vector=%s, matte=%s, motion_channels=%s",
+            frame_number,
+            raw_frame.beauty,
+            raw_frame.vector,
+            matte_path,
+            self.settings.motion_channels.value,
+        )
+        resolution_changed = self._state is not None and self._state.history.shape != beauty.shape
+        if resolution_changed and self.resolution_change is ResolutionChangePolicy.ERROR:
+            raise ValueError(
+                f"Resolution changed at frame {frame_number}: "
+                f"{self._state.history.shape[:2]} -> {beauty.shape[:2]}"
+            )
+        output, self._state = process_frame(
+            beauty,
+            motion,
+            matte,
+            None if resolution_changed else self._state,
+            frame_number,
+            self.settings,
+            force_reset=(
+                frame_number in (self.frame_start, self._recovery_reset_frame)
+                or frame_number in self.reset_frames
+                or resolution_changed
+            ),
+        )
+        self.image_io.write_rgba(frame.processed, output)
+        logging.getLogger(__name__).info(
+            "Wrote processed frame %d: %s", frame_number, frame.processed
+        )
+        self.completed_frames = (*self.completed_frames, frame.processed)
+        self._completed_numbers.append(frame_number)
+        _write_manifest(
+            self.manifest_path,
+            _new_manifest(
+                self.frame_start,
+                self.frame_end,
+                self.settings_fingerprint,
+                self.reset_frames,
+                self.resolution_change,
+                self._completed_numbers,
+            ),
+        )
+        if frame_number == self.frame_end:
+            self._is_finished = True
+        else:
+            self.current_frame += 1
+
+
 def process_sequence(
     paths: SequencePaths,
     *,
@@ -96,208 +393,37 @@ def process_sequence(
     should_cancel: Callable[[], bool] | None = None,
     input_frames: tuple[FramePaths, ...] | None = None,
 ) -> SequenceProcessingResult:
-    """Process a resolved sequence strictly from ``frame_start`` through ``frame_end``.
-
-    When ``input_frames`` is supplied, beauty, vector, and Object Index matte inputs are read from
-    those discovered paths rather than reconstructed from the sequence naming convention.
-    """
-    if frame_start > frame_end:
-        raise ValueError("frame_start must not be greater than frame_end")
-    frame_numbers = tuple(range(frame_start, frame_end + 1))
-    if input_frames is not None and tuple(frame.frame for frame in input_frames) != frame_numbers:
-        raise ValueError("input_frames must contain the complete configured frame range in order")
-    resolved_inputs = (
-        {frame.frame: frame for frame in input_frames}
-        if input_frames is not None
-        else {frame: paths.frame(frame) for frame in frame_numbers}
+    """Process a sequence synchronously by driving an incremental session to completion."""
+    session = ProcessingSession.create(
+        paths,
+        frame_start=frame_start,
+        frame_end=frame_end,
+        matte_provider=matte_provider,
+        settings=settings,
+        image_io=image_io,
+        overwrite=overwrite,
+        reset_frames=reset_frames,
+        resolution_change=resolution_change,
+        run_mode=run_mode,
+        missing_history=missing_history,
+        should_cancel=should_cancel,
+        input_frames=input_frames,
     )
-    manifest_path = sequence_manifest_path(paths)
-    fingerprint = _settings_fingerprint(settings, matte_provider)
-    state: FeedbackState | None = None
-    first_frame = frame_start
-    recovery_reset_frame: int | None = None
-    completed: list[int] = []
-
-    if run_mode is SequenceRunMode.RESUME:
-        manifest = _read_manifest(manifest_path)
-        _validate_manifest(
-            manifest,
-            frame_start=frame_start,
-            frame_end=frame_end,
-            fingerprint=fingerprint,
-            reset_frames=reset_frames,
-            resolution_change=resolution_change,
-        )
-        completed = _completed_frames(manifest)
-        recorded_completion_count = len(completed)
-        missing_index = next(
-            (
-                index
-                for index, frame_number in enumerate(completed)
-                if not paths.frame(frame_number).processed.exists()
-            ),
-            None,
-        )
-        if missing_index is not None:
-            missing_frame = completed[missing_index]
-            if missing_history is MissingHistoryPolicy.ERROR:
-                raise RuntimeError(f"Resume history is missing for frame {missing_frame}")
-            completed = completed[:missing_index]
-            first_frame = missing_frame
-            recovery_reset_frame = missing_frame
-        if completed:
-            previous_number = completed[-1]
-            previous_frame = paths.frame(previous_number)
-            try:
-                if settings.mode is FeedbackMode.TRAIL:
-                    state = _restore_trail_state(
-                        completed,
-                        paths=paths,
-                        matte_provider=matte_provider,
-                        settings=settings,
-                        image_io=image_io,
-                        reset_frames=reset_frames,
-                    )
-                else:
-                    previous_history = image_io.read_rgba(previous_frame.processed)
-                    previous_matte = image_io.read_mask(
-                        matte_provider.path_for_frame(previous_number, paths)
-                    )
-                    state = FeedbackState(previous_history, previous_matte, previous_number)
-                if not np.all(np.isfinite(state.history)):
-                    raise ValueError("history must contain only finite values")
-                if not np.all(np.isfinite(state.history_matte)) or np.any(
-                    (state.history_matte < 0.0) | (state.history_matte > 1.0)
-                ):
-                    raise ValueError("history_matte coverage must be finite and between 0 and 1")
-            except (OSError, RuntimeError, TypeError, ValueError) as error:
-                if missing_history is MissingHistoryPolicy.ERROR:
-                    raise RuntimeError(
-                        f"Resume history is invalid for frame {previous_number}: {error}"
-                    ) from error
-                completed.pop()
-                first_frame = previous_number
-                recovery_reset_frame = previous_number
-            else:
-                first_frame = max(first_frame, previous_number + 1)
-        if len(completed) != recorded_completion_count:
-            _write_manifest(
-                manifest_path,
-                _new_manifest(
-                    frame_start,
-                    frame_end,
-                    fingerprint,
-                    reset_frames,
-                    resolution_change,
-                    completed,
-                ),
-            )
-    else:
-        if not overwrite:
-            collisions = tuple(
-                paths.frame(frame_number).processed
-                for frame_number in frame_numbers
-                if paths.frame(frame_number).processed.exists()
-            )
-            if collisions:
-                preview = ", ".join(str(path) for path in collisions[:3])
-                raise FileExistsError(
-                    f"Processed output exists and overwrite is disabled: {preview}"
-                )
-        _write_manifest(
-            manifest_path,
-            _new_manifest(
-                frame_start,
-                frame_end,
-                fingerprint,
-                reset_frames,
-                resolution_change,
-                completed,
-            ),
-        )
-
-    outputs: list[Path] = []
     progress_started = False
     try:
         if progress is not None:
-            progress.begin(max(0, frame_end - first_frame + 1))
+            remaining = max(0, frame_end - session.current_frame + 1)
+            progress.begin(remaining)
             progress_started = True
-        for frame_number in range(first_frame, frame_end + 1):
-            if should_cancel is not None and should_cancel():
-                raise SequenceProcessingCancelled(tuple(outputs))
-            frame = paths.frame(frame_number)
-            raw_frame = resolved_inputs[frame_number]
-            matte_path = matte_provider.path_for_frame(frame_number, paths)
-            if matte_path == frame.matte:
-                matte_path = raw_frame.matte
-            try:
-                beauty = image_io.read_rgba(raw_frame.beauty)
-            except FileNotFoundError:
-                raise FileNotFoundError(
-                    f"Missing beauty input for frame {frame_number}: {raw_frame.beauty}"
-                ) from None
-            try:
-                motion = image_io.read_rgba(raw_frame.vector)
-            except FileNotFoundError:
-                raise FileNotFoundError(
-                    f"Missing vector input for frame {frame_number}: {raw_frame.vector}"
-                ) from None
-            try:
-                matte = image_io.read_mask(matte_path)
-            except FileNotFoundError:
-                raise FileNotFoundError(
-                    f"Missing matte input for frame {frame_number}: {matte_path}"
-                ) from None
-            logging.getLogger(__name__).info(
-                "Processing frame %d: beauty=%s, vector=%s, matte=%s, motion_channels=%s",
-                frame_number,
-                raw_frame.beauty,
-                raw_frame.vector,
-                matte_path,
-                settings.motion_channels.value,
-            )
-            resolution_changed = state is not None and state.history.shape != beauty.shape
-            if resolution_changed and resolution_change is ResolutionChangePolicy.ERROR:
-                raise ValueError(
-                    f"Resolution changed at frame {frame_number}: "
-                    f"{state.history.shape[:2]} -> {beauty.shape[:2]}"
-                )
-            output, state = process_frame(
-                beauty,
-                motion,
-                matte,
-                None if resolution_changed else state,
-                frame_number,
-                settings,
-                force_reset=(
-                    frame_number in (frame_start, recovery_reset_frame)
-                    or frame_number in reset_frames
-                    or resolution_changed
-                ),
-            )
-            image_io.write_rgba(frame.processed, output)
-            logging.getLogger(__name__).info(
-                "Wrote processed frame %d: %s", frame_number, frame.processed
-            )
-            outputs.append(frame.processed)
-            completed.append(frame_number)
-            _write_manifest(
-                manifest_path,
-                _new_manifest(
-                    frame_start,
-                    frame_end,
-                    fingerprint,
-                    reset_frames,
-                    resolution_change,
-                    completed,
-                ),
-            )
-            if progress is not None:
-                progress.update(len(outputs))
+        while not session.is_finished:
+            completed_before = len(session.completed_frames)
+            session.process_next_frame()
+            if progress is not None and len(session.completed_frames) > completed_before:
+                progress.update(len(session.completed_frames))
+        return session.result
     finally:
         if progress is not None and progress_started:
             progress.end()
-    return SequenceProcessingResult(tuple(outputs))
 
 
 def _restore_trail_state(
