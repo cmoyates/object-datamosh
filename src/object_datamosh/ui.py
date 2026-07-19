@@ -45,6 +45,7 @@ from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, RawRenderSession, render_raw_passes
 from .raw_render_operation import RawRenderModalController
+from .render_and_process_operation import RenderAndProcessModalController
 from .sequence_processing import (
     MissingHistoryPolicy,
     ProcessingSession,
@@ -64,11 +65,20 @@ def _driver_namespace() -> dict[str, object]:
     return cast(dict[str, object], cast(Any, bpy.app).driver_namespace)
 
 
-def _active_modal_controller() -> ExistingPassModalController | RawRenderModalController | None:
+def _active_modal_controller() -> (
+    ExistingPassModalController | RawRenderModalController | RenderAndProcessModalController | None
+):
     controller = _driver_namespace().get(_ACTIVE_CONTROLLER_KEY)
     return (
         controller
-        if isinstance(controller, (ExistingPassModalController, RawRenderModalController))
+        if isinstance(
+            controller,
+            (
+                ExistingPassModalController,
+                RawRenderModalController,
+                RenderAndProcessModalController,
+            ),
+        )
         else None
     )
 
@@ -564,11 +574,13 @@ def _matte_provider_for_settings(settings: ODM_Settings):
 
 
 class ODM_OT_render_and_process(Operator):
-    """Render the raw frame range and process only its discovered outputs."""
+    """Render and process the configured range through one modal lifecycle."""
 
     bl_idname = "object_datamosh.render_and_process"
     bl_label = "Render and Process"
     bl_description = "Render raw passes, then process exactly the completed rendered range"
+
+    _controller: RenderAndProcessModalController | None
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -582,6 +594,10 @@ class ODM_OT_render_and_process(Operator):
             and has_object_index_setup(context.scene)
         )
 
+    def invoke(self, context: Context, event: Any) -> set[Any]:
+        del event
+        return self.execute(context)
+
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
         view_layer = context.view_layer
@@ -590,6 +606,55 @@ class ODM_OT_render_and_process(Operator):
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
         paths = sequence_paths_for_scene(scene)
+        if not (
+            bpy.app.background
+            and isinstance(context.window_manager, bpy.types.WindowManager)
+        ):
+            runtime = runtime_for_scene(scene)
+
+            def create_processing(input_frames, should_cancel):
+                return ProcessingSession.create(
+                    paths,
+                    frame_start=settings.frame_start,
+                    frame_end=settings.frame_end,
+                    matte_provider=_matte_provider_for_settings(settings),
+                    settings=feedback_settings_for_scene(scene),
+                    image_io=BlenderImageIO(scene),
+                    overwrite=settings.overwrite_processed,
+                    reset_frames=parse_reset_frames(settings.reset_frames),
+                    resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                    run_mode=SequenceRunMode.REPROCESS,
+                    missing_history=MissingHistoryPolicy(settings.missing_history),
+                    should_cancel=should_cancel,
+                    input_frames=input_frames,
+                )
+
+            controller = RenderAndProcessModalController(
+                self,
+                runtime,
+                settings,
+                adapter=BlenderRenderAdapter(runtime),
+                create_processing=create_processing,
+                on_cleanup=_clear_active_modal_controller,
+            )
+            self._controller = controller
+            _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
+            settings.status = "Initializing Render and Process..."
+            try:
+                render_session = RawRenderSession.create(
+                    scene,
+                    view_layer,
+                    paths,
+                    frame_start=settings.frame_start,
+                    frame_end=settings.frame_end,
+                    overwrite=settings.overwrite_raw,
+                )
+                controller.start(context, render_session)
+            except Exception as error:
+                controller.fail_initialization(settings.frame_start, error)
+                return {"CANCELLED"}
+            return {"RUNNING_MODAL"}
+
         progress = _WindowManagerProgress(context.window_manager)
         phase = RenderAndProcessPhase.RENDERING
 
@@ -654,6 +719,19 @@ class ODM_OT_render_and_process(Operator):
         settings.status = message
         self.report({"INFO"}, message)
         return {"FINISHED"}
+
+    def modal(self, context: Context, event: Any) -> set[Any]:
+        controller = self._controller
+        if controller is None:
+            self.report(
+                {"ERROR"}, "Render and Process failed: the modal controller is unavailable"
+            )
+            return {"CANCELLED"}
+        return controller.handle_event(event)
+
+    def cancel(self, context: Context) -> None:
+        if self._controller is not None:
+            self._controller.cancel()
 
 
 class ODM_OT_process_sequence(Operator):
@@ -822,10 +900,24 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
 
     operation = layout.box()
     operation.label(text=f"Operation: {'Active' if operation_active else 'Idle'}")
-    operation.label(text=f"Phase: {runtime.phase.title()}")
+    phase_label = {
+        OperationPhase.RENDERING.value: "Rendering Raw Passes",
+        OperationPhase.PROCESSING.value: "Processing Passes",
+    }.get(runtime.phase, runtime.phase.title())
+    operation.label(text=f"Phase: {phase_label}")
     operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
     operation.label(text=f"Current Frame: {runtime.current_frame}")
-    operation.label(text=f"Work: {runtime.completed_work}/{runtime.total_work}")
+    phase_total = (
+        max(0, runtime.frame_end - runtime.frame_start + 1) if runtime.total_work else 0
+    )
+    phase_completed = runtime.completed_work
+    if (
+        runtime.phase == OperationPhase.PROCESSING.value
+        and runtime.total_work == phase_total * 2
+    ):
+        phase_completed = max(0, runtime.completed_work - phase_total)
+    operation.label(text=f"Phase Work: {phase_completed}/{phase_total}")
+    operation.label(text=f"Overall Work: {runtime.completed_work}/{runtime.total_work}")
     operation.label(text=f"Progress: {runtime.progress:.0%}")
     operation.label(text=f"Status: {runtime.status}")
     if operation_active:
