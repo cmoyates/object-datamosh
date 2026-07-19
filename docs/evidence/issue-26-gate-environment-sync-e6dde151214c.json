@@ -1,0 +1,22 @@
+{
+  "gate": {
+    "command": "uv sync --frozen --no-install-project",
+    "exit_code": 0,
+    "launch_error": null,
+    "name": "environment-sync",
+    "output_error": null,
+    "output_head": "warning: `VIRTUAL_ENV=/Users/cristopheryates/Documents/Projects/Python/object-datamosh/.venv` does not match the project environment path `/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-urfi03_7/environment` and will be ignored; use `--active` to target the active environment instead\nUsing CPython 3.12.8\nCreating virtual environment at: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-urfi03_7/environment\nInstalled 9 packages in 37ms\n + fake-bpy-module-5-0==20260128\n + iniconfig==2.3.0\n + numpy==2.5.1\n + packaging==26.2\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==9.1.1\n + ruff==0.15.22\n + ty==0.0.61\n",
+    "output_retained_bytes": 673,
+    "output_sha256": "df4e3d6805447a98642bc266b24961447e8f07892b137b7b9646bbc0dc81c42b",
+    "output_tail": "",
+    "output_total_bytes": 673,
+    "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
+    "tracked_changes": ""
+  },
+  "git_head": "b571912161c3de50ac304c2d11c1e922c81b8477",
+  "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
+}

@@ -1,0 +1,22 @@
+{
+  "gate": {
+    "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension build --source-dir src/object_datamosh --output-dir /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-urfi03_7/build",
+    "exit_code": 0,
+    "launch_error": null,
+    "name": "extension-build",
+    "output_error": null,
+    "output_head": "INFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules\nINFO:root:INFO: Found installed dependencies. Going to adjust sys.path.\nINFO:root:INFO: Unregistered Photogrammetry Import Export Addon\nBlenderMCP addon registered\nbuilding: object_datamosh-0.1.0.zip\ncomplete\ncreated: \"/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-urfi03_7/build/object_datamosh-0.1.0.zip\", 53328\nBlenderMCP addon unregistered\n",
+    "output_retained_bytes": 455,
+    "output_sha256": "7be9d207d4c65a4590a1da94cc78e7ceaf9aa68145198464980536c667078771",
+    "output_tail": "",
+    "output_total_bytes": 455,
+    "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
+    "tracked_changes": ""
+  },
+  "git_head": "b571912161c3de50ac304c2d11c1e922c81b8477",
+  "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
+}

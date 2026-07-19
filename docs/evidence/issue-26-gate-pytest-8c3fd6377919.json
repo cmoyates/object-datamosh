@@ -1,0 +1,22 @@
+{
+  "gate": {
+    "command": "uv run pytest -q",
+    "exit_code": 0,
+    "launch_error": null,
+    "name": "pytest",
+    "output_error": null,
+    "output_head": "warning: `VIRTUAL_ENV=/Users/cristopheryates/Documents/Projects/Python/object-datamosh/.venv` does not match the project environment path `/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-urfi03_7/environment` and will be ignored; use `--active` to target the active environment instead\n........................................................................ [ 33%]\n........................................................................ [ 66%]\n.......................................................................  [100%]\n=========================== short test summary info ============================\nSKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime\n215 passed, 1 skipped in 2.79s\n",
+    "output_retained_bytes": 747,
+    "output_sha256": "4c48b43fbd67016df75fcb45c25a4d37d7097005cad25bb8900cd4ed770b0317",
+    "output_tail": "",
+    "output_total_bytes": 747,
+    "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
+    "tracked_changes": ""
+  },
+  "git_head": "b571912161c3de50ac304c2d11c1e922c81b8477",
+  "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
+}
