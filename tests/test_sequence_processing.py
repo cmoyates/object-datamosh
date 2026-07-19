@@ -679,6 +679,7 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
         )
 
     io.written.clear()
+    reset_progress = ProgressRecorder()
     result = process_sequence(
         paths,
         frame_start=1,
@@ -688,9 +689,16 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
         image_io=io,
         run_mode=SequenceRunMode.RESUME,
         missing_history=MissingHistoryPolicy.RESET,
+        progress=reset_progress,
     )
 
     assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
+    assert reset_progress.events == [
+        ("begin", 3),
+        ("update", 1),
+        ("update", 2),
+        ("end", 0),
+    ]
     assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
         "completed_frames"
     ] == [1, 2, 3]

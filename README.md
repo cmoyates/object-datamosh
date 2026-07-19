@@ -365,8 +365,9 @@ same complete-output-frame boundaries. Blender 5.0 does not expose timer identit
 so the lifecycle gates unidentified timer events against its owned monotonic cadence and ignores
 early events from unrelated timers. The initiating scene and configured range remain the run's
 canonical context; configuration controls and Object Datamosh actions in every scene remain locked
-until this operation finishes cleanup. Extension unload is rejected while a run is active so its
-RNA state and modal resources cannot be torn down out of order.
+until this operation finishes cleanup. Extension unload is rejected while a run is active because
+Blender exposes modal-handler addition but no external handler-removal API; unregistering its class
+before the handler returns would be unsafe. Cancel the run first, then disable or reload it.
 
 Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
 immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;
@@ -544,8 +545,9 @@ arrays coexist during processing.
 - **Cryptomatte fails:** select Object Index or a numbered external matte sequence. Cryptomatte
   decoding is intentionally not implemented in the MVP.
 
-## Release verification record
+## Historical release verification record (before issue #23)
 
+This inventory is retained as the pre-modal baseline; it does not describe the current PR archive.
 The production gate was run on 2026-07-18 with Blender 5.0.0. `uv run ty check` passed; the pure
 suite reported 121 passed and one Blender-runtime skip; and the factory-startup Blender smoke test
 printed `Object Datamosh Blender smoke test passed` (1.12 seconds wall time for its tiny fixtures).

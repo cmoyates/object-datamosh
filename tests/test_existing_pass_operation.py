@@ -154,6 +154,7 @@ def test_completed_resume_publishes_the_configured_end_frame() -> None:
         current_frame=4,
         recovery_frame=None,
         retained_frames=(1, 2, 3),
+        completed_frames=(),
         is_finished=True,
     )
     window_manager = WindowManagerRecorder()
@@ -170,7 +171,11 @@ def test_completed_resume_publishes_the_configured_end_frame() -> None:
 
     assert runtime.current_frame == 3
     assert runtime.status == "No pending frames; finalizing..."
-    controller.cancel()
+    assert controller.handle_event(SimpleNamespace(type="ESC")) == {"RUNNING_MODAL"}
+    assert controller.handle_event(
+        SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    ) == {"CANCELLED"}
+    assert runtime.phase == "CANCELLED"
 
 
 def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:

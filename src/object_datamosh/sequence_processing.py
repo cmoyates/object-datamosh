@@ -468,6 +468,14 @@ def process_sequence(
     try:
         if progress is not None:
             remaining = max(0, frame_end - session.current_frame + 1)
+            if (
+                settings.mode is FeedbackMode.TRAIL
+                and missing_history is MissingHistoryPolicy.RESET
+                and session.recovery_frame is not None
+            ):
+                # Deferred recovery can rewind to any recorded frame. Reserve the configured
+                # range so later output updates cannot exceed the published progress bound.
+                remaining = frame_end - frame_start + 1
             progress.begin(remaining)
             progress_started = True
         while not session.is_finished:

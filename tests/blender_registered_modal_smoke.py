@@ -45,11 +45,16 @@ def main() -> None:
         runtime = runtime_for_scene(scene)
         assert runtime.active
         assert runtime.phase == "PROCESSING"
+        try:
+            object_datamosh.unregister()
+        except RuntimeError as error:
+            assert "while an operation is active" in str(error)
+        else:
+            raise AssertionError("active modal classes were unregistered unsafely")
         assert operators.cancel_operation() == {"FINISHED"}
         assert runtime.cancel_requested
-    # Background Blender cannot pump the foreground modal event while this script owns its main
-    # thread. Process exit now releases the isolated timer/handler; deterministic finalization is
-    # asserted in the parent smoke process using the same controller/lifecycle implementation.
+    # Background Blender cannot pump foreground timer events while this script owns its main
+    # thread; process isolation safely releases the pending handler after this guard check.
     print("Registered modal dispatch smoke passed")
 
 

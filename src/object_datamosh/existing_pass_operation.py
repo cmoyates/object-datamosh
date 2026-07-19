@@ -114,6 +114,14 @@ class ExistingPassModalController:
                 RuntimeError("the incremental session is unavailable"),
             )
 
+        if self._runtime.cancel_requested:
+            message = f"Cancelled after {len(session.completed_frames)} frame(s)"
+            self._settings.status = message
+            cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
+            report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
+            self._operator.report(report_level, self._settings.status)
+            return {"CANCELLED"}
+
         recovering_history = session.recovery_frame is not None
         frame_number = (
             session.current_frame if session.recovery_frame is None else session.recovery_frame
