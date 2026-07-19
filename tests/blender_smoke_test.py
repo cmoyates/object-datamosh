@@ -46,6 +46,7 @@ from object_datamosh.raw_render import (  # noqa: E402
 from object_datamosh.ui import (  # noqa: E402
     ODM_RuntimeState,
     _draw_sidebar,
+    _WindowManagerProgress,
     feedback_settings_for_scene,
     runtime_for_scene,
     sequence_paths_for_scene,
@@ -105,6 +106,19 @@ class ProgressRecorder:
 
 
 def main() -> None:
+    class FailingProgressUpdate:
+        def progress_update(self, completed: int) -> None:
+            raise RuntimeError("progress update failed")
+
+    failing_progress = _WindowManagerProgress(FailingProgressUpdate())
+    try:
+        failing_progress.update(1)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Window-manager progress failure did not propagate")
+    assert failing_progress.completed == 0
+
     object_datamosh.register()
     object_datamosh.register()
     assert hasattr(bpy.types.Scene, "ODM_settings")

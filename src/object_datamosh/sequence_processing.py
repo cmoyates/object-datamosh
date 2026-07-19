@@ -72,6 +72,14 @@ class SequenceProcessingCancelled(RuntimeError):
         self.completed_frames = completed_frames
 
 
+class SequenceProcessingFrameError(RuntimeError):
+    """Synchronous processing failure attributed to its active frame."""
+
+    def __init__(self, frame: int, error: Exception) -> None:
+        super().__init__(str(error))
+        self.frame = frame
+
+
 @dataclass(frozen=True, slots=True)
 class SequenceProcessingResult:
     """Processed output files produced for a completed frame range."""
@@ -449,42 +457,92 @@ def process_sequence(
     progress: ProcessingProgress | None = None,
     should_cancel: Callable[[], bool] | None = None,
     input_frames: tuple[FramePaths, ...] | None = None,
+    frame_error_factory: Callable[[int, Exception], Exception] | None = None,
 ) -> SequenceProcessingResult:
-    """Process a sequence synchronously by driving an incremental session to completion."""
-    session = ProcessingSession.create(
-        paths,
-        frame_start=frame_start,
-        frame_end=frame_end,
-        matte_provider=matte_provider,
-        settings=settings,
-        image_io=image_io,
-        overwrite=overwrite,
-        reset_frames=reset_frames,
-        resolution_change=resolution_change,
-        run_mode=run_mode,
-        missing_history=missing_history,
-        should_cancel=should_cancel,
-        input_frames=input_frames,
-    )
+    """Process a sequence synchronously, optionally attributing failures to their frame."""
+    try:
+        session = ProcessingSession.create(
+            paths,
+            frame_start=frame_start,
+            frame_end=frame_end,
+            matte_provider=matte_provider,
+            settings=settings,
+            image_io=image_io,
+            overwrite=overwrite,
+            reset_frames=reset_frames,
+            resolution_change=resolution_change,
+            run_mode=run_mode,
+            missing_history=missing_history,
+            should_cancel=should_cancel,
+            input_frames=input_frames,
+        )
+    except Exception as error:
+        if frame_error_factory is None:
+            raise
+        raise frame_error_factory(frame_start, error) from error
+
     progress_started = False
     try:
         # Synchronous callers historically restored Resume history before opening output progress.
         # Keep that contract while modal callers continue to advance recovery one timer step.
         while session.recovery_frame is not None:
-            session.process_next_frame()
+            recovery_frame = session.recovery_frame
+            try:
+                session.process_next_frame()
+            except SequenceProcessingCancelled:
+                raise
+            except Exception as error:
+                if frame_error_factory is None:
+                    raise
+                raise frame_error_factory(recovery_frame, error) from error
         if progress is not None:
             remaining = max(0, frame_end - session.current_frame + 1)
-            progress.begin(remaining)
+            try:
+                progress.begin(remaining)
+            except Exception as error:
+                if frame_error_factory is None:
+                    raise
+                raise frame_error_factory(session.current_frame, error) from error
             progress_started = True
         while not session.is_finished:
+            frame_number = session.current_frame
             completed_before = len(session.completed_frames)
-            session.process_next_frame()
+            try:
+                session.process_next_frame()
+            except SequenceProcessingCancelled:
+                raise
+            except Exception as error:
+                if frame_error_factory is None:
+                    raise
+                raise frame_error_factory(frame_number, error) from error
             if progress is not None and len(session.completed_frames) > completed_before:
-                progress.update(len(session.completed_frames))
-        return session.result
-    finally:
+                try:
+                    progress.update(len(session.completed_frames))
+                except Exception as error:
+                    if frame_error_factory is None:
+                        raise
+                    raise frame_error_factory(frame_number, error) from error
+        try:
+            result = session.result
+        except Exception as error:
+            if frame_error_factory is None:
+                raise
+            raise frame_error_factory(session.current_frame, error) from error
+    except Exception as primary_error:
         if progress is not None and progress_started:
+            try:
+                progress.end()
+            except Exception as cleanup_error:
+                primary_error.add_note(f"Progress cleanup also failed: {cleanup_error}")
+        raise
+    if progress is not None and progress_started:
+        try:
             progress.end()
+        except Exception as error:
+            if frame_error_factory is None:
+                raise
+            raise frame_error_factory(session.current_frame, error) from error
+    return result
 
 
 def _restore_trail_frame(

@@ -29,7 +29,7 @@ from .blender_image_io import BlenderImageIO
 from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
 from .combined_failures import CombinedRenderingFailure, render_with_frame_context
-from .combined_processing import CombinedProcessingConfiguration, CombinedProcessingFailure
+from .combined_processing import CombinedProcessingConfiguration
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
@@ -53,6 +53,7 @@ from .sequence_processing import (
     ProcessingSession,
     ResolutionChangePolicy,
     SequenceProcessingCancelled,
+    SequenceProcessingFrameError,
     SequenceRunMode,
     parse_reset_frames,
 )
@@ -463,8 +464,8 @@ class _WindowManagerProgress:
         self._window_manager.progress_begin(0, total)
 
     def update(self, completed: int) -> None:
-        self.completed = completed
         self._window_manager.progress_update(completed)
+        self.completed = completed
 
     def end(self) -> None:
         self._window_manager.progress_end()
@@ -707,7 +708,7 @@ class ODM_OT_render_and_process(Operator):
             settings.status = message
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
-        except CombinedProcessingFailure as error:
+        except SequenceProcessingFrameError as error:
             message = f"Render and Process failed during processing at frame {error.frame}: {error}"
             settings.status = message
             self.report({"ERROR"}, message)
