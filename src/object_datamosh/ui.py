@@ -28,7 +28,7 @@ from bpy.types import (
 from .blender_image_io import BlenderImageIO
 from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
-from .combined_processing import CombinedProcessingConfiguration
+from .combined_processing import CombinedProcessingConfiguration, CombinedProcessingFailure
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
@@ -625,7 +625,6 @@ class ODM_OT_render_and_process(Operator):
                 overwrite=settings.overwrite_processed,
                 reset_frames=parse_reset_frames(settings.reset_frames),
                 resolution_change=ResolutionChangePolicy(settings.resolution_change),
-                missing_history=MissingHistoryPolicy(settings.missing_history),
             )
         except (TypeError, ValueError) as error:
             message = (
@@ -694,6 +693,11 @@ class ODM_OT_render_and_process(Operator):
             message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
             settings.status = message
             self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except CombinedProcessingFailure as error:
+            message = f"Render and Process failed during processing at frame {error.frame}: {error}"
+            settings.status = message
+            self.report({"ERROR"}, message)
             return {"CANCELLED"}
         except (
             FileExistsError,

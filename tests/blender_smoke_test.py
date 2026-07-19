@@ -457,6 +457,20 @@ def main() -> None:
             for path in (frame.beauty, frame.vector, frame.matte, frame.processed)
         )
         assert all(path.is_file() for path in background_inventory), background_inventory
+
+        background_failure_root = temp_root / "combined-background-failure"
+        settings.output_directory = str(background_failure_root)
+        settings.frame_end = 1
+        settings.matte_source = "CRYPTOMATTE"
+        try:
+            object_datamosh_ops.render_and_process()
+        except RuntimeError as error:
+            assert "failed during processing at frame 1" in str(error)
+        else:
+            raise AssertionError("Background processing failure did not reach Blender")
+        assert "failed during processing at frame 1" in settings.status
+        settings.frame_end = 2
+        settings.matte_source = "OBJECT_INDEX"
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
         print(
             "Render and Process outputs:",
