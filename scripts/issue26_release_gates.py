@@ -25,6 +25,7 @@ MAX_RETAINED_OUTPUT_BYTES = 64 * 1024
 REAL_ESCAPE_GIT_HEAD = "e6628a8a595aaa53416fc205c15f82836c3819ae"
 REAL_ESCAPE_PROBE_SHA256 = "576e3252a7244f6144234477879d678cdde550125eab882745991363505600d8"
 REAL_ESCAPE_RUNNER_SHA256 = "106be8a7ea82d05f8d17b545432f4a6e96cedd8f660bb4d51b5da36180b770ed"
+INTERRUPT_SIGNALS = (signal.SIGHUP, signal.SIGTERM)
 
 
 @dataclass(frozen=True)
@@ -297,17 +298,23 @@ def run_gate(
     output_thread.start()
     timed_out = False
     termination_error: str | None = None
+    post_wait_signal_mask: set[int] | None = None
     try:
         try:
-            exit_code = process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            exit_code, termination_error = terminate_timed_out_process(process)
+            try:
+                exit_code = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                exit_code, termination_error = terminate_timed_out_process(process)
+        finally:
+            post_wait_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
     except BaseException:
         stop_process_group(process.pid, timeout_seconds=process_group_timeout_seconds)
         stop_output_reader.set()
         output_thread.join(timeout=1.0)
         stdout.close()
+        if post_wait_signal_mask is not None:
+            signal.pthread_sigmask(signal.SIG_SETMASK, post_wait_signal_mask)
         raise
     descendants_remained = process_group_exists(process.pid)
     group_stopped = stop_process_group(
@@ -344,7 +351,7 @@ def run_gate(
         output_head = retained_full.decode("utf-8", errors="replace")
         output_tail = ""
         retained_bytes = len(retained_full)
-    return GateResult(
+    result = GateResult(
         name=name,
         command=display,
         exit_code=exit_code,
@@ -360,6 +367,9 @@ def run_gate(
         timeout_seconds=timeout_seconds,
         tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=no"),
     )
+    assert post_wait_signal_mask is not None
+    signal.pthread_sigmask(signal.SIG_SETMASK, post_wait_signal_mask)
+    return result
 
 
 def write_release_failure(
@@ -518,6 +528,7 @@ def main() -> None:
         raise RuntimeError(f"Release-gate source is dirty:\n{identity.dirty}")
     foreground_content, foreground = validate_foreground_receipt(identity)
     real_escape_content, real_escape = validate_real_escape_receipt(identity)
+    setup_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
     run_root = Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-"))
     worktree = run_root / "worktree"
     build_output = run_root / "build"
@@ -599,13 +610,13 @@ def main() -> None:
     def stop_after_receipting_failure(message: str) -> None:
         raise RuntimeError(message)
 
-    handled_signals = (signal.SIGHUP, signal.SIGTERM)
     previous_handlers = {
         signal_number: signal.signal(signal_number, interrupt_release_gate)
-        for signal_number in handled_signals
+        for signal_number in INTERRUPT_SIGNALS
     }
     success_committed = False
     try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, setup_signal_mask)
         for name, command, display in specifications:
             result = run_gate(
                 name,
@@ -732,6 +743,7 @@ def main() -> None:
     finally:
         for signal_number, previous_handler in previous_handlers.items():
             signal.signal(signal_number, previous_handler)
+        signal.pthread_sigmask(signal.SIG_SETMASK, setup_signal_mask)
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree)],
             cwd=REPO,
