@@ -77,6 +77,8 @@ on run argv
   set targetPid to (item 1 of argv) as integer
   set localX to (item 2 of argv) as integer
   set localY to (item 3 of argv) as integer
+  set blenderWidth to (item 4 of argv) as integer
+  set blenderHeight to (item 5 of argv) as integer
   tell application "System Events"
     set targetProcess to first process whose unix id is targetPid
     set frontmost of targetProcess to true
@@ -84,8 +86,8 @@ on run argv
       set windowPosition to position
       set windowSize to size
     end tell
-    set screenX to (item 1 of windowPosition) + localX
-    set screenY to (item 2 of windowPosition) + (item 2 of windowSize) - localY
+    set screenX to (item 1 of windowPosition) + (localX * (item 1 of windowSize) / blenderWidth)
+    set screenY to (item 2 of windowPosition) + ((blenderHeight - localY) * (item 2 of windowSize) / blenderHeight)
     click at {screenX, screenY}
   end tell
 end run
@@ -108,6 +110,8 @@ while True:
                     str(blender_pid),
                     str(event["x"]),
                     str(event["y"]),
+                    str(event["window_width"]),
+                    str(event["window_height"]),
                 ],
                 input=script,
                 text=True,

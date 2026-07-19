@@ -78,10 +78,16 @@ class AppFacade(Protocol):
     timers: TimerRegistry
 
 
+class WindowDimensions(Protocol):
+    width: int
+    height: int
+
+
 class ContextFacade(Protocol):
     scene: Scene
     active_object: Object | None
     screen: Screen
+    window: WindowDimensions
 
 
 class ObjectDatamoshOperations(Protocol):
@@ -217,7 +223,15 @@ def request_left_click(x: int, y: int, purpose: str) -> None:
     state.click_request_sequence += 1
     request_id = f"{purpose}-{state.click_request_sequence}"
     state.pending_click_id = request_id
-    emit("ui_click_requested", marker=request_id, purpose=purpose, x=x, y=y)
+    emit(
+        "ui_click_requested",
+        marker=request_id,
+        purpose=purpose,
+        window_height=_context.window.height,
+        window_width=_context.window.width,
+        x=x,
+        y=y,
+    )
 
 
 def consume_click_acknowledgement() -> bool:
