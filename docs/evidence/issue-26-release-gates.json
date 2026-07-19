@@ -6,16 +6,15 @@
   },
   "blender_bin": "/Applications/Blender.app/Contents/MacOS/Blender",
   "foreground": {
-    "git_head": "bcfde1620f8e372d34339e5c70f6a7e5c89a3b87",
-    "receipt_sha256": "63653c3c36581f8ffce6c1f7256a2878d5111775495de558358f1ae24577c38a",
-    "trace_file": "issue-26-foreground-events-73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725.jsonl",
-    "trace_sha256": "73b61dac613fa7fbff87555776e383627f3dc72dc93942a70da2f4d5068f6725"
+    "event_log_sha256": "0f04aa93ebfb17c9ea355542e8d58295eb66bf7499eb354d5dac04082e31caab",
+    "git_head": "559504137e6d1dbc0102acbcb7cfe45a67cb3e2a",
+    "receipt_sha256": "8df1d95bf891b81e34e333950172d3a23ac78a0db04f35329d379a35cdd5b820"
   },
   "gates": [
     {
       "command": "uv run ty check",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18.log",
+      "output": "All checks passed!\n",
       "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
       "output_tail": [
         "All checks passed!"
@@ -24,21 +23,21 @@
     {
       "command": "uv run pytest -q",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-df539088a244dccae1f8bf79b3cf4a00f99aab694cdd63798ced468b0b02a2e3.log",
-      "output_sha256": "df539088a244dccae1f8bf79b3cf4a00f99aab694cdd63798ced468b0b02a2e3",
+      "output": "........................................................................ [ 35%]\n........................................................................ [ 71%]\n..........................................................               [100%]\n=========================== short test summary info ============================\nSKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime\n202 passed, 1 skipped in 0.28s\n",
+      "output_sha256": "9811bcce6cd3e4d9600b9b82d44cfcede0b3ccd4a20f3ce1e9456fac05346701",
       "output_tail": [
-        "........................................................................ [ 36%]",
-        "........................................................................ [ 72%]",
-        "........................................................                 [100%]",
+        "........................................................................ [ 35%]",
+        "........................................................................ [ 71%]",
+        "..........................................................               [100%]",
         "=========================== short test summary info ============================",
         "SKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime",
-        "200 passed, 1 skipped in 0.32s"
+        "202 passed, 1 skipped in 0.28s"
       ]
     },
     {
       "command": "uv run ruff check .",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18.log",
+      "output": "All checks passed!\n",
       "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
       "output_tail": [
         "All checks passed!"
@@ -47,8 +46,8 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tests/blender_smoke_test.py",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-c40f8aa593bbe9ba8601f34fc4c7ea236b98e4710f0d6a64af7d3ebc404cc0bf.log",
-      "output_sha256": "c40f8aa593bbe9ba8601f34fc4c7ea236b98e4710f0d6a64af7d3ebc404cc0bf",
+      "output": "00:00.442  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/complete/ODM_staging_6429bba8cd694fc4881ea77ecace4ff1/raw/beauty/ODM_beauty_0001.exr'\n00:00.442  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/complete/ODM_staging_6429bba8cd694fc4881ea77ecace4ff1/raw/vector/ODM_vector_0001.exr'\n00:00.443  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/complete/ODM_staging_6429bba8cd694fc4881ea77ecace4ff1/raw/matte/ODM_matte_0001.exr'\n00:00.509  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/cancelled/ODM_staging_a57bcd26311545c4909f0e61c59c28de/raw/vector/ODM_vector_0001.exr'\n00:00.510  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/cancelled/ODM_staging_a57bcd26311545c4909f0e61c59c28de/raw/beauty/ODM_beauty_0001.exr'\n00:00.510  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/cancelled/ODM_staging_a57bcd26311545c4909f0e61c59c28de/raw/matte/ODM_matte_0001.exr'\n00:00.574  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/registered-background/ODM_staging_85cbbc0ca56348e2a07a623e3c40d751/raw/beauty/ODM_beauty_0001.exr'\n00:00.575  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/registered-background/ODM_staging_85cbbc0ca56348e2a07a623e3c40d751/raw/matte/ODM_matte_0001.exr'\n00:00.575  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/operator/registered-background/ODM_staging_85cbbc0ca56348e2a07a623e3c40d751/raw/vector/ODM_vector_0001.exr'\n00:00.640  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/matte/ODM_matte_0001.exr'\n00:00.641  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/vector/ODM_vector_0001.exr'\n00:00.641  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/beauty/ODM_beauty_0001.exr'\n00:00.710  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/beauty/ODM_beauty_0002.exr'\n00:00.714  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/matte/ODM_matte_0002.exr'\n00:00.715  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-modal/ODM_staging_d9b5013cd5014c21bc20c65d4cc42ef5/raw/vector/ODM_vector_0002.exr'\n00:00.789  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-render-cancel/ODM_staging_0f5fd761e24e46a5a715325fc8a384ba/raw/vector/ODM_vector_0001.exr'\n00:00.789  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-render-cancel/ODM_staging_0f5fd761e24e46a5a715325fc8a384ba/raw/beauty/ODM_beauty_0001.exr'\n00:00.790  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-render-cancel/ODM_staging_0f5fd761e24e46a5a715325fc8a384ba/raw/matte/ODM_matte_0001.exr'\n00:00.856  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/matte/ODM_matte_0001.exr'\n00:00.856  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/vector/ODM_vector_0001.exr'\n00:00.856  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/beauty/ODM_beauty_0001.exr'\n00:00.921  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/matte/ODM_matte_0002.exr'\n00:00.921  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/vector/ODM_vector_0002.exr'\n00:00.922  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-process-cancel/ODM_staging_bc967f7e98f04446a4d6b81469243c8c/raw/beauty/ODM_beauty_0002.exr'\n00:00.990  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/beauty/ODM_beauty_0001.exr'\n00:00.990  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/matte/ODM_matte_0001.exr'\n00:00.990  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/vector/ODM_vector_0001.exr'\n00:01.055  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/vector/ODM_vector_0002.exr'\n00:01.055  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/beauty/ODM_beauty_0002.exr'\n00:01.055  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background/ODM_staging_296116441ebe455aa20d15df289b156d/raw/matte/ODM_matte_0002.exr'\n00:01.128  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background-failure/ODM_staging_f4e696348f7b4bc591497169df5a8ff5/raw/matte/ODM_matte_0001.exr'\n00:01.128  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background-failure/ODM_staging_f4e696348f7b4bc591497169df5a8ff5/raw/beauty/ODM_beauty_0001.exr'\n00:01.128  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/combined-background-failure/ODM_staging_f4e696348f7b4bc591497169df5a8ff5/raw/vector/ODM_vector_0001.exr'\n00:01.197  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/vector/ODM_vector_0001.exr'\n00:01.197  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/beauty/ODM_beauty_0001.exr'\n00:01.197  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/matte/ODM_matte_0001.exr'\n00:01.262  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/vector/ODM_vector_0002.exr'\n00:01.263  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/beauty/ODM_beauty_0002.exr'\n00:01.264  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/rendered/ODM_staging_a74d6c913e8749f2b40f6c4b7c213f60/raw/matte/ODM_matte_0002.exr'\n00:01.333  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/negative/ODM_staging_fa91d89ecfb14c99bef196e914135509/raw/beauty/ODM_beauty_-0001.exr'\n00:01.334  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/negative/ODM_staging_fa91d89ecfb14c99bef196e914135509/raw/vector/ODM_vector_-0001.exr'\n00:01.334  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/negative/ODM_staging_fa91d89ecfb14c99bef196e914135509/raw/matte/ODM_matte_-0001.exr'\n00:01.399  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/cancelled/ODM_staging_674141210e434cd395509b1b5bbe4cb2/raw/beauty/ODM_beauty_0001.exr'\n00:01.399  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/cancelled/ODM_staging_674141210e434cd395509b1b5bbe4cb2/raw/vector/ODM_vector_0001.exr'\n00:01.399  render           | Saved: '/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_compositor_smoke_9zc3pwtt/cancelled/ODM_staging_674141210e434cd395509b1b5bbe4cb2/raw/matte/ODM_matte_0001.exr'\nInfo: Target set to Cube\nInfo: Cancel requested; waiting for a safe boundary...\nInfo: Created ODM_Vector_Calibration (frames 1-8)\nInfo: Saved as \"ODM_smoke.blend\"\nInfo: Object Index setup ready (pass 1)\nInfo: Object Index setup restored\nInfo: Object Index setup ready (pass 1)\nInfo: Cancel requested; waiting for a safe boundary...\nInfo: Rendered 1 raw frame(s)\nInfo: Object Index setup restored\nInfo: Object Index setup ready (pass 1)\nInfo: Cancel requested; waiting for a safe boundary...\nInfo: Cancel requested; waiting for a safe boundary...\nInfo: Render and Process complete: 2 frame(s)\nError: Render and Process failed during processing at frame 1: Cryptomatte decoding is experimental and is not available in the MVP\nInfo: Object Index setup restored\nRender and Process outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_processed_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr, ODM_processed_0002.exr\nError: Cannot render, no camera\nObject Index smoke outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr\nError: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_5yo9r65t/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_5yo9r65t/processed/ODM_processed_0002.exr\nInfo: Cancel requested; waiting for a safe boundary...\nSequence processing outputs: ODM_processed_0001.exr, ODM_processed_0002.exr\nObject Datamosh Blender smoke test passed\nBlender 5.0.0 (hash a37564c4df7a built 2025-11-18 10:00:50)\n\nBlender quit\n",
+      "output_sha256": "b51651e9e1b215ff90ee3cf0c1c73a44c52f7e3cae879f442a5a7f0f7e6777cf",
       "output_tail": [
         "Info: Object Index setup ready (pass 1)",
         "Info: Cancel requested; waiting for a safe boundary...",
@@ -63,7 +62,7 @@
         "Render and Process outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_processed_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr, ODM_processed_0002.exr",
         "Error: Cannot render, no camera",
         "Object Index smoke outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr",
-        "Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_z7sgozou/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_z7sgozou/processed/ODM_processed_0002.exr",
+        "Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_5yo9r65t/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_5yo9r65t/processed/ODM_processed_0002.exr",
         "Info: Cancel requested; waiting for a safe boundary...",
         "Sequence processing outputs: ODM_processed_0001.exr, ODM_processed_0002.exr",
         "Object Datamosh Blender smoke test passed",
@@ -75,7 +74,7 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension validate src/object_datamosh",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-2fc7248677a898fdb0090dc47de9d5978bc2ac31cfc803345e6a3a75a5ee3b77.log",
+      "output": "BlenderMCP addon registered\nSuccess parsing TOML in \"src/object_datamosh\"\nBlenderMCP addon unregistered\nINFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules\nINFO:root:INFO: Found installed dependencies. Going to adjust sys.path.\nINFO:root:INFO: Unregistered Photogrammetry Import Export Addon\n",
       "output_sha256": "2fc7248677a898fdb0090dc47de9d5978bc2ac31cfc803345e6a3a75a5ee3b77",
       "output_tail": [
         "BlenderMCP addon registered",
@@ -89,7 +88,7 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension build --source-dir src/object_datamosh --output-dir dist",
       "exit_code": 0,
-      "output_file": "issue-26-gate-output-d9567301a2bf0c7e8e43e55949afbbcd52c70527829adf78efecb97255425ee4.log",
+      "output": "BlenderMCP addon registered\nbuilding: object_datamosh-0.1.0.zip\ncomplete\ncreated: \"dist/object_datamosh-0.1.0.zip\", 53328\nBlenderMCP addon unregistered\nINFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules\nINFO:root:INFO: Found installed dependencies. Going to adjust sys.path.\nINFO:root:INFO: Unregistered Photogrammetry Import Export Addon\n",
       "output_sha256": "d9567301a2bf0c7e8e43e55949afbbcd52c70527829adf78efecb97255425ee4",
       "output_tail": [
         "BlenderMCP addon registered",
@@ -103,8 +102,8 @@
       ]
     }
   ],
-  "git_head": "bcfde1620f8e372d34339e5c70f6a7e5c89a3b87",
-  "release_gate_script_sha256": "ad38b9cfad483af61c8db4b56951a85cfdc1171be5fbcf9bcb81a8976759fd8b",
+  "git_head": "559504137e6d1dbc0102acbcb7cfe45a67cb3e2a",
+  "release_gate_script_sha256": "15c998938fbedbfa82780651614b205ebeca042206947f54be4bb286293d0aeb",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "success": true
 }

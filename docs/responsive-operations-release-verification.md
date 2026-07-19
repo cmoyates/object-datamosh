@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation and its release probe only)
 
-Foreground probe and release-gate revision: `bcfde1620f8e372d34339e5c70f6a7e5c89a3b87`
+Foreground probe and release-gate revision: `559504137e6d1dbc0102acbcb7cfe45a67cb3e2a`
 
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
@@ -138,7 +138,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (562 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (534 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
