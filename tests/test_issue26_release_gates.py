@@ -16,6 +16,8 @@ _capture_identity_globals = cast(dict[str, Any], cast(Any, capture_identity).__g
 require_unchanged_identity = cast(
     Callable[[Any, Any], None], _NAMESPACE["require_unchanged_identity"]
 )
+run_gate = _NAMESPACE["run_gate"]
+write_gate_result = _NAMESPACE["write_gate_result"]
 
 
 def identity(*, git_head: str = "abc", dirty: str = "") -> Any:
@@ -38,6 +40,65 @@ def test_release_gate_identity_accepts_an_unchanged_snapshot() -> None:
 def test_release_gate_identity_rejects_mid_run_drift() -> None:
     with pytest.raises(RuntimeError, match="identity changed during execution"):
         require_unchanged_identity(identity(), identity(git_head="def", dirty=" M gate.py"))
+
+
+def initialize_empty_repository(path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        cwd=path,
+        check=True,
+    )
+
+
+def test_gate_receipt_retains_a_bounded_failure_tail(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    marker = "FINAL_FAILURE_MARKER"
+    result = run_gate(
+        "synthetic",
+        [
+            "/usr/bin/python3",
+            "-c",
+            f"import sys; sys.stdout.write('A' * 70000 + '{marker}'); sys.exit(17)",
+        ],
+        "synthetic failure",
+        worktree=tmp_path,
+        environment={},
+    )
+
+    receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
+
+    assert result.exit_code == 17
+    assert result.output_truncated
+    assert marker in result.output_tail
+    assert receipt.is_file()
+
+
+def test_gate_receipt_captures_a_launch_failure(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    result = run_gate(
+        "missing",
+        [str(tmp_path / "does-not-exist")],
+        "missing executable",
+        worktree=tmp_path,
+        environment={},
+    )
+
+    receipt = write_gate_result(result, identity=identity(), directory=tmp_path)
+
+    assert result.exit_code == 127
+    assert "FileNotFoundError" in result.launch_error
+    assert receipt.is_file()
 
 
 def test_capture_identity_detects_a_mid_run_project_file_edit(

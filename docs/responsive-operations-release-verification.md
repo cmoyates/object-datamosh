@@ -23,11 +23,11 @@ defect was found, so this release-verification change is documentation-only.
 The foreground checks used an actual Blender window and window-manager event loop, not
 `--background`. The tracked `scripts/issue26_foreground_probe.py` fixture rendered a 32×24 Cycles
 scene at one sample so ten complete frames could be checked quickly. It observed scene-owned
-runtime values while an instrumented visible panel called the canonical production `_draw_sidebar`
-layout at every redraw. This verifies the production layout and redraw data, not Blender's sidebar-
-category selection itself. The tracked shell runner sent real macOS Escape key events to the foreground
-Blender application through System
-Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
+runtime values by wrapping the registered production `ODM_PT_sidebar.draw` method at every redraw.
+The probe opens the UI region and selects its real **Object Datamosh** panel category before running.
+The tracked shell runner sent real macOS Escape key events to the foreground Blender application
+through System Events; the Cancel-control checks invoke the same registered public operator wired by
+the production panel (Blender's generic mouse-event dispatch itself is not reimplemented by the probe).
 The retained
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
 atomically bundles the assertion summary and complete JSONL event trace, including the terminal
@@ -153,8 +153,9 @@ code, output digest/tail, Git/source identity, and ZIP metadata, and writes the 
 machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
 `--update-evidence`. It validates the foreground result, trace digest, tested revision, source tree,
 and probe/runner hashes, then executes each gate from an isolated detached worktree. Each command
-atomically writes a fixed-name receipt with exit status, full output and digest (bounded at 64 KiB
-with explicit truncation metadata); failures are receipted before stopping. The package builds in a
+atomically writes a fixed-name receipt with exit status, output digest, and bounded 32 KiB head plus
+32 KiB tail with explicit truncation metadata; launch, command, and tracked-mutation failures are
+receipted before stopping. The package builds in a
 unique temporary directory and is published to `dist/` only if it does not conflict with an existing
 archive. Receipt-publication commits change evidence/documentation only; the recorded revisions
 identify the executable trees that were actually run.
@@ -165,7 +166,7 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 203 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 205 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |

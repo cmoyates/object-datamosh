@@ -26,7 +26,7 @@ if str(SRC) not in sys.path:
 import object_datamosh  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
 from object_datamosh.ui import (  # noqa: E402
-    _draw_sidebar,
+    ODM_PT_sidebar,
     runtime_for_scene,
     settings_for_scene,
 )
@@ -184,48 +184,38 @@ class ProbeState:
 state = ProbeState()
 
 
-class ODM_PT_issue26_observer(bpy.types.Panel):
-    bl_idname = "ODM_PT_issue26_observer"
-    bl_label = "Issue 26 Draw Observer"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Item"
+_production_sidebar_draw = ODM_PT_sidebar.draw
 
-    def draw(self, context: Context) -> None:
-        # Render the canonical production layout in the active Item tab so this probe observes a
-        # genuinely visible panel without relying on Blender's non-public category-selection state.
-        layout = self.layout
-        scene = context.scene
-        assert layout is not None
-        assert scene is not None
-        _draw_sidebar(layout, context, scene)
-        runtime = runtime_for_scene(scene)
-        observation = (
-            str(state.stage),
-            runtime.phase,
-            runtime.current_frame,
-            runtime.completed_work,
-            runtime.total_work,
-            runtime.phase_completed_work,
-            runtime.phase_total_work,
-            round(float(runtime.progress), 6),
+
+def observed_production_sidebar_draw(self: ODM_PT_sidebar, context: Context) -> None:
+    _production_sidebar_draw(self, context)
+    scene = context.scene
+    assert scene is not None
+    runtime = runtime_for_scene(scene)
+    observation = (
+        str(state.stage),
+        runtime.phase,
+        runtime.current_frame,
+        runtime.completed_work,
+        runtime.total_work,
+        runtime.phase_completed_work,
+        runtime.phase_total_work,
+        round(float(runtime.progress), 6),
+    )
+    draws = state.sidebar_draws
+    if not draws or draws[-1] != observation:
+        draws.append(observation)
+        emit(
+            "sidebar_draw",
+            stage=observation[0],
+            phase=observation[1],
+            current_frame=observation[2],
+            completed_work=observation[3],
+            total_work=observation[4],
+            phase_completed_work=observation[5],
+            phase_total_work=observation[6],
+            progress=observation[7],
         )
-        draws = state.sidebar_draws
-        assert isinstance(draws, list)
-        if not draws or draws[-1] != observation:
-            draws.append(observation)
-            emit(
-                "sidebar_draw",
-                stage=observation[0],
-                phase=observation[1],
-                current_frame=observation[2],
-                completed_work=observation[3],
-                total_work=observation[4],
-                phase_completed_work=observation[5],
-                phase_total_work=observation[6],
-                progress=observation[7],
-            )
-        layout.label(text=f"Observed {runtime.completed_work}/{runtime.total_work}")
 
 
 def snapshot(stage: str) -> Snapshot:
@@ -462,6 +452,10 @@ def _handle_initialize(item: Snapshot, active: bool) -> None:
             continue
         active_space = cast(Any, area.spaces.active)
         active_space.show_region_ui = True
+        for region in area.regions:
+            if region.type == "UI":
+                ui_region = cast(Any, region)
+                ui_region.active_panel_category = "Object Datamosh"
         area.tag_redraw()
     state.baseline_complete_handlers = len(_app.handlers.render_complete)
     state.baseline_cancel_handlers = len(_app.handlers.render_cancel)
@@ -513,6 +507,7 @@ def _handle_combined_success(item: Snapshot, active: bool) -> None:
             "sidebar_process_phase_counts": sorted(draw_process_phase_counts),
             "sidebar_progress": sorted(draw_progress),
             "completed_work": item["completed_work"],
+            "production_panel_category": "Object Datamosh",
             "progress": item["progress"],
         }
         emit("combined_success_verified", **evidence["combined_success"])
@@ -776,8 +771,8 @@ def tick() -> float | None:
         return None
 
 
+cast(Any, ODM_PT_sidebar).draw = observed_production_sidebar_draw
 object_datamosh.register()
-bpy.utils.register_class(ODM_PT_issue26_observer)
 _app.handlers.render_pre.append(render_pre)
 _app.handlers.render_complete.append(render_complete)
 _app.handlers.render_cancel.append(render_cancel)

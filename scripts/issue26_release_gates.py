@@ -34,11 +34,14 @@ class GateResult:
     name: str
     command: str
     exit_code: int
-    output: str
+    launch_error: str | None
+    output_head: str
     output_retained_bytes: int
     output_sha256: str
+    output_tail: str
     output_total_bytes: int
     output_truncated: bool
+    tracked_changes: str
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -59,6 +62,19 @@ def atomic_write(path: Path, content: bytes) -> None:
     temporary = path.with_suffix(f"{path.suffix}.tmp.{os.getpid()}")
     temporary.write_bytes(content)
     temporary.replace(path)
+
+
+def atomic_copy(source: Path, destination: Path) -> None:
+    temporary = destination.with_name(f".{destination.name}.tmp.{os.getpid()}")
+    temporary.unlink(missing_ok=True)
+    with source.open("rb") as source_stream, temporary.open("xb") as destination_stream:
+        shutil.copyfileobj(source_stream, destination_stream)
+        destination_stream.flush()
+        os.fsync(destination_stream.fileno())
+    if sha256_bytes(temporary.read_bytes()) != sha256_bytes(source.read_bytes()):
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"Published archive verification failed: {destination}")
+    temporary.replace(destination)
 
 
 def require_unchanged_identity(expected: SourceIdentity, actual: SourceIdentity) -> None:
@@ -92,39 +108,70 @@ def run_gate(
     environment: dict[str, str],
 ) -> GateResult:
     print(f"$ {display}")
-    process = subprocess.Popen(
-        arguments,
-        cwd=worktree,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        process = subprocess.Popen(
+            arguments,
+            cwd=worktree,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as error:
+        message = f"{type(error).__name__}: {error}"
+        return GateResult(
+            name=name,
+            command=display,
+            exit_code=127,
+            launch_error=message,
+            output_head=message,
+            output_retained_bytes=len(message.encode()),
+            output_sha256=sha256_bytes(message.encode()),
+            output_tail="",
+            output_total_bytes=len(message.encode()),
+            output_truncated=False,
+            tracked_changes="",
+        )
     assert process.stdout is not None
     digest = hashlib.sha256()
-    retained = bytearray()
+    head_limit = MAX_RETAINED_OUTPUT_BYTES // 2
+    tail_limit = MAX_RETAINED_OUTPUT_BYTES - head_limit
+    retained_head = bytearray()
+    retained_tail = bytearray()
     total_bytes = 0
     while chunk := process.stdout.read(8192):
         total_bytes += len(chunk)
         digest.update(chunk)
         sys.stdout.buffer.write(chunk)
         sys.stdout.buffer.flush()
-        remaining = MAX_RETAINED_OUTPUT_BYTES - len(retained)
-        if remaining > 0:
-            retained.extend(chunk[:remaining])
+        head_remaining = head_limit - len(retained_head)
+        if head_remaining > 0:
+            retained_head.extend(chunk[:head_remaining])
+        retained_tail.extend(chunk)
+        if len(retained_tail) > tail_limit:
+            del retained_tail[:-tail_limit]
     exit_code = process.wait()
-    result = GateResult(
+    truncated = total_bytes > MAX_RETAINED_OUTPUT_BYTES
+    if truncated:
+        output_head = retained_head.decode("utf-8", errors="replace")
+        output_tail = retained_tail.decode("utf-8", errors="replace")
+        retained_bytes = len(retained_head) + len(retained_tail)
+    else:
+        output_head = retained_tail.decode("utf-8", errors="replace")
+        output_tail = ""
+        retained_bytes = len(retained_tail)
+    return GateResult(
         name=name,
         command=display,
         exit_code=exit_code,
-        output=retained.decode("utf-8", errors="replace"),
-        output_retained_bytes=len(retained),
+        launch_error=None,
+        output_head=output_head,
+        output_retained_bytes=retained_bytes,
         output_sha256=digest.hexdigest(),
+        output_tail=output_tail,
         output_total_bytes=total_bytes,
-        output_truncated=total_bytes > len(retained),
+        output_truncated=truncated,
+        tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=no"),
     )
-    if git_output(worktree, "status", "--porcelain", "--untracked-files=no"):
-        raise RuntimeError(f"Gate modified tracked files: {display}")
-    return result
 
 
 def write_gate_result(
@@ -160,7 +207,6 @@ def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[s
     if payload.get("success") is not True:
         raise RuntimeError("Foreground receipt is not successful")
     expected = {
-        "git_head": identity.git_head,
         "extension_source_tree": identity.source_tree,
         "probe_sha256": identity.probe_sha256,
         "runner_sha256": identity.runner_sha256,
@@ -270,6 +316,14 @@ def main() -> None:
             gate_receipts.append(
                 write_gate_result(result, identity=identity, directory=receipt_directory)
             )
+            if result.launch_error is not None:
+                raise RuntimeError(
+                    f"Release gate could not launch: {display}: {result.launch_error}"
+                )
+            if result.tracked_changes:
+                raise RuntimeError(
+                    f"Release gate modified tracked files: {display}: {result.tracked_changes}"
+                )
             if result.exit_code != 0:
                 raise RuntimeError(f"Release gate failed ({result.exit_code}): {display}")
 
@@ -289,7 +343,7 @@ def main() -> None:
             if published_archive.read_bytes() != built_archive_content:
                 raise RuntimeError(f"Archive-name digest collision: {published_archive}")
         else:
-            shutil.copy2(built_archive, published_archive)
+            atomic_copy(built_archive, published_archive)
 
         require_unchanged_identity(identity, capture_identity())
         latest_foreground_content, _ = validate_foreground_receipt(identity)
