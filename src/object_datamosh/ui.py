@@ -25,14 +25,21 @@ from bpy.types import (
     Scene,
 )
 
+from .blender_image_io import BlenderImageIO
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
     setup_object_index_passes,
 )
 from .core.contracts import FeedbackSettings, MatteSource, MotionChannels
+from .core.mattes import (
+    CryptomatteMatteProvider,
+    ExternalMatteProvider,
+    ObjectIndexMatteProvider,
+)
 from .core.paths import SequencePaths
 from .raw_render import RawRenderCancelled, render_raw_passes
+from .sequence_processing import SequenceProcessingCancelled, process_sequence
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 
@@ -96,6 +103,11 @@ class ODM_Settings(PropertyGroup):
     overwrite_raw: BoolProperty(  # ty: ignore[invalid-type-form]
         name="Overwrite Raw Passes",
         description="Allow Render Raw Passes to replace files for the configured frame range",
+        default=False,
+    )
+    overwrite_processed: BoolProperty(  # ty: ignore[invalid-type-form]
+        name="Overwrite Processed Frames",
+        description="Allow processing to replace files for the configured frame range",
         default=False,
     )
     matte_source: EnumProperty(  # ty: ignore[invalid-type-form]
@@ -295,6 +307,75 @@ class ODM_OT_render_raw_passes(Operator):
         return {"FINISHED"}
 
 
+class ODM_OT_process_sequence(Operator):
+    """Process existing pass files through hard-localized feedback."""
+
+    bl_idname = "object_datamosh.process_sequence"
+    bl_label = "Process Existing Passes"
+    bl_description = "Process existing beauty, vector, and matte EXR sequences"
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        if context.scene is None:
+            return False
+        settings = settings_for_scene(context.scene)
+        return settings.frame_start <= settings.frame_end
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            self.report({"ERROR"}, "An active scene is required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        if settings.matte_source == MatteSource.EXTERNAL:
+            if not settings.external_matte_directory:
+                message = "Choose an external matte directory before processing"
+                settings.status = message
+                self.report({"ERROR"}, message)
+                return {"CANCELLED"}
+            matte_provider = ExternalMatteProvider(
+                Path(bpy.path.abspath(settings.external_matte_directory))
+            )
+        elif settings.matte_source == MatteSource.CRYPTOMATTE:
+            matte_provider = CryptomatteMatteProvider()
+        else:
+            matte_provider = ObjectIndexMatteProvider()
+
+        settings.status = "Processing existing passes..."
+        try:
+            result = process_sequence(
+                sequence_paths_for_scene(scene),
+                frame_start=settings.frame_start,
+                frame_end=settings.frame_end,
+                matte_provider=matte_provider,
+                settings=feedback_settings_for_scene(scene),
+                image_io=BlenderImageIO(),
+                overwrite=settings.overwrite_processed,
+                progress=_WindowManagerProgress(context.window_manager),
+            )
+        except SequenceProcessingCancelled as error:
+            message = str(error)
+            settings.status = message
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except (
+            FileExistsError,
+            FileNotFoundError,
+            NotImplementedError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            message = str(error)
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        message = f"Processed {len(result.frames)} frame(s)"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_OT_restore_object_index(Operator):
     """Remove owned compositor setup and restore changed pass settings."""
 
@@ -361,6 +442,8 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     sequence.prop(settings, "output_directory")
     sequence.prop(settings, "overwrite_raw")
     sequence.operator(ODM_OT_render_raw_passes.bl_idname)
+    sequence.prop(settings, "overwrite_processed")
+    sequence.operator(ODM_OT_process_sequence.bl_idname)
     sequence.label(text=f"Output: {paths.root}")
     if paths.warning:
         warning = sequence.row()
@@ -403,6 +486,7 @@ _CLASSES = (
     ODM_OT_use_active_object,
     ODM_OT_setup_object_index,
     ODM_OT_render_raw_passes,
+    ODM_OT_process_sequence,
     ODM_OT_restore_object_index,
     ODM_PT_sidebar,
 )

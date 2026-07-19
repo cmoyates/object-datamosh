@@ -3,8 +3,8 @@
 Object Datamosh is a modern Blender extension for building object-localized temporal feedback
 workflows. The current MVP targets and has been tested with **Blender 5.0.0**. It provides the
 user interface, shared contracts, pure NumPy hard-localized feedback core, a non-destructive
-Object Index compositor setup, and sequential raw-pass rendering. Processing rendered sequences
-through the feedback core is not yet implemented.
+Object Index compositor setup, sequential raw-pass rendering, and processing of existing pass
+sequences into scene-linear full-float OpenEXR output.
 
 The installable extension source is `src/object_datamosh` and uses
 `blender_manifest.toml`. There is no legacy `bl_info` declaration.
@@ -30,7 +30,8 @@ The sidebar currently provides:
   **Restore Object Index Setup** actions;
 - the active view-layer name;
 - sequence start/end frames, an optional output-directory override, a conservative raw-output
-  overwrite toggle, and **Render Raw Passes**;
+  overwrite toggle, **Render Raw Passes**, a separate processed-output overwrite toggle, and
+  **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
   refresh-probability, and deterministic-seed controls; and
@@ -151,6 +152,35 @@ Object Index remains render-engine dependent. Use Cycles for the documented Blen
 or verify that the chosen engine exposes and emits Image, Vector, and Object Index before a
 production render. A missing pass fails with the pass name and inspected directory.
 
+## Process existing pass sequences
+
+**Process Existing Passes** is independent of compositor setup and rendering. It reads the
+configured frame range from the output-directory contract above, in ascending frame order. Each
+frame requires:
+
+```text
+raw/beauty/ODM_beauty_<frame>.exr
+raw/vector/ODM_vector_<frame>.exr
+raw/matte/ODM_matte_<frame>.exr       # Object Index mode
+```
+
+For an external matte, choose **External Matte** and a directory containing
+`matte_<frame>.exr` with the same four-digit frame padding. Beauty and vector inputs must be
+scene-linear float RGBA OpenEXRs with identical dimensions. Matte coverage is read from the red
+channel and must have matching dimensions. Unsupported channels, unreadable files, missing
+frames, non-finite values, and dimension mismatches stop processing with the affected pass or
+shape identified.
+
+The first frame initializes clean history. Every later frame receives the state returned by the
+preceding frame, and each result is written to
+`processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed, full-float RGBA OpenEXR.
+Existing processed files stop the run before processing unless **Overwrite Processed Frames** is
+explicitly enabled. Progress always closes on success or failure; the service also observes a
+cancellation callback between complete frames. Completed output files are retained and are never
+deleted automatically. Advanced resume, stale-state detection, reset expressions, and partial-run
+recovery are intentionally deferred; after an interrupted run, resolve the cause and reprocess
+the complete configured range, enabling overwrite only when replacing those outputs is intended.
+
 ## Hard-localized feedback semantics
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
@@ -187,6 +217,7 @@ Blender sidebar / operators
         │
         ├── Object Index setup/restore ───────────────── owned compositor nodes
         ├── Render Raw Passes ────────────────────────── sequential Blender render service
+        ├── Process Existing Passes ─────────────────── sequential feedback + EXR output
         ├── SequencePaths + matte-provider contracts ── render/process boundaries
         │
         ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
@@ -228,8 +259,8 @@ third-party runtime dependency.
 
 ## Current limitations
 
-- Raw rendering is implemented, but processed sequence orchestration is deferred to a subsequent
-  ticket. The pure frame processor does not read or write image files.
+- Existing pass sequences can be processed, but advanced resume, partial-run recovery, reset
+  expressions, and stale-settings detection are deferred to a subsequent ticket.
 - Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
   mode and sequence-level reset/recovery policy are deferred to later tickets.
 - Object Index is the MVP selected-object matte. External mattes follow the documented
@@ -239,5 +270,7 @@ third-party runtime dependency.
   target assignment and status, path derivation, setup idempotency, cleanup/restoration, unrelated
   node survival, the raw-render operator, collision refusal, bounded cancellation, a two-frame
   Cycles beauty/vector/matte render, emitted filename discovery, full-float EXR contracts, temporary
-  image cleanup, and render-setting restoration. Visual node layout, sidebar polish, interactive
-  cancellation, and control behavior still require a manual foreground Blender check.
+  image cleanup, render-setting restoration, processing fixture-generated two-frame pass
+  sequences, processed EXR contracts, hard-localized output, and processed-output collision
+  refusal. Visual node layout, sidebar polish, interactive cancellation, and control behavior
+  still require a manual foreground Blender check.

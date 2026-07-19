@@ -156,6 +156,7 @@ def main() -> None:
         "frame_end",
         "output_directory",
         "overwrite_raw",
+        "overwrite_processed",
         "matte_source",
         "external_matte_directory",
         "persistence",
@@ -178,6 +179,7 @@ def main() -> None:
         "object_datamosh.setup_object_index",
         "object_datamosh.restore_object_index",
         "object_datamosh.render_raw_passes",
+        "object_datamosh.process_sequence",
     }
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
@@ -476,6 +478,50 @@ def main() -> None:
     assert bpy.data.node_groups.get(owned_tree_name) is None
 
     image_io = BlenderImageIO()
+    with tempfile.TemporaryDirectory(prefix="ODM_processing_smoke_") as temp_directory:
+        processing_paths = SequencePaths(Path(temp_directory))
+        first = processing_paths.frame(1)
+        second = processing_paths.frame(2)
+        first_beauty = np.full((2, 3, 4), 0.8, dtype=np.float32)
+        second_beauty = np.full((2, 3, 4), 0.1, dtype=np.float32)
+        zero_vector = np.zeros((2, 3, 4), dtype=np.float32)
+        selected = np.zeros((2, 3), dtype=np.float32)
+        selected[:, 1] = 1.0
+        matte_rgba = np.repeat(selected[..., None], 4, axis=2)
+        processing_images_before = len(bpy.data.images)
+        for frame_paths, beauty in ((first, first_beauty), (second, second_beauty)):
+            image_io.write_rgba(frame_paths.beauty, beauty)
+            image_io.write_rgba(frame_paths.vector, zero_vector)
+            image_io.write_rgba(frame_paths.matte, matte_rgba)
+
+        settings.output_directory = str(processing_paths.root)
+        settings.frame_start = 1
+        settings.frame_end = 2
+        settings.matte_source = "OBJECT_INDEX"
+        settings.persistence = 1.0
+        settings.block_size = 1
+        settings.overwrite_processed = False
+        assert object_datamosh_ops.process_sequence() == {"FINISHED"}
+        assert settings.status == "Processed 2 frame(s)"
+        assert first.processed.is_file()
+        assert second.processed.is_file()
+        assert exr_contract(second.processed) == ((2, 3), (2, 2, 2, 2))
+        processed = image_io.read_rgba(second.processed)
+        assert np.allclose(processed[:, 1], first_beauty[:, 1], atol=1e-6)
+        assert np.allclose(processed[:, (0, 2)], second_beauty[:, (0, 2)], atol=1e-6)
+        assert len(bpy.data.images) == processing_images_before
+        try:
+            object_datamosh_ops.process_sequence()
+        except RuntimeError as error:
+            assert "overwrite is disabled" in str(error)
+        else:
+            raise AssertionError("processing overwrote existing outputs without permission")
+        assert "overwrite is disabled" in settings.status
+        print(
+            "Sequence processing outputs:",
+            ", ".join(path.name for path in (first.processed, second.processed)),
+        )
+
     image_path = Path(bpy.app.tempdir) / "ODM_image_io_smoke.exr"
     expected = np.array([[[0.0, 0.25, 0.5, 1.0], [1.0, 0.5, 0.25, 1.0]]], dtype=np.float32)
     images_before = len(bpy.data.images)
