@@ -269,6 +269,23 @@ def test_interrupt_during_gate_launch_stops_the_owned_process(tmp_path: Path) ->
     assert time.monotonic() - started < 5.0
 
 
+def test_gate_detects_an_untracked_source_file(tmp_path: Path) -> None:
+    initialize_empty_repository(tmp_path)
+    result = run_gate(
+        "untracked-source",
+        [
+            "/usr/bin/python3",
+            "-c",
+            "from pathlib import Path; Path('unexpected.py').touch()",
+        ],
+        "untracked source",
+        worktree=tmp_path,
+        environment={},
+    )
+
+    assert "?? unexpected.py" in result.tracked_changes
+
+
 def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:
     initialize_empty_repository(tmp_path)
     result = run_gate(

@@ -388,7 +388,7 @@ def run_gate(
         output_truncated=truncated,
         timed_out=timed_out,
         timeout_seconds=timeout_seconds,
-        tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=no"),
+        tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=all"),
     )
     assert post_wait_signal_mask is not None
     try:
