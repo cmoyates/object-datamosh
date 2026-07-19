@@ -1,21 +1,21 @@
 {
   "gate": {
-    "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension validate src/object_datamosh",
+    "command": "uv run ruff check .",
     "exit_code": 0,
     "launch_error": null,
-    "name": "extension-validate",
+    "name": "ruff",
     "output_error": null,
-    "output_head": "Success parsing TOML in \"src/object_datamosh\"\n",
-    "output_retained_bytes": 46,
-    "output_sha256": "2487b687d89c37e81b0514d70651e64f60c9e76e566626e509d77a8390c9ced4",
+    "output_head": "All checks passed!\n",
+    "output_retained_bytes": 19,
+    "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
     "output_tail": "",
-    "output_total_bytes": 46,
+    "output_total_bytes": 19,
     "output_truncated": false,
     "timed_out": false,
     "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "06fb600458b7c6e8f4ccee2516173571ae09b090",
+  "git_head": "f8904892e7c2bb58a34ee9e883fb300520bce6da",
   "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"

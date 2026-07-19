@@ -12,7 +12,7 @@ this issue changes release documentation, verification tooling, tests, and evide
 
 Foreground UI probe revision: `35b1147cbf17fc19206932ab008fa52070f9244b`
 
-Release-gate revision: `06fb600458b7c6e8f4ccee2516173571ae09b090`
+Release-gate revision: `f8904892e7c2bb58a34ee9e883fb300520bce6da`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -186,8 +186,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-c1dfeb65ff8c.zip` (53,328 bytes), SHA-256
-`c1dfeb65ff8c9dfdeb4048faae424a32de6a1869859abc1f1b7a1ccca6fc33c9`.
+The installation archive is `dist/object_datamosh-0.1.0-f1dcd0260814.zip` (53,328 bytes), SHA-256
+`f1dcd0260814e7dc7255f67f9bdbf5ca60353032fbbfe41bacd76b1b5a236280`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
