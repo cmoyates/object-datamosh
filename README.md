@@ -238,7 +238,8 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   narrow NumPy/standard-library scanline ZIP reader because Blender identifies those files but
   does not expose their pixels through `Image.pixels`. Matte files use scalar coverage from the
   EXR red channel; `read_mask` returns that
-  channel as a contiguous `(height, width)` `float32` array. The implementation removes temporary
+  channel as a contiguous `(height, width)` `float32` array. Modal processing binds image writes to
+  its initiating scene rather than the mutable active context. The implementation removes temporary
   data-blocks and restores render image settings in `finally` paths.
 - **Ownership:** extension-created data uses the `ODM_` prefix and the
   `object_datamosh_owned` custom-property tag. Helpers live in
@@ -357,10 +358,24 @@ is missing, unreadable, has invalid dimensions, or otherwise violates the state 
 **Missing History: Stop** fails without processing; **Reset** rolls the recoverable boundary back
 and reprocesses from that frame with clean history. Resume never skips a gap.
 
-Progress and manifest updates occur at complete-frame boundaries and progress always closes after
-success, failure, or cancellation. A cancellation therefore leaves an exact safe restart point.
-Completed files are retained and are never deleted automatically. Use Resume for the same range
-and settings, or choose Reprocess with overwrite when deliberately replacing the full sequence.
+**Process Existing Passes** runs as a modal, timer-driven operation. Each timer event advances at
+most one complete output frame or one frame of Trail resume-history reconstruction, publishes the
+phase, current frame, completed/total work, and normalized progress to the sidebar, requests a
+sidebar redraw, and then yields to Blender's event loop. The Blender progress display follows the
+same complete-output-frame boundaries. Blender 5.0 does not expose timer identity on modal events,
+so the lifecycle gates unidentified timer events against its owned monotonic cadence and ignores
+early events from unrelated timers. The initiating scene and configured range remain the run's
+canonical context; configuration controls and Object Datamosh actions in every scene remain locked
+until this operation finishes cleanup. Extension unload is rejected while a run is active because
+Blender exposes modal-handler addition but no external handler-removal API; unregistering its class
+before the handler returns would be unsafe. Cancel the run first, then disable or reload it.
+
+Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
+immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;
+no subsequent frame starts. It then shows **Cancelled**, removes the owned timer, closes progress,
+and unlocks the controls. Completed files and the atomically updated manifest are retained as the
+exact restart point. Choose **Resume** with the same range and settings to continue, or choose
+Reprocess with overwrite when deliberately replacing the full sequence.
 
 ## Localized feedback semantics
 
@@ -467,11 +482,16 @@ object_datamosh.core: NumPy + Python only; never imports bpy
 ```
 
 No background thread calls Blender APIs. Runtime state belongs to Blender scenes, tagged Blender
-data, or returned immutable values; there is no mutable module-level runtime state. The reusable
+data, or returned immutable values; there is no mutable module-level runtime state. The focused
+`ExistingPassModalController` owns the existing-pass event state machine, while the reusable
 `ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
-locking, cancellation requests, and idempotent universal cleanup while accepting a separate
-workflow-specific cleanup hook. Blender properties contain only serializable run metadata, never
-the lifecycle service itself. Setup and cleanup never delete, disconnect, or replace unrelated
+locking, cancellation requests, and idempotent universal cleanup with a separate workflow cleanup
+hook. Blender properties contain only transient, `SKIP_SAVE` run metadata—never either runtime
+service—so reopening a blend cannot resurrect an active lock without its controller or timer. The
+active controller is referenced under an `ODM_` key in Blender's transient driver namespace until
+cleanup, keeping the global lock and Cancel action reachable if the initiating scene is switched or
+removed without introducing mutable module-level state.
+Setup and cleanup never delete, disconnect, or replace unrelated
 compositor nodes and restore pass settings that they change.
 
 ## Development and verification
@@ -529,8 +549,9 @@ arrays coexist during processing.
 - **Cryptomatte fails:** select Object Index or a numbered external matte sequence. Cryptomatte
   decoding is intentionally not implemented in the MVP.
 
-## Release verification record
+## Historical release verification record (before issue #23)
 
+This inventory is retained as the pre-modal baseline; it does not describe the current PR archive.
 The production gate was run on 2026-07-18 with Blender 5.0.0. `uv run ty check` passed; the pure
 suite reported 121 passed and one Blender-runtime skip; and the factory-startup Blender smoke test
 printed `Object Datamosh Blender smoke test passed` (1.12 seconds wall time for its tiny fixtures).
@@ -560,7 +581,10 @@ remain explicit interactive checks; they were not claimed by the background gate
   Cycles beauty/vector/matte render, emitted filename discovery, a two-frame combined render and
   process run, full-float EXR contracts, temporary
   image cleanup, render-setting restoration, processing fixture-generated two-frame pass
-  sequences, processed EXR contracts, hard-localized output, trail controls, and processed-output
-  collision refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass
-  interpretation (especially the Y-axis and reversed-motion checks), and control behavior still
-  require a manual foreground Blender check.
+  sequences, processed EXR contracts, hard-localized output, trail controls, processed-output
+  collision refusal, deterministic modal event boundaries, and real registered-operator dispatch
+  through Blender's window manager. Background Blender does not pump foreground modal events while
+  the smoke script owns the main thread, so deterministic timer advancement/final cleanup use a
+  recorded window-manager boundary; interactive event dispatch, visual node layout, sidebar polish,
+  calibration interpretation (especially Y-axis and reversed-motion checks), and foreground control
+  behavior still require a manual Blender check.

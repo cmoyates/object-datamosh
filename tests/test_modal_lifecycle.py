@@ -76,6 +76,7 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
     )
 
     lifecycle.begin(context, frame_start=3, frame_end=5, total_work=3)
+    lifecycle.enter_modal()
 
     assert runtime == RuntimeState(
         active=True,
@@ -97,10 +98,30 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
     ]
 
 
-def test_unused_lifecycle_cannot_update_or_cancel_another_run() -> None:
-    runtime = RuntimeState(
-        active=True, cancel_requested=False, run_identity="another-run"
+def test_timer_events_without_identity_follow_the_owned_timer_cadence() -> None:
+    now = 10.0
+
+    def clock() -> float:
+        return now
+
+    runtime = RuntimeState()
+    window_manager = WindowManager()
+    lifecycle = ModalOperationLifecycle(object(), runtime, timer_interval=0.1, clock=clock)
+    lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
+    unidentified_timer = type("TimerEvent", (), {})()
+
+    assert not lifecycle.accepts_timer_event(unidentified_timer)
+    now = 10.1
+    assert lifecycle.accepts_timer_event(unidentified_timer)
+    assert not lifecycle.accepts_timer_event(unidentified_timer)
+    assert lifecycle.accepts_timer_event(
+        type("OwnedTimerEvent", (), {"timer": window_manager.timer})()
     )
+    assert not lifecycle.accepts_timer_event(type("ForeignTimerEvent", (), {"timer": object()})())
+
+
+def test_unused_lifecycle_cannot_update_or_cancel_another_run() -> None:
+    runtime = RuntimeState(active=True, cancel_requested=False, run_identity="another-run")
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
@@ -198,9 +219,7 @@ def test_progress_initialization_failure_attempts_matching_cleanup() -> None:
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
-        lifecycle.begin(
-            Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1
-        )
+        lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
     except RuntimeError as error:
         assert str(error) == "progress unavailable"
     else:
@@ -225,9 +244,7 @@ def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> N
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
-        lifecycle.begin(
-            Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1
-        )
+        lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
     except RuntimeError as error:
         assert str(error) == "timer unavailable"
     else:
@@ -235,6 +252,7 @@ def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> N
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
+    assert runtime.status == "Initialization failed at frame 1: timer unavailable"
     assert window_manager.events == [
         ("progress_begin", (0, 1)),
         ("progress_end", None),
@@ -247,9 +265,7 @@ def test_run_identity_failure_does_not_lock_the_runtime() -> None:
     def fail_identity() -> str:
         raise RuntimeError("identity unavailable")
 
-    lifecycle = ModalOperationLifecycle(
-        object(), runtime, run_identity_factory=fail_identity
-    )
+    lifecycle = ModalOperationLifecycle(object(), runtime, run_identity_factory=fail_identity)
 
     try:
         lifecycle.begin(
@@ -329,7 +345,7 @@ def test_timer_removal_failure_still_ends_progress_and_unlocks_runtime() -> None
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Cleanup failed: timer already removed"
+    assert runtime.status == "Complete; cleanup failed: timer already removed"
     assert window_manager.events[-1] == ("progress_end", None)
 
 
@@ -351,7 +367,7 @@ def test_cleanup_failure_still_releases_universal_resources_and_reports_failure(
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Cleanup failed: session cleanup failed"
+    assert runtime.status == "Complete; cleanup failed: session cleanup failed"
     assert window_manager.events[-2:] == [
         ("timer_remove", window_manager.timer),
         ("progress_end", None),

@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import object_datamosh.sequence_processing as sequence_processing
 from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
@@ -39,14 +40,17 @@ class MemoryImageIO:
     def __init__(self, images: dict[Path, np.ndarray]) -> None:
         self.images = images
         self.written: dict[Path, np.ndarray] = {}
+        self.reads: list[Path] = []
 
     def read_rgba(self, path: str | Path) -> np.ndarray:
+        self.reads.append(Path(path))
         try:
             return self.images[Path(path)].copy()
         except KeyError:
             raise FileNotFoundError(path) from None
 
     def read_mask(self, path: str | Path) -> np.ndarray:
+        self.reads.append(Path(path))
         try:
             return self.images[Path(path)].copy()
         except KeyError:
@@ -66,6 +70,47 @@ def _rgba(value: float) -> np.ndarray:
 
 def test_reset_expression_is_parsed_deterministically() -> None:
     assert parse_reset_frames(" 8, 3,8, 5 ") == frozenset({3, 5, 8})
+
+
+def test_manifest_failure_does_not_publish_an_uncommitted_frame(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+    )
+    original_replace = sequence_processing.os.replace
+
+    def fail_manifest_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == sequence_manifest_path(paths):
+            raise OSError("manifest replace failed")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", fail_manifest_replace)
+
+    with pytest.raises(OSError, match="manifest replace failed"):
+        session.process_next_frame()
+
+    assert session.completed_frames == ()
+    assert session.retained_frames == ()
+    assert (
+        json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))["completed_frames"]
+        == []
+    )
 
 
 def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> None:
@@ -210,6 +255,13 @@ def test_processing_session_resumes_after_its_last_complete_frame(tmp_path: Path
         images[frame.matte] = np.ones((1, 2), dtype=np.float32)
     io = MemoryImageIO(images)
     cancellation_requested = False
+    cancellation_checks = 0
+
+    def should_cancel() -> bool:
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_requested
+
     first_session = ProcessingSession.create(
         paths,
         frame_start=1,
@@ -217,12 +269,14 @@ def test_processing_session_resumes_after_its_last_complete_frame(tmp_path: Path
         matte_provider=ObjectIndexMatteProvider(),
         settings=FeedbackSettings(persistence=1.0, block_size=1),
         image_io=io,
-        should_cancel=lambda: cancellation_requested,
+        should_cancel=should_cancel,
     )
     first_session.process_next_frame()
+    assert cancellation_checks == 1
     cancellation_requested = True
     with pytest.raises(SequenceProcessingCancelled):
         first_session.process_next_frame()
+    assert cancellation_checks == 2
 
     resumed = ProcessingSession.create(
         paths,
@@ -568,6 +622,7 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
         )
 
     io.written.clear()
+    resume_progress = ProgressRecorder()
     process_sequence(
         paths,
         frame_start=1,
@@ -576,12 +631,133 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
         settings=settings,
         image_io=io,
         run_mode=SequenceRunMode.RESUME,
+        progress=resume_progress,
     )
 
+    assert resume_progress.events == [("begin", 1), ("update", 1), ("end", 0)]
     np.testing.assert_allclose(
         io.written[paths.frame(3).processed][0, 0],
         np.full(4, 0.125, dtype=np.float32),
     )
+
+
+def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (0, 1, 2):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba((frame_number + 1) / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    interrupted = ProcessingSession.create(
+        paths,
+        frame_start=0,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+    )
+    interrupted.process_next_frame()
+    interrupted.process_next_frame()
+
+    io.reads.clear()
+    resumed = ProcessingSession.create(
+        paths,
+        frame_start=0,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    assert io.reads == []
+    assert resumed.recovery_frame == 0
+    resumed.process_next_frame()
+    assert resumed.recovery_frame == 1
+    assert paths.frame(2).processed not in io.written
+    resumed.process_next_frame()
+    assert resumed.recovery_frame is None
+    assert not resumed.is_finished
+    resumed.process_next_frame()
+    assert resumed.is_finished
+    assert resumed.result.frames == (paths.frame(2).processed,)
+
+
+def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_frame(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    matte = np.ones((1, 2), dtype=np.float32)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2, 3):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(frame_number / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = matte
+    io = MemoryImageIO(images)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+    )
+    io.images[paths.frame(2).processed][0, 0, 0] = np.nan
+
+    with pytest.raises(RuntimeError, match="invalid for frame 2"):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=3,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=settings,
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+    io.written.clear()
+    reset_progress = ProgressRecorder()
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+        missing_history=MissingHistoryPolicy.RESET,
+        progress=reset_progress,
+    )
+
+    assert result.frames == (paths.frame(2).processed, paths.frame(3).processed)
+    assert reset_progress.events == [
+        ("begin", 2),
+        ("update", 1),
+        ("update", 2),
+        ("end", 0),
+    ]
+    assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
+        "completed_frames"
+    ] == [1, 2, 3]
+    io.written.clear()
+    subsequent = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+    assert subsequent.frames == ()
 
 
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(

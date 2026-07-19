@@ -39,11 +39,13 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
+from .existing_pass_operation import ExistingPassModalController
 from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, render_raw_passes
 from .sequence_processing import (
     MissingHistoryPolicy,
+    ProcessingSession,
     ResolutionChangePolicy,
     SequenceProcessingCancelled,
     SequenceRunMode,
@@ -53,6 +55,20 @@ from .sequence_processing import (
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 _SCENE_RUNTIME_ATTRIBUTE = "ODM_runtime"
+_ACTIVE_CONTROLLER_KEY = "ODM_active_modal_controller"
+
+
+def _driver_namespace() -> dict[str, object]:
+    return cast(dict[str, object], cast(Any, bpy.app).driver_namespace)
+
+
+def _active_modal_controller() -> ExistingPassModalController | None:
+    controller = _driver_namespace().get(_ACTIVE_CONTROLLER_KEY)
+    return controller if isinstance(controller, ExistingPassModalController) else None
+
+
+def _clear_active_modal_controller() -> None:
+    _driver_namespace().pop(_ACTIVE_CONTROLLER_KEY, None)
 
 
 def settings_for_scene(scene: Scene) -> ODM_Settings:
@@ -104,31 +120,49 @@ def sequence_paths_for_scene(scene: Scene) -> SequencePaths:
 
 
 class ODM_RuntimeState(PropertyGroup):
-    """Serializable scene-owned state for one Object Datamosh operation."""
+    """Transient scene-owned state for one Object Datamosh operation."""
 
-    active: BoolProperty(name="Active", default=False)  # ty: ignore[invalid-type-form]
+    active: BoolProperty(  # ty: ignore[invalid-type-form]
+        name="Active", default=False, options={"SKIP_SAVE"}
+    )
     cancel_requested: BoolProperty(  # ty: ignore[invalid-type-form]
-        name="Cancel Requested", default=False
+        name="Cancel Requested", default=False, options={"SKIP_SAVE"}
     )
     phase: EnumProperty(  # ty: ignore[invalid-type-form]
         name="Phase",
         items=tuple((phase.value, phase.value.title(), "") for phase in OperationPhase),
         default=OperationPhase.IDLE.value,
+        options={"SKIP_SAVE"},
     )
     run_identity: StringProperty(  # ty: ignore[invalid-type-form]
-        name="Run Identity", default=""
+        name="Run Identity", default="", options={"SKIP_SAVE"}
     )
-    current_frame: IntProperty(name="Current Frame", default=0)  # ty: ignore[invalid-type-form]
-    frame_start: IntProperty(name="Start", default=0)  # ty: ignore[invalid-type-form]
-    frame_end: IntProperty(name="End", default=0)  # ty: ignore[invalid-type-form]
+    current_frame: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Current Frame", default=0, options={"SKIP_SAVE"}
+    )
+    frame_start: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Start", default=0, options={"SKIP_SAVE"}
+    )
+    frame_end: IntProperty(  # ty: ignore[invalid-type-form]
+        name="End", default=0, options={"SKIP_SAVE"}
+    )
     completed_work: IntProperty(  # ty: ignore[invalid-type-form]
-        name="Completed", default=0, min=0
+        name="Completed", default=0, min=0, options={"SKIP_SAVE"}
     )
-    total_work: IntProperty(name="Total", default=0, min=0)  # ty: ignore[invalid-type-form]
+    total_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Total", default=0, min=0, options={"SKIP_SAVE"}
+    )
     progress: FloatProperty(  # ty: ignore[invalid-type-form]
-        name="Progress", default=0.0, min=0.0, max=1.0, subtype="PERCENTAGE"
+        name="Progress",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype="PERCENTAGE",
+        options={"SKIP_SAVE"},
     )
-    status: StringProperty(name="Status", default="Ready")  # ty: ignore[invalid-type-form]
+    status: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Status", default="Ready", options={"SKIP_SAVE"}
+    )
 
 
 class ODM_Settings(PropertyGroup):
@@ -264,9 +298,22 @@ class ODM_Settings(PropertyGroup):
     )
 
 
+def _active_operation_runtime() -> ODM_RuntimeState | None:
+    """Return the scene-owned runtime holding the process-wide operation lock, if any."""
+    for scene in bpy.data.scenes:
+        if hasattr(scene, _SCENE_RUNTIME_ATTRIBUTE):
+            runtime = runtime_for_scene(scene)
+            if runtime.active:
+                return runtime
+    return None
+
+
 def _operation_is_idle(context: Context) -> bool:
-    scene = context.scene
-    return scene is not None and not runtime_for_scene(scene).active
+    return (
+        context.scene is not None
+        and _active_modal_controller() is None
+        and _active_operation_runtime() is None
+    )
 
 
 class ODM_OT_cancel_operation(Operator):
@@ -278,15 +325,27 @@ class ODM_OT_cancel_operation(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return context.scene is not None and runtime_for_scene(context.scene).active
+        return context.scene is not None and (
+            _active_modal_controller() is not None or _active_operation_runtime() is not None
+        )
 
     def execute(self, context: Context) -> set[Any]:
-        scene = context.scene
-        if scene is None:
-            self.report({"ERROR"}, "An active scene is required")
+        controller = _active_modal_controller()
+        if controller is not None:
+            cancellation_requested = controller.request_cancel()
+            runtime = _active_operation_runtime()
+        else:
+            runtime = _active_operation_runtime()
+            cancellation_requested = runtime is not None and request_cancellation(
+                runtime, context.window_manager
+            )
+        if not cancellation_requested:
+            self.report({"WARNING"}, "No cancellable Object Datamosh operation is active")
             return {"CANCELLED"}
-        runtime = runtime_for_scene(scene)
-        if not request_cancellation(runtime, context.window_manager):
+        if runtime is None:
+            self.report({"INFO"}, "Cancel requested; waiting for a safe boundary...")
+            return {"FINISHED"}
+        if not runtime.cancel_requested:
             self.report({"WARNING"}, "No cancellable Object Datamosh operation is active")
             return {"CANCELLED"}
         self.report({"INFO"}, runtime.status)
@@ -506,7 +565,7 @@ class ODM_OT_render_and_process(Operator):
                 frame_end=settings.frame_end,
                 matte_provider=_matte_provider_for_settings(settings),
                 settings=feedback_settings_for_scene(scene),
-                image_io=BlenderImageIO(),
+                image_io=BlenderImageIO(scene),
                 overwrite=settings.overwrite_processed,
                 reset_frames=parse_reset_frames(settings.reset_frames),
                 resolution_change=ResolutionChangePolicy(settings.resolution_change),
@@ -543,11 +602,13 @@ class ODM_OT_render_and_process(Operator):
 
 
 class ODM_OT_process_sequence(Operator):
-    """Process existing pass files through localized temporal feedback."""
+    """Advance existing-pass processing one frame per Blender timer event."""
 
     bl_idname = "object_datamosh.process_sequence"
     bl_label = "Process Existing Passes"
     bl_description = "Process existing beauty, vector, and matte EXR sequences"
+
+    _controller: ExistingPassModalController | None
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -556,49 +617,59 @@ class ODM_OT_process_sequence(Operator):
         settings = settings_for_scene(context.scene)
         return _operation_is_idle(context) and settings.frame_start <= settings.frame_end
 
+    def invoke(self, context: Context, event: Any) -> set[Any]:
+        """Enter the same bounded setup path from Blender's interactive invoke dispatch."""
+        del event
+        return self.execute(context)
+
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
         if scene is None:
             self.report({"ERROR"}, "An active scene is required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
+        runtime = runtime_for_scene(scene)
+        controller = ExistingPassModalController(
+            self,
+            runtime,
+            settings,
+            on_cleanup=_clear_active_modal_controller,
+        )
+        self._controller = controller
+        _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
         settings.status = "Processing existing passes..."
         try:
-            matte_provider = _matte_provider_for_settings(settings)
-            result = process_sequence(
+            session = ProcessingSession.create(
                 sequence_paths_for_scene(scene),
                 frame_start=settings.frame_start,
                 frame_end=settings.frame_end,
-                matte_provider=matte_provider,
+                matte_provider=_matte_provider_for_settings(settings),
                 settings=feedback_settings_for_scene(scene),
-                image_io=BlenderImageIO(),
+                image_io=BlenderImageIO(scene),
                 overwrite=settings.overwrite_processed,
                 reset_frames=parse_reset_frames(settings.reset_frames),
                 resolution_change=ResolutionChangePolicy(settings.resolution_change),
                 run_mode=SequenceRunMode(settings.sequence_run_mode),
                 missing_history=MissingHistoryPolicy(settings.missing_history),
-                progress=_WindowManagerProgress(context.window_manager),
+                should_cancel=lambda: controller.cancel_requested,
             )
-        except SequenceProcessingCancelled as error:
-            message = str(error)
-            settings.status = message
-            self.report({"WARNING"}, message)
+            controller.start(context, session)
+        except Exception as error:
+            controller.fail_initialization(settings.frame_start, error)
             return {"CANCELLED"}
-        except (
-            NotImplementedError,
-            OSError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            message = str(error)
-            settings.status = message
-            self.report({"ERROR"}, message)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context: Context, event: Any) -> set[Any]:
+        controller = self._controller
+        if controller is None:
+            self.report({"ERROR"}, "Processing failed: the modal controller is unavailable")
             return {"CANCELLED"}
-        message = f"Processed {len(result.frames)} frame(s)"
-        settings.status = message
-        self.report({"INFO"}, message)
-        return {"FINISHED"}
+        return controller.handle_event(event)
+
+    def cancel(self, context: Context) -> None:
+        """Release owned modal resources if Blender cancels the operator externally."""
+        if self._controller is not None:
+            self._controller.cancel()
 
 
 class ODM_OT_create_vector_calibration(Operator):
@@ -690,21 +761,23 @@ class ODM_PT_sidebar(Panel):
 def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     """Emit the complete sidebar surface through Blender's layout interface."""
     settings = settings_for_scene(scene)
-    runtime = runtime_for_scene(scene)
+    runtime = _active_operation_runtime() or runtime_for_scene(scene)
+    operation_active = runtime.active or _active_modal_controller() is not None
     paths = sequence_paths_for_scene(scene)
 
     operation = layout.box()
-    operation.label(text=f"Operation: {'Active' if runtime.active else 'Idle'}")
+    operation.label(text=f"Operation: {'Active' if operation_active else 'Idle'}")
     operation.label(text=f"Phase: {runtime.phase.title()}")
     operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
     operation.label(text=f"Current Frame: {runtime.current_frame}")
     operation.label(text=f"Work: {runtime.completed_work}/{runtime.total_work}")
     operation.label(text=f"Progress: {runtime.progress:.0%}")
     operation.label(text=f"Status: {runtime.status}")
-    if runtime.active:
+    if operation_active:
         operation.operator(ODM_OT_cancel_operation.bl_idname)
 
     target = layout.box()
+    target.enabled = not operation_active
     target.label(text="Target")
     target.prop(settings, "target_object")
     target.operator(ODM_OT_use_active_object.bl_idname)
@@ -712,6 +785,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     target.label(text=f"View Layer: {view_layer_name}")
 
     sequence = layout.box()
+    sequence.enabled = not operation_active
     sequence.label(text="Sequence")
     row = sequence.row(align=True)
     row.prop(settings, "frame_start")
@@ -735,6 +809,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         warning.label(text=paths.warning, icon="ERROR")
 
     matte = layout.box()
+    matte.enabled = not operation_active
     matte.label(text="Matte")
     matte.prop(settings, "matte_source")
     if settings.matte_source == "EXTERNAL":
@@ -747,10 +822,12 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         row.operator(ODM_OT_restore_object_index.bl_idname)
 
     calibration = layout.box()
+    calibration.enabled = not operation_active
     calibration.label(text="Vector Calibration")
     calibration.operator(ODM_OT_create_vector_calibration.bl_idname)
 
     feedback = layout.box()
+    feedback.enabled = not operation_active
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
     feedback.prop(settings, "trail_decay")
@@ -768,7 +845,8 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     feedback.prop(settings, "refresh_probability")
     feedback.prop(settings, "seed")
 
-    layout.label(text=f"Status: {settings.status}")
+    if not operation_active:
+        layout.label(text=f"Status: {settings.status}")
 
 
 _CLASSES = (
@@ -815,7 +893,9 @@ def register() -> None:
 
 
 def unregister() -> None:
-    """Remove only data registered by this extension, idempotently."""
+    """Remove only data registered by this extension when no modal handler owns its classes."""
+    if _active_modal_controller() is not None or _active_operation_runtime() is not None:
+        raise RuntimeError("Cannot unregister Object Datamosh while an operation is active")
     scene_type = cast(Any, Scene)
     scene_properties = (
         (_SCENE_SETTINGS_ATTRIBUTE, ODM_Settings),

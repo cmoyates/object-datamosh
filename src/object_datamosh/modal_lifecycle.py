@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import suppress
 from enum import StrEnum
+from time import monotonic
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ class OperationPhase(StrEnum):
     PROCESSING = "PROCESSING"
     FINALIZING = "FINALIZING"
     CANCELLING = "CANCELLING"
+    CANCELLED = "CANCELLED"
     FAILED = "FAILED"
     COMPLETED = "COMPLETED"
 
@@ -53,15 +55,19 @@ class ModalOperationLifecycle:
         cleanup: Callable[[], None] | None = None,
         timer_interval: float = 0.1,
         run_identity_factory: Callable[[], str] | None = None,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._operator = operator
         self._runtime = runtime
         self._cleanup = cleanup
         self._timer_interval = timer_interval
         self._run_identity_factory = run_identity_factory or (lambda: uuid4().hex)
+        self._clock = clock
         self._timer: object | None = None
+        self._next_step_deadline: float | None = None
         self._window_manager: Any | None = None
         self._progress_started = False
+        self._handler_added = False
         self._owns_runtime = False
         self._finalized = False
 
@@ -110,11 +116,23 @@ class ModalOperationLifecycle:
                 self._timer_interval,
                 window=context.window,
             )
-            window_manager.modal_handler_add(self._operator)
-        except Exception:
+            self._next_step_deadline = self._clock() + self._timer_interval
+        except Exception as error:
             with suppress(Exception):
-                self.finalize(OperationPhase.FAILED, "Initialization failed")
+                self.finalize(
+                    OperationPhase.FAILED,
+                    f"Initialization failed at frame {frame_start}: {error}",
+                )
             raise
+
+    def enter_modal(self) -> None:
+        """Register the modal handler after every other initialization step has succeeded."""
+        if self._finalized or not self._owns_runtime or self._window_manager is None:
+            raise RuntimeError("The modal lifecycle is not ready to enter modal handling")
+        if self._handler_added:
+            raise RuntimeError("The modal handler has already been added")
+        self._window_manager.modal_handler_add(self._operator)
+        self._handler_added = True
 
     def update(
         self,
@@ -140,6 +158,20 @@ class ModalOperationLifecycle:
         if self._progress_started and self._window_manager is not None:
             self._window_manager.progress_update(completed_work)
         request_sidebar_redraw(self._window_manager)
+
+    def accepts_timer_event(self, event: object) -> bool:
+        """Accept only the owned timer, or its cadence when Blender omits timer identity."""
+        event_timer = getattr(event, "timer", None)
+        if event_timer is not None:
+            return event_timer is self._timer
+        deadline = self._next_step_deadline
+        now = self._clock()
+        if deadline is None or now < deadline:
+            return False
+        # Blender 5.0 does not identify TIMER events, so preserve the owned timer's bounded cadence
+        # even when a different add-on emits more frequent timer events.
+        self._next_step_deadline = now + self._timer_interval
+        return True
 
     def request_cancel(self) -> bool:
         """Mark active work for cancellation without mutating workflow resources."""
@@ -171,6 +203,7 @@ class ModalOperationLifecycle:
             except Exception as error:
                 cleanup_errors.append(error)
             self._timer = None
+            self._next_step_deadline = None
         if self._progress_started and self._window_manager is not None:
             try:
                 self._window_manager.progress_end()
@@ -179,7 +212,9 @@ class ModalOperationLifecycle:
             self._progress_started = False
 
         terminal_phase = OperationPhase.FAILED if cleanup_errors else phase
-        terminal_status = f"Cleanup failed: {cleanup_errors[0]}" if cleanup_errors else status
+        terminal_status = (
+            f"{status}; cleanup failed: {cleanup_errors[0]}" if cleanup_errors else status
+        )
         try:
             runtime_available = self._owns_runtime or not self._runtime.active
         except Exception:

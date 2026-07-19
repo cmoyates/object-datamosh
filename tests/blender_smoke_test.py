@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -20,11 +21,15 @@ import numpy as np
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPOSITORY_ROOT / "src"
-if str(SOURCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOURCE_ROOT))
+TEST_ROOT = REPOSITORY_ROOT / "tests"
+for import_root in (SOURCE_ROOT, TEST_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+from blender_modal_test_support import LayoutRecorder  # noqa: E402
+from blender_processing_modal_smoke import run_processing_modal_scenarios  # noqa: E402
 
 import object_datamosh  # noqa: E402
-import object_datamosh.ui as ui_module  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.compositor_setup import (  # noqa: E402
     restore_object_index_passes,
@@ -37,6 +42,7 @@ from object_datamosh.raw_render import (  # noqa: E402
     render_raw_passes,
 )
 from object_datamosh.ui import (  # noqa: E402
+    ODM_RuntimeState,
     _draw_sidebar,
     feedback_settings_for_scene,
     runtime_for_scene,
@@ -96,41 +102,29 @@ class ProgressRecorder:
         self.events.append(("end", 0))
 
 
-class LayoutRecorder:
-    """Minimal Blender layout double for verifying the emitted sidebar controls."""
-
-    def __init__(self) -> None:
-        self.properties: set[str] = set()
-        self.operators: set[str] = set()
-        self.labels: list[str] = []
-        self.alert = False
-
-    def box(self) -> LayoutRecorder:
-        return self
-
-    def row(self, *, align: bool = False) -> LayoutRecorder:
-        del align
-        return self
-
-    def prop(self, data: object, property_name: str) -> None:
-        del data
-        self.properties.add(property_name)
-
-    def operator(self, operator_name: str) -> None:
-        self.operators.add(operator_name)
-
-    def label(self, *, text: str, icon: str | None = None) -> None:
-        del icon
-        self.labels.append(text)
-
-
 def main() -> None:
     object_datamosh.register()
     object_datamosh.register()
     assert hasattr(bpy.types.Scene, "ODM_settings")
     assert hasattr(bpy.types.Scene, "ODM_runtime")
-    panel_type = cast(Any, bpy.types).ODM_PT_sidebar
+    registered_types = cast(Any, bpy.types)
+    panel_type = registered_types.ODM_PT_sidebar
     assert panel_type.bl_category == "Object Datamosh"
+    runtime_type = ODM_RuntimeState
+    for property_name in (
+        "active",
+        "cancel_requested",
+        "phase",
+        "run_identity",
+        "current_frame",
+        "frame_start",
+        "frame_end",
+        "completed_work",
+        "total_work",
+        "progress",
+        "status",
+    ):
+        assert runtime_type.bl_rna.properties[property_name].is_skip_save
 
     scene = bpy.context.scene
     assert scene is not None
@@ -229,6 +223,8 @@ def main() -> None:
     _draw_sidebar(active_layout, bpy.context, scene)
     assert "Operation: Active" in active_layout.labels
     assert "object_datamosh.cancel_operation" in active_layout.operators
+    assert active_layout.boxes[0].enabled
+    assert all(not box.enabled for box in active_layout.boxes[1:])
     assert not object_datamosh_ops.use_active_object.poll()
     assert not object_datamosh_ops.setup_object_index.poll()
     assert not object_datamosh_ops.create_vector_calibration.poll()
@@ -582,68 +578,9 @@ def main() -> None:
     assert bpy.data.node_groups.get(owned_tree_name) is None
 
     image_io = BlenderImageIO()
-    with tempfile.TemporaryDirectory(prefix="ODM_processing_smoke_") as temp_directory:
-        processing_paths = SequencePaths(Path(temp_directory))
-        first = processing_paths.frame(1)
-        second = processing_paths.frame(2)
-        first_beauty = np.full((2, 3, 4), 0.8, dtype=np.float32)
-        second_beauty = np.full((2, 3, 4), 0.1, dtype=np.float32)
-        zero_vector = np.zeros((2, 3, 4), dtype=np.float32)
-        selected = np.zeros((2, 3), dtype=np.float32)
-        selected[:, 1] = 1.0
-        matte_rgba = np.repeat(selected[..., None], 4, axis=2)
-        processing_images_before = len(bpy.data.images)
-        for frame_paths, beauty in ((first, first_beauty), (second, second_beauty)):
-            image_io.write_rgba(frame_paths.beauty, beauty)
-            image_io.write_rgba(frame_paths.vector, zero_vector)
-            image_io.write_rgba(frame_paths.matte, matte_rgba)
-
-        settings.output_directory = str(processing_paths.root)
-        settings.frame_start = 1
-        settings.frame_end = 2
-        settings.matte_source = "OBJECT_INDEX"
-        settings.persistence = 1.0
-        settings.block_size = 1
-        settings.overwrite_processed = False
-        assert object_datamosh_ops.process_sequence() == {"FINISHED"}
-        assert settings.status == "Processed 2 frame(s)"
-        assert first.processed.is_file()
-        assert second.processed.is_file()
-        assert exr_contract(second.processed) == ((2, 3), (2, 2, 2, 2))
-        processed = image_io.read_rgba(second.processed)
-        assert np.allclose(processed[:, 1], first_beauty[:, 1], atol=1e-6)
-        assert np.allclose(processed[:, (0, 2)], second_beauty[:, (0, 2)], atol=1e-6)
-        assert len(bpy.data.images) == processing_images_before
-        try:
-            object_datamosh_ops.process_sequence()
-        except RuntimeError as error:
-            assert "overwrite is disabled" in str(error)
-        else:
-            raise AssertionError("processing overwrote existing outputs without permission")
-        assert "overwrite is disabled" in settings.status
-
-        original_process_sequence = ui_module.process_sequence
-
-        def permission_denied(*args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            raise PermissionError("Processed output directory is not writable")
-
-        try:
-            ui_module.process_sequence = permission_denied
-            try:
-                object_datamosh_ops.process_sequence()
-            except RuntimeError as error:
-                assert "not writable" in str(error)
-            else:
-                raise AssertionError("processing did not report an output permission failure")
-            assert settings.status == "Processed output directory is not writable"
-        finally:
-            ui_module.process_sequence = original_process_sequence
-
-        print(
-            "Sequence processing outputs:",
-            ", ".join(path.name for path in (first.processed, second.processed)),
-        )
+    run_processing_modal_scenarios(
+        scene, settings, runtime, image_io, object_datamosh_ops, exr_contract
+    )
 
     image_path = Path(bpy.app.tempdir) / "ODM_image_io_smoke.exr"
     expected = np.array([[[0.0, 0.25, 0.5, 1.0], [1.0, 0.5, 0.25, 1.0]]], dtype=np.float32)
@@ -718,6 +655,26 @@ def main() -> None:
         assert hasattr(scene_type, "ODM_settings")
     finally:
         del scene_type.ODM_settings
+
+    # Real bpy dispatch runs in an isolated Blender process because background mode cannot pump
+    # foreground modal events while this parent script owns its main thread.
+    registered_smoke = subprocess.run(
+        [
+            bpy.app.binary_path,
+            "--background",
+            "--factory-startup",
+            "--python",
+            str(TEST_ROOT / "blender_registered_modal_smoke.py"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert registered_smoke.returncode == 0, (
+        registered_smoke.stdout,
+        registered_smoke.stderr,
+    )
+    assert "Registered modal dispatch smoke passed" in registered_smoke.stdout
 
     print("Object Datamosh Blender smoke test passed")
 
