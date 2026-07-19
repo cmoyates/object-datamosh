@@ -203,6 +203,7 @@ def main() -> None:
     run_root = Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-"))
     worktree = run_root / "worktree"
     build_output = run_root / "build"
+    build_output.mkdir()
     receipt_directory = EVIDENCE_DIR if arguments.update_evidence else run_root / "receipts"
     receipt_directory.mkdir(parents=True, exist_ok=True)
     subprocess.run(
