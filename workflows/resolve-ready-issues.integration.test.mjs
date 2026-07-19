@@ -57,6 +57,8 @@ test("dry-run end to end fixes round 1, delta-cleans round 2, verifies, and merg
   const result = await runWorkflowSandbox({ source: prepared.source, args: { maxIssues: 1 }, cwd: process.cwd(), signal: new AbortController().signal, onPhase: () => {}, onOperation, onAgent: async (prompt, options) => {
     const structured = agentResults[agentIndex++];
     assert(options.excludeTools.includes("subagent_spawn")); assert(options.excludeTools.includes("bg_list")); assert.equal(options.contextBudget.softPercent, 22); assert.equal(options.contextBudget.hardPercent, 28);
+    const expectedStage = structured.status === "implemented" ? "implement" : structured.status === "verified" ? "verify" : "review";
+    assert(prompt.includes(`Required top-level handoff identity: {"schemaVersion":1,"issueNumber":7,"stage":"${expectedStage}"}`));
     if (structured.handoffPath) files.set(structured.handoffPath, { schemaVersion: 1, issueNumber: 7, stage: handoffStage(structured.handoffPath) });
     if (structured.status === "implemented") { head = B; prHead = B; }
     if (structured.status === "fixed") { head = C; prHead = C; }
