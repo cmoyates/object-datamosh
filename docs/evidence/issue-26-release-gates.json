@@ -5,11 +5,17 @@
     "size_bytes": 53328
   },
   "blender_bin": "/Applications/Blender.app/Contents/MacOS/Blender",
-  "foreground_receipt_sha256": "bd0ff9b373594e7a545ca55745212cdaf2e6c9c712056191c7d89a8664db6f47",
+  "foreground": {
+    "git_head": "5a3b74dcaab93d4f0d885be03a16f65971657d43",
+    "receipt_sha256": "70797ccf048a6fbd4d61f06cb8a79512f7e376c8adc99d20f7465121fd037a70",
+    "trace_file": "issue-26-foreground-events-3bfd2036a12192d96d95579c6453a54248e04c75a73fbaea6b590ee25001acf8.jsonl",
+    "trace_sha256": "3bfd2036a12192d96d95579c6453a54248e04c75a73fbaea6b590ee25001acf8"
+  },
   "gates": [
     {
       "command": "uv run ty check",
       "exit_code": 0,
+      "output_file": "issue-26-gate-output-82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18.log",
       "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
       "output_tail": [
         "All checks passed!"
@@ -18,19 +24,21 @@
     {
       "command": "uv run pytest -q",
       "exit_code": 0,
-      "output_sha256": "59afb9a40f35352be7157a506b2ca12052c7c442d2cc58c214ccd3f4026338ec",
+      "output_file": "issue-26-gate-output-e5a9151a5bc3761d21b31eb1b554e8c3e94a01b799f141653d6a5adbd343835d.log",
+      "output_sha256": "e5a9151a5bc3761d21b31eb1b554e8c3e94a01b799f141653d6a5adbd343835d",
       "output_tail": [
         "........................................................................ [ 36%]",
         "........................................................................ [ 72%]",
         "........................................................                 [100%]",
         "=========================== short test summary info ============================",
         "SKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime",
-        "200 passed, 1 skipped in 0.30s"
+        "200 passed, 1 skipped in 0.28s"
       ]
     },
     {
       "command": "uv run ruff check .",
       "exit_code": 0,
+      "output_file": "issue-26-gate-output-82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18.log",
       "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
       "output_tail": [
         "All checks passed!"
@@ -39,7 +47,8 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tests/blender_smoke_test.py",
       "exit_code": 0,
-      "output_sha256": "fe0c1ca95d81d3e2a549a614b8dc59014a455de59d892fe9644fedbb8a58d4e8",
+      "output_file": "issue-26-gate-output-5bfac166d2cb66f0c03de389682085d5c90f903352fd0b9267ec764fa592152c.log",
+      "output_sha256": "5bfac166d2cb66f0c03de389682085d5c90f903352fd0b9267ec764fa592152c",
       "output_tail": [
         "Info: Object Index setup ready (pass 1)",
         "Info: Cancel requested; waiting for a safe boundary...",
@@ -54,7 +63,7 @@
         "Render and Process outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_processed_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr, ODM_processed_0002.exr",
         "Error: Cannot render, no camera",
         "Object Index smoke outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr",
-        "Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_towcl_cu/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_towcl_cu/processed/ODM_processed_0002.exr",
+        "Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_126ofl4c/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_126ofl4c/processed/ODM_processed_0002.exr",
         "Info: Cancel requested; waiting for a safe boundary...",
         "Sequence processing outputs: ODM_processed_0001.exr, ODM_processed_0002.exr",
         "Object Datamosh Blender smoke test passed",
@@ -66,6 +75,7 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension validate src/object_datamosh",
       "exit_code": 0,
+      "output_file": "issue-26-gate-output-2fc7248677a898fdb0090dc47de9d5978bc2ac31cfc803345e6a3a75a5ee3b77.log",
       "output_sha256": "2fc7248677a898fdb0090dc47de9d5978bc2ac31cfc803345e6a3a75a5ee3b77",
       "output_tail": [
         "BlenderMCP addon registered",
@@ -79,6 +89,7 @@
     {
       "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension build --source-dir src/object_datamosh --output-dir dist",
       "exit_code": 0,
+      "output_file": "issue-26-gate-output-d9567301a2bf0c7e8e43e55949afbbcd52c70527829adf78efecb97255425ee4.log",
       "output_sha256": "d9567301a2bf0c7e8e43e55949afbbcd52c70527829adf78efecb97255425ee4",
       "output_tail": [
         "BlenderMCP addon registered",
@@ -92,8 +103,8 @@
       ]
     }
   ],
-  "git_head": "803e1bd9ce1de486f0a6f2a6ac9a6e74f10bf2d9",
-  "release_gate_script_sha256": "9f7ac2e3516e107a5803ceb71fe1c9af924eeb1cce98910f4623cf1a1c8a29b6",
+  "git_head": "5a3b74dcaab93d4f0d885be03a16f65971657d43",
+  "release_gate_script_sha256": "990d7c0d04c057571ea9391f5eb897204deebaec751a223b88f12409f5d253c7",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
   "success": true
 }

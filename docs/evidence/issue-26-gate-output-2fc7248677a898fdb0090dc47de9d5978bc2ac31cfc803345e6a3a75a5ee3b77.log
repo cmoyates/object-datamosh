@@ -1,0 +1,6 @@
+BlenderMCP addon registered
+Success parsing TOML in "src/object_datamosh"
+BlenderMCP addon unregistered
+INFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules
+INFO:root:INFO: Found installed dependencies. Going to adjust sys.path.
+INFO:root:INFO: Unregistered Photogrammetry Import Export Addon
