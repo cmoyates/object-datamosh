@@ -95,6 +95,24 @@ def _publish_output(staged: Path, destination: Path, *, overwrite: bool) -> Path
     return destination
 
 
+def _publish_frame_outputs(
+    discovered: tuple[Path, Path, Path],
+    expected: FramePaths,
+    *,
+    overwrite: bool,
+) -> None:
+    destinations = (expected.beauty, expected.vector, expected.matte)
+    try:
+        for staged, destination in zip(discovered, destinations, strict=True):
+            _publish_output(staged, destination, overwrite=overwrite)
+    except Exception as error:
+        raise RuntimeError(
+            f"Canonical publication failed: {error}. The complete staged frame remains at "
+            f"{discovered[0].parents[2]}; rerun with overwrite enabled to recover any "
+            "canonical links published before the collision."
+        ) from error
+
+
 def _collision_paths(paths: SequencePaths, frame_start: int, frame_end: int) -> tuple[Path, ...]:
     collisions: list[Path] = []
     for frame in range(frame_start, frame_end + 1):
@@ -258,17 +276,12 @@ class RawRenderSession:
                 _discover_output(directories[1], self._before[1], "vector"),
                 _discover_output(directories[2], self._before[2], "matte"),
             )
+            _publish_frame_outputs(discovered, expected, overwrite=self._overwrite)
             actual = FramePaths(
                 frame=request.frame,
-                beauty=_publish_output(
-                    discovered[0], expected.beauty, overwrite=self._overwrite
-                ),
-                vector=_publish_output(
-                    discovered[1], expected.vector, overwrite=self._overwrite
-                ),
-                matte=_publish_output(
-                    discovered[2], expected.matte, overwrite=self._overwrite
-                ),
+                beauty=discovered[0],
+                vector=discovered[1],
+                matte=discovered[2],
                 processed=expected.processed,
             )
         except Exception as error:

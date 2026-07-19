@@ -13,6 +13,7 @@ from object_datamosh.raw_render import (
     RawRenderCancelled,
     RawRenderResult,
     RawRenderSession,
+    _publish_frame_outputs,
     _publish_output,
     render_raw_passes,
 )
@@ -63,12 +64,12 @@ def test_session_discovers_emitted_paths_and_restores_the_scene_frame(tmp_path: 
     session.close()
 
     expected = paths.frame(3)
-    assert (actual.beauty, actual.vector, actual.matte) == (
-        expected.beauty,
-        expected.vector,
-        expected.matte,
-    )
+    assert (actual.beauty, actual.vector, actual.matte) == emitted
     assert all(path.read_bytes() == b"rendered" for path in emitted)
+    assert all(
+        path.read_bytes() == b"rendered"
+        for path in (expected.beauty, expected.vector, expected.matte)
+    )
     assert session.result.frames == (actual,)
     assert scene.frames == [3, 9]
     assert scene.frame_subframe == 0.625
@@ -174,6 +175,34 @@ def test_session_constructor_failure_does_not_acquire_output_paths(tmp_path: Pat
     assert not output_context.entered
 
 
+def test_partial_publication_reports_overwrite_recovery(tmp_path: Path) -> None:
+    staged = (
+        tmp_path / "staging" / "beauty.exr",
+        tmp_path / "staging" / "vector.exr",
+        tmp_path / "staging" / "matte.exr",
+    )
+    for path in staged:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"rendered")
+    paths = SequencePaths(tmp_path / "output")
+    expected = paths.frame(1)
+    expected.vector.parent.mkdir(parents=True, exist_ok=True)
+    expected.vector.write_bytes(b"external")
+
+    with pytest.raises(RuntimeError, match="rerun with overwrite enabled"):
+        _publish_frame_outputs(staged, expected, overwrite=False)
+
+    assert expected.beauty.read_bytes() == b"rendered"
+    assert expected.vector.read_bytes() == b"external"
+    assert all(path.read_bytes() == b"rendered" for path in staged)
+
+    _publish_frame_outputs(staged, expected, overwrite=True)
+    assert all(
+        path.read_bytes() == b"rendered"
+        for path in (expected.beauty, expected.vector, expected.matte)
+    )
+
+
 def test_staged_publish_never_clobbers_a_late_destination(tmp_path: Path) -> None:
     staged = tmp_path / "staged.exr"
     destination = tmp_path / "final.exr"
@@ -185,6 +214,7 @@ def test_staged_publish_never_clobbers_a_late_destination(tmp_path: Path) -> Non
 
     assert destination.read_bytes() == b"external"
     assert staged.read_bytes() == b"rendered"
+
 
 
 def test_session_rejects_output_created_after_initial_collision_check(tmp_path: Path) -> None:
