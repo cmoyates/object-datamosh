@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -25,7 +26,7 @@ MAX_RETAINED_OUTPUT_BYTES = 64 * 1024
 REAL_ESCAPE_GIT_HEAD = "e6628a8a595aaa53416fc205c15f82836c3819ae"
 REAL_ESCAPE_PROBE_SHA256 = "576e3252a7244f6144234477879d678cdde550125eab882745991363505600d8"
 REAL_ESCAPE_RUNNER_SHA256 = "106be8a7ea82d05f8d17b545432f4a6e96cedd8f660bb4d51b5da36180b770ed"
-INTERRUPT_SIGNALS = (signal.SIGHUP, signal.SIGTERM)
+INTERRUPT_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,7 @@ def run_gate(
     output_close_timeout_seconds: float = 10.0,
     output_termination_timeout_seconds: float = 1.0,
     process_group_timeout_seconds: float = 1.0,
+    stage_result: Callable[[GateResult], None] | None = None,
 ) -> GateResult:
     print(f"$ {display}")
     try:
@@ -368,7 +370,11 @@ def run_gate(
         tracked_changes=git_output(worktree, "status", "--porcelain", "--untracked-files=no"),
     )
     assert post_wait_signal_mask is not None
-    signal.pthread_sigmask(signal.SIG_SETMASK, post_wait_signal_mask)
+    try:
+        if stage_result is not None:
+            stage_result(result)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, post_wait_signal_mask)
     return result
 
 
@@ -447,6 +453,79 @@ def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[s
     return content, payload
 
 
+def validate_real_escape_timing(events: list[dict[str, object]]) -> None:
+    def event_time(event: dict[str, object]) -> float:
+        value = event.get("time")
+        if not isinstance(value, int | float):
+            raise RuntimeError(f"Real-Escape event lacks a numeric time: {event}")
+        return float(value)
+
+    def one_event(name: str, *, marker: str | None = None) -> dict[str, object]:
+        matches = [
+            event
+            for event in events
+            if event.get("event") == name
+            and (marker is None or event.get("marker") == marker)
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(f"Real-Escape receipt requires one {name} event for {marker}")
+        return matches[0]
+
+    raw_started = one_event("external_escape_send_started", marker="raw_render_active")
+    raw_sent = one_event("external_escape_sent", marker="raw_render_active")
+    raw_start_time = event_time(raw_started)
+    raw_sent_time = event_time(raw_sent)
+    raw_intervals: list[tuple[float, float]] = []
+    for active in events:
+        if active.get("event") != "raw_render_active":
+            continue
+        terminal = next(
+            (
+                event
+                for event in events
+                if event.get("event") in {"render_complete", "render_cancel"}
+                and event.get("stage") == "raw_escape_cancel"
+                and event.get("frame") == active.get("frame")
+                and event_time(event) >= event_time(active)
+            ),
+            None,
+        )
+        if terminal is not None:
+            raw_intervals.append((event_time(active), event_time(terminal)))
+    if not any(
+        interval_start < raw_start_time < raw_sent_time < interval_end
+        for interval_start, interval_end in raw_intervals
+    ):
+        raise RuntimeError("Real raw Escape was not sent inside an active render interval")
+
+    processing_ready = one_event("processing_escape_ready")
+    processing_started = one_event(
+        "external_escape_send_started", marker="processing_escape_ready"
+    )
+    processing_sent = one_event("external_escape_sent", marker="processing_escape_ready")
+    ready_time = event_time(processing_ready)
+    processing_start_time = event_time(processing_started)
+    processing_sent_time = event_time(processing_sent)
+    if not ready_time < processing_start_time < processing_sent_time:
+        raise RuntimeError("Real processing Escape markers are not ordered after readiness")
+    cancelling = [
+        event
+        for event in events
+        if event.get("stage") == "processing_escape_cancel"
+        and event.get("phase") == "CANCELLING"
+        and event_time(event) >= processing_start_time
+    ]
+    cancelled = [
+        event
+        for event in events
+        if event.get("stage") == "processing_escape_cancel"
+        and event.get("phase") == "CANCELLED"
+        and event_time(event) >= processing_start_time
+    ]
+    if not cancelling or not cancelled:
+        raise RuntimeError("Real processing Escape lacks cancelling and cancelled runtime evidence")
+
+
 def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[str, object]]:
     path = EVIDENCE_DIR / "issue-26-real-escape-result.json"
     content = path.read_bytes()
@@ -469,20 +548,7 @@ def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[
     event_log = payload["event_log_jsonl"]
     assert isinstance(event_log, str)
     events = [json.loads(line) for line in event_log.splitlines()]
-    for marker in ("raw_render_active", "processing_escape_ready"):
-        started = [
-            event
-            for event in events
-            if event.get("event") == "external_escape_send_started"
-            and event.get("marker") == marker
-        ]
-        sent = [
-            event
-            for event in events
-            if event.get("event") == "external_escape_sent" and event.get("marker") == marker
-        ]
-        if len(started) != 1 or len(sent) != 1 or started[0]["time"] >= sent[0]["time"]:
-            raise RuntimeError(f"Real-Escape receipt lacks ordered System Events markers: {marker}")
+    validate_real_escape_timing(events)
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict):
         raise RuntimeError("Real-Escape receipt has no evidence summary")
@@ -610,6 +676,12 @@ def main() -> None:
     def stop_after_receipting_failure(message: str) -> None:
         raise RuntimeError(message)
 
+    def stage_gate_result(result: GateResult) -> None:
+        results.append(result)
+        gate_receipts.append(
+            write_gate_result(result, identity=identity, directory=receipt_directory)
+        )
+
     previous_handlers = {
         signal_number: signal.signal(signal_number, interrupt_release_gate)
         for signal_number in INTERRUPT_SIGNALS
@@ -624,10 +696,7 @@ def main() -> None:
                 display,
                 worktree=worktree,
                 environment=environment,
-            )
-            results.append(result)
-            gate_receipts.append(
-                write_gate_result(result, identity=identity, directory=receipt_directory)
+                stage_result=stage_gate_result,
             )
             if result.launch_error is not None:
                 stop_after_receipting_failure(
@@ -732,13 +801,17 @@ def main() -> None:
                         old_receipt.unlink()
         print(f"Release-gate receipt: {aggregate}")
     except BaseException as error:
-        if arguments.update_evidence and not success_committed:
-            write_release_failure(
-                EVIDENCE_DIR / "issue-26-last-failed-gate.json",
-                error,
-                identity=identity,
-                results=results,
-            )
+        failure_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
+        try:
+            if arguments.update_evidence and not success_committed:
+                write_release_failure(
+                    EVIDENCE_DIR / "issue-26-last-failed-gate.json",
+                    error,
+                    identity=identity,
+                    results=results,
+                )
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, failure_signal_mask)
         raise
     finally:
         for signal_number, previous_handler in previous_handlers.items():

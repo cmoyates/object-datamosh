@@ -25,6 +25,7 @@ run_gate = _NAMESPACE["run_gate"]
 write_release_failure = _NAMESPACE["write_release_failure"]
 signal_process_group = _NAMESPACE["signal_process_group"]
 terminate_timed_out_process = _NAMESPACE["terminate_timed_out_process"]
+validate_real_escape_timing = _NAMESPACE["validate_real_escape_timing"]
 _signal_process_group_globals = cast(dict[str, Any], signal_process_group.__globals__)
 write_gate_result = _NAMESPACE["write_gate_result"]
 
@@ -58,7 +59,56 @@ def test_gate_environment_isolates_blender_and_drops_python_injection(
     )
 
 
-@pytest.mark.parametrize("signal_number", [1, 15])
+def real_escape_events() -> list[dict[str, object]]:
+    return [
+        {"event": "raw_render_active", "stage": "raw_escape_cancel", "frame": 1, "time": 1.0},
+        {
+            "event": "external_escape_send_started",
+            "marker": "raw_render_active",
+            "time": 1.2,
+        },
+        {"event": "external_escape_sent", "marker": "raw_render_active", "time": 1.3},
+        {"event": "render_complete", "stage": "raw_escape_cancel", "frame": 1, "time": 2.0},
+        {"event": "processing_escape_ready", "time": 3.0},
+        {
+            "event": "external_escape_send_started",
+            "marker": "processing_escape_ready",
+            "time": 3.1,
+        },
+        {
+            "event": "external_escape_sent",
+            "marker": "processing_escape_ready",
+            "time": 3.2,
+        },
+        {
+            "event": "runtime",
+            "stage": "processing_escape_cancel",
+            "phase": "CANCELLING",
+            "time": 3.3,
+        },
+        {
+            "event": "runtime",
+            "stage": "processing_escape_cancel",
+            "phase": "CANCELLED",
+            "time": 3.4,
+        },
+    ]
+
+
+def test_real_escape_timing_accepts_bound_raw_and_processing_events() -> None:
+    validate_real_escape_timing(real_escape_events())
+
+
+def test_real_escape_timing_rejects_raw_send_outside_render_interval() -> None:
+    events = real_escape_events()
+    events[1]["time"] = 2.1
+    events[2]["time"] = 2.2
+
+    with pytest.raises(RuntimeError, match="inside an active render interval"):
+        validate_real_escape_timing(events)
+
+
+@pytest.mark.parametrize("signal_number", [1, 2, 15])
 def test_release_interruption_signals_enter_controlled_cleanup(signal_number: int) -> None:
     with pytest.raises(RuntimeError, match=f"interrupted by signal {signal_number}"):
         interrupt_release_gate(signal_number, None)
