@@ -25,11 +25,11 @@ The foreground checks used an actual Blender window and window-manager event loo
 scene at one sample so ten complete frames could be checked quickly. It observed scene-owned
 runtime values by wrapping the registered production `ODM_PT_sidebar.draw` method at every redraw.
 The probe opens the UI region and selects its real **Object Datamosh** panel category before running.
-The tracked shell runner sent real macOS Escape key events to the foreground Blender application
-through System Events. The same macOS UI process selected the production tab and delivered real
-left-mouse clicks to its **Cancel** control during raw and processing runs; the runtime response
-identifies the successful button coordinate retained in the receipt.
-The retained
+The current UI receipt uses Blender's explicit event-simulation mode to select the registered
+production tab, click its **Cancel** control during raw and processing runs, and deliver Blender ESC
+modal events deterministically. A separate retained
+[`real macOS Escape receipt`](evidence/issue-26-real-escape-result.json) records System Events key
+injection for the same extension source tree, without Blender event simulation. The current
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
 atomically bundles the assertion summary and complete JSONL event trace, including the terminal
 `probe_complete` event; the recorded SHA-256 verifies the embedded trace.
@@ -174,7 +174,8 @@ Run from the repository root with
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
-| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/production Cancel-button/Escape cancellation, Resume, restart, production-panel redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
+| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render injection attempt, production Cancel-button and Blender ESC events, Resume, restart, production-panel redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
+| Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
 The installation archive is `dist/object_datamosh-0.1.0-97ace3d03496.zip` (53,328 bytes), SHA-256
@@ -194,8 +195,10 @@ root where the release gate ran.
   Escape events through macOS System Events.
 - `scripts/issue26_release_gates.py` — executes and receipts static, pure-Python, Blender background,
   validation, and package-build gates.
-- `docs/evidence/issue-26-foreground-result.json` — atomically retains the successful foreground
-  assertions and exact monotonic event trace for the tested source tree and probe revision.
+- `docs/evidence/issue-26-foreground-result.json` — atomically retains production-panel/button and
+  deterministic Blender-event assertions plus the exact trace for the current probe revision.
+- `docs/evidence/issue-26-real-escape-result.json` — retains real macOS System Events Escape results
+  for the same extension source tree, without Blender event simulation.
 - `docs/evidence/issue-26-gate-<name>.json` — atomically retains each gate's tested revision, exit
   status, bounded output, digest, byte counts, and truncation state, including failures.
 - `docs/evidence/issue-26-release-gates.json` — atomically references the successful per-gate

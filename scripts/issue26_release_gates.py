@@ -200,6 +200,14 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validate_embedded_event_log(payload: dict[str, object], label: str) -> None:
+    event_log = payload.get("event_log_jsonl")
+    if not isinstance(event_log, str):
+        raise RuntimeError(f"{label} receipt does not embed its event log")
+    if sha256_bytes(event_log.encode()) != payload.get("event_log_sha256_before_completion"):
+        raise RuntimeError(f"Embedded {label} event-log digest does not match its receipt")
+
+
 def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[str, object]]:
     path = EVIDENCE_DIR / "issue-26-foreground-result.json"
     content = path.read_bytes()
@@ -217,11 +225,28 @@ def validate_foreground_receipt(identity: SourceIdentity) -> tuple[bytes, dict[s
                 f"Foreground receipt {field} is stale: "
                 f"expected {value!r}, got {payload.get(field)!r}"
             )
-    event_log = payload.get("event_log_jsonl")
-    if not isinstance(event_log, str):
-        raise RuntimeError("Foreground receipt does not embed its event log")
-    if sha256_bytes(event_log.encode()) != payload.get("event_log_sha256_before_completion"):
-        raise RuntimeError("Embedded foreground event-log digest does not match its receipt")
+    validate_embedded_event_log(payload, "foreground")
+    return content, payload
+
+
+def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[str, object]]:
+    path = EVIDENCE_DIR / "issue-26-real-escape-result.json"
+    content = path.read_bytes()
+    payload = json.loads(content)
+    if payload.get("success") is not True:
+        raise RuntimeError("Real-Escape receipt is not successful")
+    if payload.get("extension_source_tree") != identity.source_tree:
+        raise RuntimeError("Real-Escape receipt tested a different extension source tree")
+    validate_embedded_event_log(payload, "real-Escape")
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        raise RuntimeError("Real-Escape receipt has no evidence summary")
+    for scenario in ("raw_escape_cancel", "processing_escape_cancel"):
+        scenario_evidence = evidence.get(scenario)
+        if not isinstance(scenario_evidence, dict):
+            raise RuntimeError(f"Real-Escape receipt lacks {scenario}")
+        if scenario_evidence.get("blender_escape_event_simulated"):
+            raise RuntimeError(f"Real-Escape receipt used simulation for {scenario}")
     return content, payload
 
 
@@ -245,6 +270,7 @@ def main() -> None:
     if identity.dirty:
         raise RuntimeError(f"Release-gate source is dirty:\n{identity.dirty}")
     foreground_content, foreground = validate_foreground_receipt(identity)
+    real_escape_content, real_escape = validate_real_escape_receipt(identity)
 
     run_root = Path(tempfile.mkdtemp(prefix="object-datamosh-issue26-gates-"))
     worktree = run_root / "worktree"
@@ -349,6 +375,9 @@ def main() -> None:
         latest_foreground_content, _ = validate_foreground_receipt(identity)
         if latest_foreground_content != foreground_content:
             raise RuntimeError("Foreground receipt changed during release gates")
+        latest_real_escape_content, _ = validate_real_escape_receipt(identity)
+        if latest_real_escape_content != real_escape_content:
+            raise RuntimeError("Real-Escape receipt changed during release gates")
 
         gate_receipt_entries = [
             {
@@ -371,6 +400,10 @@ def main() -> None:
             },
             "gate_receipts": gate_receipt_entries,
             "git_head": identity.git_head,
+            "real_escape": {
+                "git_head": real_escape["git_head"],
+                "receipt_sha256": sha256_bytes(real_escape_content),
+            },
             "release_gate_script_sha256": identity.release_gate_sha256,
             "source_tree": identity.source_tree,
             "success": True,
