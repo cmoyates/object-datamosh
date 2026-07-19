@@ -277,13 +277,17 @@ def main() -> None:
         if len(archives) != 1:
             raise RuntimeError(f"Expected one newly built ZIP, found: {archives}")
         built_archive = archives[0]
+        built_archive_content = built_archive.read_bytes()
+        built_archive_sha256 = sha256_bytes(built_archive_content)
         published_archive = REPO / "dist" / built_archive.name
         published_archive.parent.mkdir(exist_ok=True)
+        if published_archive.exists() and published_archive.read_bytes() != built_archive_content:
+            published_archive = published_archive.with_name(
+                f"{published_archive.stem}-{built_archive_sha256[:12]}{published_archive.suffix}"
+            )
         if published_archive.exists():
-            if published_archive.read_bytes() != built_archive.read_bytes():
-                raise RuntimeError(
-                    f"Refusing to replace different existing archive: {published_archive}"
-                )
+            if published_archive.read_bytes() != built_archive_content:
+                raise RuntimeError(f"Archive-name digest collision: {published_archive}")
         else:
             shutil.copy2(built_archive, published_archive)
 
