@@ -67,7 +67,7 @@ class RenderAndProcessStateMachine:
 
     def record_rendered_frame(self, frame_number: int) -> None:
         """Record the next successfully discovered raw frame."""
-        if self.is_terminal:
+        if self.is_finalizing or self.is_terminal:
             return
         if self.state is not RenderAndProcessState.RENDERING:
             raise RuntimeError("A rendered frame can only advance rendering")
@@ -88,7 +88,7 @@ class RenderAndProcessStateMachine:
 
     def record_processed_frame(self, frame_number: int) -> None:
         """Record the next completed processing frame."""
-        if self.is_terminal:
+        if self.is_finalizing or self.is_terminal:
             return
         if self.state is not RenderAndProcessState.PROCESSING:
             raise RuntimeError("A processed frame can only advance processing")
@@ -107,21 +107,36 @@ class RenderAndProcessStateMachine:
         ):
             raise RuntimeError("The workflow cannot complete while work remains")
         self.state = RenderAndProcessState.FINALIZING
-        self.state = RenderAndProcessState.COMPLETED
 
     def cancel(self) -> None:
         """Finalize an active workflow as cancelled at its current safe boundary."""
-        if self.is_terminal:
+        if self.is_finalizing or self.is_terminal:
             return
         self.state = RenderAndProcessState.FINALIZING
-        self.state = RenderAndProcessState.CANCELLED
 
     def fail(self) -> None:
         """Finalize an active workflow as failed."""
-        if self.is_terminal:
+        if self.is_finalizing or self.is_terminal:
             return
         self.state = RenderAndProcessState.FINALIZING
-        self.state = RenderAndProcessState.FAILED
+
+    def finish(self, terminal_state: RenderAndProcessState) -> None:
+        """Commit a terminal state after shared lifecycle cleanup has run."""
+        if self.is_terminal:
+            return
+        if self.state is not RenderAndProcessState.FINALIZING:
+            raise RuntimeError("The workflow must enter finalization before it can finish")
+        if terminal_state not in {
+            RenderAndProcessState.COMPLETED,
+            RenderAndProcessState.CANCELLED,
+            RenderAndProcessState.FAILED,
+        }:
+            raise ValueError("finish requires a terminal workflow state")
+        self.state = terminal_state
+
+    @property
+    def is_finalizing(self) -> bool:
+        return self.state is RenderAndProcessState.FINALIZING
 
     @property
     def is_terminal(self) -> bool:
@@ -383,11 +398,20 @@ class RenderAndProcessModalController:
         result: set[Any],
         report_level: set[str],
     ) -> set[Any]:
+        terminal_state = {
+            OperationPhase.COMPLETED: RenderAndProcessState.COMPLETED,
+            OperationPhase.CANCELLED: RenderAndProcessState.CANCELLED,
+            OperationPhase.FAILED: RenderAndProcessState.FAILED,
+        }[phase]
         try:
             self._lifecycle.finalize(phase, message)
         except Exception:
             report_level = {"ERROR"}
             result = {"CANCELLED"}
+            terminal_state = RenderAndProcessState.FAILED
+        state = self._state
+        if state is not None:
+            state.finish(terminal_state)
         try:
             visible = self._runtime.status
         except Exception:

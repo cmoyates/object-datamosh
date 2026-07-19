@@ -218,6 +218,8 @@ def test_processing_advances_to_successful_completion() -> None:
     workflow.record_processed_frame(8)
     workflow.record_processed_frame(9)
     workflow.complete()
+    assert workflow.state is RenderAndProcessState.FINALIZING
+    workflow.finish(RenderAndProcessState.COMPLETED)
 
     assert workflow.state is RenderAndProcessState.COMPLETED
     assert workflow.rendered_count == 2
@@ -257,6 +259,8 @@ def test_cancellation_preserves_completed_phase_work() -> None:
     workflow.record_rendered_frame(1)
 
     workflow.cancel()
+    assert workflow.state is RenderAndProcessState.FINALIZING
+    workflow.finish(RenderAndProcessState.CANCELLED)
 
     assert workflow.state is RenderAndProcessState.CANCELLED
     assert workflow.completed_work == 1
@@ -267,8 +271,10 @@ def test_failed_workflow_cannot_advance_after_finalization() -> None:
     workflow = RenderAndProcessStateMachine(frame_start=1, frame_end=2)
     workflow.begin_rendering()
     workflow.fail()
+    assert workflow.state is RenderAndProcessState.FINALIZING
 
     workflow.record_rendered_frame(1)
+    workflow.finish(RenderAndProcessState.FAILED)
 
     assert workflow.state is RenderAndProcessState.FAILED
     assert workflow.completed_work == 0
