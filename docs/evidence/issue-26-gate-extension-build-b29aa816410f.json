@@ -1,0 +1,22 @@
+{
+  "gate": {
+    "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension build --source-dir src/object_datamosh --output-dir /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-r_h5zr3h/build",
+    "exit_code": 0,
+    "launch_error": null,
+    "name": "extension-build",
+    "output_error": null,
+    "output_head": "building: object_datamosh-0.1.0.zip\ncomplete\ncreated: \"/var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/object-datamosh-issue26-gates-r_h5zr3h/build/object_datamosh-0.1.0.zip\", 53328\n",
+    "output_retained_bytes": 183,
+    "output_sha256": "3dbfb5035ea523843bb9755b153f20bc6737d596552d9d0546385fe2709c0e66",
+    "output_tail": "",
+    "output_total_bytes": 183,
+    "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
+    "tracked_changes": ""
+  },
+  "git_head": "06fb600458b7c6e8f4ccee2516173571ae09b090",
+  "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "uv_lock_sha256": "0250226f5759b6391ae6b61f64efbb0d9207e93a8d425453a663b58a71915c82"
+}
