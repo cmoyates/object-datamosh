@@ -107,9 +107,10 @@ def test_manifest_failure_does_not_publish_an_uncommitted_frame(
 
     assert session.completed_frames == ()
     assert session.retained_frames == ()
-    assert json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))[
-        "completed_frames"
-    ] == []
+    assert (
+        json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))["completed_frames"]
+        == []
+    )
 
 
 def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> None:

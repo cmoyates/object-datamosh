@@ -173,9 +173,7 @@ def run_processing_modal_scenarios(
         assert not cancelled_processing_paths.frame(2).processed.exists()
         recovery_manifest = json.loads(
             (
-                cancelled_processing_paths.root
-                / "processed"
-                / "ODM_sequence_manifest.json"
+                cancelled_processing_paths.root / "processed" / "ODM_sequence_manifest.json"
             ).read_text(encoding="utf-8")
         )
         assert recovery_manifest["completed_frames"] == [1]

@@ -141,11 +141,7 @@ class ExistingPassModalController:
             )
 
         if self.cancel_requested:
-            message = f"Cancelled after {len(session.completed_frames)} frame(s)"
-            cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
-            report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
-            self._operator.report(report_level, self._visible_status(message))
-            return {"CANCELLED"}
+            return self._finish_cancelled(len(session.completed_frames))
 
         recovering_history = session.recovery_frame is not None
         frame_number = (
@@ -169,11 +165,7 @@ class ExistingPassModalController:
                 )
                 self._publish_step(frame_number, status)
         except SequenceProcessingCancelled as error:
-            message = f"Cancelled after {len(error.completed_frames)} frame(s)"
-            cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
-            report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
-            self._operator.report(report_level, self._visible_status(message))
-            return {"CANCELLED"}
+            return self._finish_cancelled(len(error.completed_frames))
         except Exception as error:
             return self._fail_step(frame_number, error)
 
@@ -189,6 +181,13 @@ class ExistingPassModalController:
             return {"CANCELLED"}
         self._operator.report({"INFO"}, message)
         return {"FINISHED"}
+
+    def _finish_cancelled(self, completed_count: int) -> set[Any]:
+        message = f"Cancelled after {completed_count} frame(s)"
+        cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
+        report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
+        self._operator.report(report_level, self._visible_status(message))
+        return {"CANCELLED"}
 
     def _publish_step(self, frame_number: int, status: str) -> None:
         session = self._session

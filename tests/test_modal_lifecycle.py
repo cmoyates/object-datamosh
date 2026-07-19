@@ -117,15 +117,11 @@ def test_timer_events_without_identity_follow_the_owned_timer_cadence() -> None:
     assert lifecycle.accepts_timer_event(
         type("OwnedTimerEvent", (), {"timer": window_manager.timer})()
     )
-    assert not lifecycle.accepts_timer_event(
-        type("ForeignTimerEvent", (), {"timer": object()})()
-    )
+    assert not lifecycle.accepts_timer_event(type("ForeignTimerEvent", (), {"timer": object()})())
 
 
 def test_unused_lifecycle_cannot_update_or_cancel_another_run() -> None:
-    runtime = RuntimeState(
-        active=True, cancel_requested=False, run_identity="another-run"
-    )
+    runtime = RuntimeState(active=True, cancel_requested=False, run_identity="another-run")
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
@@ -223,9 +219,7 @@ def test_progress_initialization_failure_attempts_matching_cleanup() -> None:
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
-        lifecycle.begin(
-            Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1
-        )
+        lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
     except RuntimeError as error:
         assert str(error) == "progress unavailable"
     else:
@@ -250,9 +244,7 @@ def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> N
     lifecycle = ModalOperationLifecycle(object(), runtime)
 
     try:
-        lifecycle.begin(
-            Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1
-        )
+        lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
     except RuntimeError as error:
         assert str(error) == "timer unavailable"
     else:
@@ -273,9 +265,7 @@ def test_run_identity_failure_does_not_lock_the_runtime() -> None:
     def fail_identity() -> str:
         raise RuntimeError("identity unavailable")
 
-    lifecycle = ModalOperationLifecycle(
-        object(), runtime, run_identity_factory=fail_identity
-    )
+    lifecycle = ModalOperationLifecycle(object(), runtime, run_identity_factory=fail_identity)
 
     try:
         lifecycle.begin(

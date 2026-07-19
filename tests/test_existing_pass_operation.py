@@ -224,9 +224,9 @@ def test_completed_resume_publishes_the_configured_end_frame() -> None:
     assert runtime.current_frame == 3
     assert runtime.status == "No pending frames; finalizing..."
     assert controller.handle_event(SimpleNamespace(type="ESC")) == {"RUNNING_MODAL"}
-    assert controller.handle_event(
-        SimpleNamespace(type="TIMER", timer=window_manager.timer)
-    ) == {"CANCELLED"}
+    assert controller.handle_event(SimpleNamespace(type="TIMER", timer=window_manager.timer)) == {
+        "CANCELLED"
+    }
     assert runtime.phase == "CANCELLED"
 
 
@@ -274,9 +274,7 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
     )
     controller.start(context, cast(Any, Session()))
 
-    result = controller.handle_event(
-        SimpleNamespace(type="TIMER", timer=window_manager.timer)
-    )
+    result = controller.handle_event(SimpleNamespace(type="TIMER", timer=window_manager.timer))
 
     assert result == {"CANCELLED"}
     assert runtime.phase == "FAILED"
