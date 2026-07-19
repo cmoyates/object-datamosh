@@ -1,46 +1,46 @@
 {
   "archive": {
-    "path": "dist/object_datamosh-0.1.0-c000ca9e6c3a.zip",
-    "sha256": "c000ca9e6c3a9888fcc22119dec8a30d952cebe17937ef6aede20891d44f8bf7",
+    "path": "dist/object_datamosh-0.1.0-8193b34814eb.zip",
+    "sha256": "8193b34814eb954735899a828042072660f92931bc93d3cd68226211accb365c",
     "size_bytes": 53328
   },
   "blender_bin": "/Applications/Blender.app/Contents/MacOS/Blender",
   "foreground": {
-    "event_log_sha256": "a62c7218c9ed262a310b982175b62a7c37fc3edcb4f47de9191519df875173e0",
-    "git_head": "1c3e2a74ec9e1e6dd545e0f49dbf9912b8694a22",
-    "receipt_sha256": "304a29083af6edd04bdeaedb94e28629fdffd54b7117e88048aa0025e9da11d3"
+    "event_log_sha256": "b8bc31e602a71ee17577a3263850acf5e376728b8ade0b9ee2318d0c133f3919",
+    "git_head": "541f2a3e80babc3b7bbb9c4fb762eadb42308eca",
+    "receipt_sha256": "e2e2b7b461c3a22ca0fac8335388a021d79c6c2efab6a9c56de89650c367470b"
   },
   "gate_receipts": [
     {
-      "path": "docs/evidence/issue-26-gate-environment-sync-5b4b9fca5d95.json",
-      "sha256": "5b4b9fca5d954263e4fbe1cab9ae44e6d447e3559f612a2174af15c4b368ed70"
+      "path": "docs/evidence/issue-26-gate-environment-sync-538eeecab15d.json",
+      "sha256": "538eeecab15d81c587ef36e302e8ad4ee359f327986dddede590dfa2f83c468d"
     },
     {
-      "path": "docs/evidence/issue-26-gate-ty-b32ab4384611.json",
-      "sha256": "b32ab438461126f9f90a1d5f5af2b9d64029ea476ad54658448aee6d7b2bd962"
+      "path": "docs/evidence/issue-26-gate-ty-3ee429c276a4.json",
+      "sha256": "3ee429c276a4d1317c5ecab592e90c82d5cc5b5904d6244cb84d323052fa654e"
     },
     {
-      "path": "docs/evidence/issue-26-gate-pytest-df20e0188806.json",
-      "sha256": "df20e0188806dbc7bba7702424c03b4c3bfd825aa47e5656b1fc560c4cdb73c0"
+      "path": "docs/evidence/issue-26-gate-pytest-283166927f73.json",
+      "sha256": "283166927f73394f6677dfa6ad16178f04a63373b960304194e8d1bce1651aa9"
     },
     {
-      "path": "docs/evidence/issue-26-gate-ruff-625ec58b4d75.json",
-      "sha256": "625ec58b4d75998323a141bd491266719f010efe6a5475f1892017e4d8f6b0d4"
+      "path": "docs/evidence/issue-26-gate-ruff-6be6ae8528ca.json",
+      "sha256": "6be6ae8528cada0bbca8893cfc238b207b4a5e85023eebfe64e0c698262a0d78"
     },
     {
-      "path": "docs/evidence/issue-26-gate-blender-smoke-6c83600846d2.json",
-      "sha256": "6c83600846d24ca04f44d1687e8f669909e7378d1f35f545fcc8152ee97771e5"
+      "path": "docs/evidence/issue-26-gate-blender-smoke-879b45172c1a.json",
+      "sha256": "879b45172c1ad3d68041644aa02bbcb0173ab05eb9fc5a0c000a6716c097fb18"
     },
     {
-      "path": "docs/evidence/issue-26-gate-extension-validate-dd1e1ec1b63f.json",
-      "sha256": "dd1e1ec1b63f2dfe26fcc64c5c602bcdb785bce55f2e6865b007dbea51052f19"
+      "path": "docs/evidence/issue-26-gate-extension-validate-67ead4213e6d.json",
+      "sha256": "67ead4213e6d4f0f73f91b98a4ac074ac8f4b036f69ff9f809e0af9647145a44"
     },
     {
-      "path": "docs/evidence/issue-26-gate-extension-build-c4d64ed29f7e.json",
-      "sha256": "c4d64ed29f7e5be19891297f372db92c4d784293853424855f3e70b03de928d7"
+      "path": "docs/evidence/issue-26-gate-extension-build-a486b9d90253.json",
+      "sha256": "a486b9d902539a30b57d2162ea3afc78bf6e0dc22a14f9a5dcb87babe49183ce"
     }
   ],
-  "git_head": "2b4ca230b0ca4695a23638100617396651bbf6c0",
+  "git_head": "541f2a3e80babc3b7bbb9c4fb762eadb42308eca",
   "pyproject_sha256": "00ec9c32d8253b284ff24bb7f1c5099100426677f29ae1b152a43a9ef9fbcb33",
   "real_escape": {
     "git_head": "e6628a8a595aaa53416fc205c15f82836c3819ae",
