@@ -69,6 +69,14 @@ def real_escape_events() -> list[dict[str, object]]:
         },
         {"event": "external_escape_sent", "marker": "raw_render_active", "time": 1.3},
         {"event": "render_complete", "stage": "raw_escape_cancel", "frame": 1, "time": 2.0},
+        {
+            "event": "runtime",
+            "stage": "raw_escape_cancel",
+            "phase": "CANCELLED",
+            "completed_work": 1,
+            "phase_total_work": 100,
+            "time": 2.1,
+        },
         {"event": "processing_escape_ready", "time": 3.0},
         {
             "event": "external_escape_send_started",
@@ -101,10 +109,19 @@ def test_real_escape_timing_accepts_bound_raw_and_processing_events() -> None:
 
 def test_real_escape_timing_rejects_raw_send_outside_render_interval() -> None:
     events = real_escape_events()
-    events[1]["time"] = 2.1
-    events[2]["time"] = 2.2
+    events[1]["time"] = 2.2
+    events[2]["time"] = 2.3
 
     with pytest.raises(RuntimeError, match="inside an active render interval"):
+        validate_real_escape_timing(events)
+
+
+def test_real_escape_timing_rejects_a_normally_completed_raw_run() -> None:
+    events = real_escape_events()
+    events[4]["phase"] = "COMPLETED"
+    events[4]["completed_work"] = 100
+
+    with pytest.raises(RuntimeError, match="strict partial cancellation"):
         validate_real_escape_timing(events)
 
 

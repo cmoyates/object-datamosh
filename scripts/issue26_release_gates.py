@@ -497,6 +497,21 @@ def validate_real_escape_timing(events: list[dict[str, object]]) -> None:
         for interval_start, interval_end in raw_intervals
     ):
         raise RuntimeError("Real raw Escape was not sent inside an active render interval")
+    raw_cancelled: list[dict[str, object]] = []
+    for event in events:
+        completed_work = event.get("completed_work")
+        phase_total_work = event.get("phase_total_work")
+        if (
+            event.get("stage") == "raw_escape_cancel"
+            and event.get("phase") == "CANCELLED"
+            and event_time(event) >= raw_sent_time
+            and isinstance(completed_work, int)
+            and isinstance(phase_total_work, int)
+            and 0 < completed_work < phase_total_work
+        ):
+            raw_cancelled.append(event)
+    if not raw_cancelled:
+        raise RuntimeError("Real raw Escape lacks a strict partial cancellation result")
 
     processing_ready = one_event("processing_escape_ready")
     processing_started = one_event(
@@ -559,7 +574,11 @@ def validate_real_escape_receipt(identity: SourceIdentity) -> tuple[bytes, dict[
         if scenario_evidence.get("blender_escape_event_simulated"):
             raise RuntimeError(f"Real-Escape receipt used simulation for {scenario}")
         completed = scenario_evidence.get("completed_frames")
-        if not isinstance(completed, list) or completed != list(range(1, len(completed) + 1)):
+        if (
+            not isinstance(completed, list)
+            or not completed
+            or completed != list(range(1, len(completed) + 1))
+        ):
             raise RuntimeError(f"Real-Escape receipt has invalid prefix for {scenario}")
         if scenario_evidence.get("controller_cleared") is not True:
             raise RuntimeError(f"Real-Escape receipt lacks cleanup for {scenario}")
@@ -814,9 +833,7 @@ def main() -> None:
             signal.pthread_sigmask(signal.SIG_SETMASK, failure_signal_mask)
         raise
     finally:
-        for signal_number, previous_handler in previous_handlers.items():
-            signal.signal(signal_number, previous_handler)
-        signal.pthread_sigmask(signal.SIG_SETMASK, setup_signal_mask)
+        signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree)],
             cwd=REPO,
@@ -828,6 +845,9 @@ def main() -> None:
             shutil.rmtree(run_root, ignore_errors=True)
         else:
             print(f"Run artifacts retained at {run_root}")
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
+        signal.pthread_sigmask(signal.SIG_SETMASK, setup_signal_mask)
 
 
 if __name__ == "__main__":
