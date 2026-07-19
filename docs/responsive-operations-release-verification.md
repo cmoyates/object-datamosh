@@ -26,8 +26,9 @@ scene at one sample so ten complete frames could be checked quickly. It observed
 runtime values by wrapping the registered production `ODM_PT_sidebar.draw` method at every redraw.
 The probe opens the UI region and selects its real **Object Datamosh** panel category before running.
 The tracked shell runner sent real macOS Escape key events to the foreground Blender application
-through System Events; the Cancel-control checks invoke the same registered public operator wired by
-the production panel (Blender's generic mouse-event dispatch itself is not reimplemented by the probe).
+through System Events. Blender's event-simulation test mode selected the production tab and delivered
+real left-mouse press/release events to its **Cancel** control during raw and processing runs; the
+runtime response identifies the successful button coordinate retained in the receipt.
 The retained
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
 atomically bundles the assertion summary and complete JSONL event trace, including the terminal
@@ -52,10 +53,11 @@ atomically bundles the assertion summary and complete JSONL event trace, includi
 
 Two separate runs covered both user inputs:
 
-- The sidebar **Cancel** button was invoked after raw frame 1. The runtime immediately displayed
-  `Cancel requested; waiting for a safe boundary...`, remained active while cancellation was
-  pending, then ended inactive at `CANCELLED`. Frame 1's three raw files remained, and none of the
-  beauty, Vector, or matte files for frames 2–10 was created.
+- A real left-mouse event clicked the production sidebar **Cancel** button during raw rendering. The
+  runtime displayed `Cancel requested; waiting for a safe boundary...`, remained active while
+  cancellation was pending, then ended inactive at `CANCELLED`. The receipt records the exact
+  contiguous completed prefix and verifies that no beauty, Vector, or matte file for the next frame
+  was created.
 - A real **Escape** key event was sent by macOS System Events during an active 100-frame raw render.
   Retained monotonic markers prove that both the send invocation and its completion occurred inside
   same raw render interval. Blender queued the event while blocked, completed a contiguous two-frame
@@ -70,9 +72,10 @@ Two separate runs covered both user inputs:
 
 Two separate runs covered both user inputs:
 
-- **Process Existing Passes** was cancelled with the sidebar button after two complete frames. The
-  pending status appeared immediately, no third frame started, and the run ended inactive at
-  `CANCELLED` with progress 2/10. Scene frame 7 was unchanged, the active-controller entry was
+- **Process Existing Passes** was cancelled by a real left-mouse event on the production sidebar
+  button after at least two complete frames. The pending status appeared, no output after the exact
+  receipt-recorded prefix started, and the run ended inactive at `CANCELLED`. Scene frame 7 was
+  unchanged, the active-controller entry was
   cleared, and no stale modal event changed the terminal state. Blender exposes no public event-
   timer enumeration, so timer cleanup was verified indirectly by the cleared controller/lock and
   immediate successful restart; the background smoke fixture separately observes `timer_remove`.
@@ -112,8 +115,9 @@ assertions implement this checklist:
 2. Run **Render and Process**. At every redraw, record phase, current frame, phase work, overall
    work, and progress. Require rendering boundaries 0–9, processing boundaries 10–19, terminal
    20/20, all four ten-file sequences, restored frame 7, and an immediately startable second run.
-3. Cancel one raw run with the sidebar button after frame 1 and require visible pending then
-   terminal states. In a separate 100-frame raw run, send a real Escape key during an instrumented
+3. Click the production sidebar Cancel button during one raw run and require visible pending then
+   terminal states plus an exact bounded prefix. In a separate 100-frame raw run, send a real Escape
+   key during an instrumented
    active render interval. Require a contiguous retained raw prefix, no next-frame pass, restored
    frame 7, inactive runtime, a cleared active-controller lock, unchanged render-handler counts,
    and immediate restart. Record whether the active-render path visibly dwells in pending state.
@@ -170,7 +174,7 @@ Run from the repository root with
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
-| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/Cancel-operator/Escape cancellation, Resume, restart, production-layout redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
+| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/production Cancel-button/Escape cancellation, Resume, restart, production-panel redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
 The installation archive is `dist/object_datamosh-0.1.0-97ace3d03496.zip` (53,328 bytes), SHA-256

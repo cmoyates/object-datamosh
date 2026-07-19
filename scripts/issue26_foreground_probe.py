@@ -78,10 +78,15 @@ class AppFacade(Protocol):
     timers: TimerRegistry
 
 
+class EventWindow(Protocol):
+    def event_simulate(self, *, type: str, value: str, x: int, y: int) -> None: ...
+
+
 class ContextFacade(Protocol):
     scene: Scene
     active_object: Object | None
     screen: Screen
+    window: EventWindow
 
 
 class ObjectDatamoshOperations(Protocol):
@@ -173,6 +178,12 @@ class ProbeState:
     processing_cancel_sent: bool = False
     processing_escape_seen: bool = False
     restart_cancel_sent: bool = False
+    scene_initialized: bool = False
+    category_click_offset: int = 10
+    cancel_click_offset: int = 20
+    last_click_coordinate: tuple[int, int] | None = None
+    cancel_button_coordinate: tuple[int, int] | None = None
+    processing_click_injected: bool = False
 
     def transition(self, next_stage: ProbeStage) -> None:
         expected = _ALLOWED_TRANSITIONS.get(self.stage)
@@ -182,6 +193,37 @@ class ProbeState:
 
 
 state = ProbeState()
+
+
+class SidebarRegion(Protocol):
+    type: str
+    x: int
+    y: int
+    width: int
+    height: int
+    active_panel_category: str
+
+
+def visible_sidebar_region() -> SidebarRegion:
+    for area in _context.screen.areas:
+        if area.type != "VIEW_3D":
+            continue
+        for region in area.regions:
+            if region.type == "UI":
+                return cast(SidebarRegion, region)
+    raise RuntimeError("No visible 3D View sidebar region is available")
+
+
+def simulate_left_click(x: int, y: int) -> None:
+    _context.window.event_simulate(type="LEFTMOUSE", value="PRESS", x=x, y=y)
+    _context.window.event_simulate(type="LEFTMOUSE", value="RELEASE", x=x, y=y)
+
+
+def verified_cancel_button_coordinate() -> tuple[int, int]:
+    coordinate = state.cancel_button_coordinate
+    if coordinate is None:
+        raise RuntimeError("The production Cancel button coordinate was not verified")
+    return coordinate
 
 
 _production_sidebar_draw = ODM_PT_sidebar.draw
@@ -431,32 +473,46 @@ def fail(error: BaseException) -> None:
 
 
 def _handle_initialize(item: Snapshot, active: bool) -> None:
-    object_datamosh.register()
-    scene = _context.scene
-    scene.frame_set(int(state.original_frame))
-    render = cast(Any, scene.render)
-    cycles = cast(Any, scene.cycles)
-    render.engine = "CYCLES"
-    cycles.samples = 1
-    render.resolution_x = 32
-    render.resolution_y = 24
-    render.resolution_percentage = 100
-    active_object = _context.active_object
-    assert active_object is not None
-    settings = settings_for_scene(scene)
-    settings.target_object = active_object
-    set_output("combined-success")
-    assert _odm_ops.setup_object_index() == {"FINISHED"}
-    for area in _context.screen.areas:
-        if area.type != "VIEW_3D":
-            continue
-        active_space = cast(Any, area.spaces.active)
-        active_space.show_region_ui = True
-        for region in area.regions:
-            if region.type == "UI":
-                ui_region = cast(Any, region)
-                ui_region.active_panel_category = "Object Datamosh"
-        area.tag_redraw()
+    if not state.scene_initialized:
+        object_datamosh.register()
+        scene = _context.scene
+        scene.frame_set(state.original_frame)
+        render = cast(Any, scene.render)
+        cycles = cast(Any, scene.cycles)
+        render.engine = "CYCLES"
+        cycles.samples = 1
+        render.resolution_x = 32
+        render.resolution_y = 24
+        render.resolution_percentage = 100
+        active_object = _context.active_object
+        assert active_object is not None
+        settings = settings_for_scene(scene)
+        settings.target_object = active_object
+        set_output("combined-success")
+        assert _odm_ops.setup_object_index() == {"FINISHED"}
+        for area in _context.screen.areas:
+            if area.type == "VIEW_3D":
+                active_space = cast(Any, area.spaces.active)
+                active_space.show_region_ui = True
+                area.tag_redraw()
+        state.scene_initialized = True
+        return
+
+    region = visible_sidebar_region()
+    if region.active_panel_category != "Object Datamosh":
+        if state.category_click_offset >= region.height:
+            raise RuntimeError("Could not activate the Object Datamosh sidebar category")
+        coordinate = (
+            region.x + region.width - 8,
+            region.y + region.height - state.category_click_offset,
+        )
+        state.category_click_offset += 10
+        simulate_left_click(*coordinate)
+        emit("sidebar_category_click", x=coordinate[0], y=coordinate[1])
+        return
+    if not any(entry[0] == ProbeStage.INITIALIZE.value for entry in state.sidebar_draws):
+        return
+
     state.baseline_complete_handlers = len(_app.handlers.render_complete)
     state.baseline_cancel_handlers = len(_app.handlers.render_cancel)
     state.transition(ProbeStage.COMBINED_SUCCESS)
@@ -513,34 +569,54 @@ def _handle_combined_success(item: Snapshot, active: bool) -> None:
         emit("combined_success_verified", **evidence["combined_success"])
         state.transition(ProbeStage.RAW_BUTTON_CANCEL)
         state.cancel_sent = False
-        start_combined("raw-button-cancel")
+        state.cancel_click_offset = 50
+        start_combined("raw-button-cancel", end=100)
 
 
 def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
-    if (
+    if active and item["cancel_requested"] and not state.cancel_sent:
+        state.cancel_sent = True
+        state.cancel_button_coordinate = state.last_click_coordinate
+        assert state.cancel_button_coordinate is not None
+        assert item["phase"] == "CANCELLING"
+        assert item["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+        emit(
+            "cancel_button_clicked",
+            x=state.cancel_button_coordinate[0],
+            y=state.cancel_button_coordinate[1],
+        )
+    elif (
         active
         and (not state.cancel_sent)
         and (item["phase"] == "RENDERING")
-        and (int(item["completed_work"]) >= 1)
+        and (item["completed_work"] >= 1)
     ):
-        result = _odm_ops.cancel_operation()
-        state.cancel_sent = True
-        pending = snapshot(stage)
-        emit("cancel_button", result=sorted(result), pending=pending)
-        assert result == {"FINISHED"}
-        assert pending["phase"] == "CANCELLING"
-        assert pending["cancel_requested"]
-        assert pending["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+        region = visible_sidebar_region()
+        if state.cancel_click_offset >= region.height - 20:
+            raise RuntimeError("Could not click the production Cancel control")
+        coordinate = (
+            region.x + region.width // 2,
+            region.y + region.height - state.cancel_click_offset,
+        )
+        state.cancel_click_offset += 6
+        state.last_click_coordinate = coordinate
+        simulate_left_click(*coordinate)
+        emit("cancel_button_click_attempt", x=coordinate[0], y=coordinate[1])
     elif not active and state.cancel_sent:
         assert item["phase"] == "CANCELLED", item
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in state.sidebar_draws)
         paths = SequencePaths(ROOT / "raw-button-cancel")
-        first = paths.frame(1)
-        assert all(path.is_file() for path in (first.beauty, first.vector, first.matte))
-        for number in range(2, 11):
+        completed = [n for n in range(1, 101) if paths.frame(n).beauty.is_file()]
+        assert completed
+        assert completed == list(range(1, len(completed) + 1)), completed
+        for number in completed:
             frame = paths.frame(number)
-            assert not any(path.exists() for path in (frame.beauty, frame.vector, frame.matte))
+            assert all(path.is_file() for path in (frame.beauty, frame.vector, frame.matte))
+        next_frame = paths.frame(len(completed) + 1)
+        assert not any(
+            path.exists() for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
+        )
         assert item["scene_frame"] == state.original_frame
         assert_controller_cleared()
         assert len(_app.handlers.render_complete) == state.baseline_complete_handlers
@@ -548,11 +624,13 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["raw_button_cancel"] = {
-            "completed_frames": [1],
+            "button_coordinate": list(verified_cancel_button_coordinate()),
+            "completed_frames": completed,
             "controller_cleared": True,
             "handler_counts_restored": True,
             "pending_state_visible": True,
             "pending_status_verified": True,
+            "production_mouse_click": True,
         }
         state.transition(ProbeStage.RAW_ESCAPE_CANCEL)
         state.escape_seen = False
@@ -622,22 +700,26 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
 
 def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
-    if active and (not state.processing_cancel_sent) and (int(item["completed_work"]) >= 2):
-        result = _odm_ops.cancel_operation()
+    if active and item["cancel_requested"] and state.processing_click_injected:
         state.processing_cancel_sent = True
-        pending = snapshot(stage)
-        emit("processing_cancel_button", result=sorted(result), pending=pending)
-        assert pending["phase"] == "CANCELLING"
-        assert pending["cancel_requested"]
-        assert pending["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+        assert item["phase"] == "CANCELLING"
+        assert item["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+    elif active and (not state.processing_click_injected) and (item["completed_work"] >= 2):
+        coordinate = state.cancel_button_coordinate
+        assert coordinate is not None
+        simulate_left_click(*coordinate)
+        state.processing_click_injected = True
+        emit("processing_cancel_button_clicked", x=coordinate[0], y=coordinate[1])
     elif not active and state.processing_cancel_sent:
         assert item["phase"] == "CANCELLED", item
         draws = state.sidebar_draws
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
         paths = SequencePaths(ROOT / "processing-cancel")
         completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-        assert completed == [1, 2], completed
-        assert not paths.frame(3).processed.exists()
+        assert completed
+        assert completed == list(range(1, len(completed) + 1)), completed
+        assert len(completed) < 10, completed
+        assert not paths.frame(len(completed) + 1).processed.exists()
         manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         assert payload["completed_frames"] == completed
@@ -646,10 +728,12 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["processing_button_cancel"] = {
+            "button_coordinate": list(verified_cancel_button_coordinate()),
             "completed_frames": completed,
             "controller_cleared": True,
             "pending_state_visible": True,
             "pending_status_verified": True,
+            "production_mouse_click": True,
         }
         state.transition(ProbeStage.PROCESSING_RESUME)
         start_existing("processing-cancel", mode="RESUME")

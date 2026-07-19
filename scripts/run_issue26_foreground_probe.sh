@@ -54,7 +54,7 @@ start_runner_sha="$(shasum -a 256 "$0" | awk '{print $1}')"
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
-  "$BLENDER_BIN" --factory-startup --python "$probe" &
+  "$BLENDER_BIN" --enable-event-simulate --factory-startup --python "$probe" &
 blender_pid=$!
 
 fail_with_log() {
