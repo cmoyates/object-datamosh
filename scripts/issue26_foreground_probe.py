@@ -215,6 +215,7 @@ def visible_sidebar_region() -> SidebarRegion:
 
 
 def simulate_left_click(x: int, y: int) -> None:
+    _context.window.event_simulate(type="MOUSEMOVE", value="NOTHING", x=x, y=y)
     _context.window.event_simulate(type="LEFTMOUSE", value="PRESS", x=x, y=y)
     _context.window.event_simulate(type="LEFTMOUSE", value="RELEASE", x=x, y=y)
 
