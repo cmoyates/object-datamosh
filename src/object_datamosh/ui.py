@@ -39,6 +39,7 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
+from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, render_raw_passes
 from .sequence_processing import (
@@ -51,11 +52,17 @@ from .sequence_processing import (
 )
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
+_SCENE_RUNTIME_ATTRIBUTE = "ODM_runtime"
 
 
 def settings_for_scene(scene: Scene) -> ODM_Settings:
     """Return the dynamically registered settings attached to ``scene``."""
     return cast(ODM_Settings, getattr(scene, _SCENE_SETTINGS_ATTRIBUTE))
+
+
+def runtime_for_scene(scene: Scene) -> ODM_RuntimeState:
+    """Return the serializable runtime state owned by ``scene``."""
+    return cast(ODM_RuntimeState, getattr(scene, _SCENE_RUNTIME_ATTRIBUTE))
 
 
 def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
@@ -94,6 +101,34 @@ def sequence_paths_for_scene(scene: Scene) -> SequencePaths:
         bpy.data.filepath,
         temp_directory=bpy.app.tempdir,
     )
+
+
+class ODM_RuntimeState(PropertyGroup):
+    """Serializable scene-owned state for one Object Datamosh operation."""
+
+    active: BoolProperty(name="Active", default=False)  # ty: ignore[invalid-type-form]
+    cancel_requested: BoolProperty(  # ty: ignore[invalid-type-form]
+        name="Cancel Requested", default=False
+    )
+    phase: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Phase",
+        items=tuple((phase.value, phase.value.title(), "") for phase in OperationPhase),
+        default=OperationPhase.IDLE.value,
+    )
+    run_identity: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Run Identity", default=""
+    )
+    current_frame: IntProperty(name="Current Frame", default=0)  # ty: ignore[invalid-type-form]
+    frame_start: IntProperty(name="Start", default=0)  # ty: ignore[invalid-type-form]
+    frame_end: IntProperty(name="End", default=0)  # ty: ignore[invalid-type-form]
+    completed_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Completed", default=0, min=0
+    )
+    total_work: IntProperty(name="Total", default=0, min=0)  # ty: ignore[invalid-type-form]
+    progress: FloatProperty(  # ty: ignore[invalid-type-form]
+        name="Progress", default=0.0, min=0.0, max=1.0, subtype="PERCENTAGE"
+    )
+    status: StringProperty(name="Status", default="Ready")  # ty: ignore[invalid-type-form]
 
 
 class ODM_Settings(PropertyGroup):
@@ -229,6 +264,35 @@ class ODM_Settings(PropertyGroup):
     )
 
 
+def _operation_is_idle(context: Context) -> bool:
+    scene = context.scene
+    return scene is not None and not runtime_for_scene(scene).active
+
+
+class ODM_OT_cancel_operation(Operator):
+    """Request cancellation; the active workflow stops only at its next safe boundary."""
+
+    bl_idname = "object_datamosh.cancel_operation"
+    bl_label = "Cancel"
+    bl_description = "Request cancellation at the next safe frame boundary"
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return context.scene is not None and runtime_for_scene(context.scene).active
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            self.report({"ERROR"}, "An active scene is required")
+            return {"CANCELLED"}
+        runtime = runtime_for_scene(scene)
+        if not request_cancellation(runtime, context.window_manager):
+            self.report({"WARNING"}, "No cancellable Object Datamosh operation is active")
+            return {"CANCELLED"}
+        self.report({"INFO"}, runtime.status)
+        return {"FINISHED"}
+
+
 class ODM_OT_use_active_object(Operator):
     """Assign the active object as the datamosh target."""
 
@@ -239,7 +303,7 @@ class ODM_OT_use_active_object(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return context.scene is not None and context.active_object is not None
+        return _operation_is_idle(context) and context.active_object is not None
 
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
@@ -270,7 +334,10 @@ class ODM_OT_setup_object_index(Operator):
     def poll(cls, context: Context) -> bool:
         if context.scene is None or context.view_layer is None:
             return False
-        return settings_for_scene(context.scene).target_object is not None
+        return (
+            _operation_is_idle(context)
+            and settings_for_scene(context.scene).target_object is not None
+        )
 
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
@@ -331,7 +398,8 @@ class ODM_OT_render_raw_passes(Operator):
             return False
         settings = settings_for_scene(context.scene)
         return (
-            settings.target_object is not None
+            _operation_is_idle(context)
+            and settings.target_object is not None
             and settings.frame_start <= settings.frame_end
             and has_object_index_setup(context.scene)
         )
@@ -394,7 +462,8 @@ class ODM_OT_render_and_process(Operator):
             return False
         settings = settings_for_scene(context.scene)
         return (
-            settings.target_object is not None
+            _operation_is_idle(context)
+            and settings.target_object is not None
             and settings.frame_start <= settings.frame_end
             and has_object_index_setup(context.scene)
         )
@@ -485,7 +554,7 @@ class ODM_OT_process_sequence(Operator):
         if context.scene is None:
             return False
         settings = settings_for_scene(context.scene)
-        return settings.frame_start <= settings.frame_end
+        return _operation_is_idle(context) and settings.frame_start <= settings.frame_end
 
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
@@ -542,7 +611,7 @@ class ODM_OT_create_vector_calibration(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return context.scene is not None
+        return _operation_is_idle(context)
 
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
@@ -578,7 +647,11 @@ class ODM_OT_restore_object_index(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return context.scene is not None and has_object_index_setup(context.scene)
+        return (
+            context.scene is not None
+            and _operation_is_idle(context)
+            and has_object_index_setup(context.scene)
+        )
 
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
@@ -617,7 +690,19 @@ class ODM_PT_sidebar(Panel):
 def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     """Emit the complete sidebar surface through Blender's layout interface."""
     settings = settings_for_scene(scene)
+    runtime = runtime_for_scene(scene)
     paths = sequence_paths_for_scene(scene)
+
+    operation = layout.box()
+    operation.label(text=f"Operation: {'Active' if runtime.active else 'Idle'}")
+    operation.label(text=f"Phase: {runtime.phase.title()}")
+    operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
+    operation.label(text=f"Current Frame: {runtime.current_frame}")
+    operation.label(text=f"Work: {runtime.completed_work}/{runtime.total_work}")
+    operation.label(text=f"Progress: {runtime.progress:.0%}")
+    operation.label(text=f"Status: {runtime.status}")
+    if runtime.active:
+        operation.operator(ODM_OT_cancel_operation.bl_idname)
 
     target = layout.box()
     target.label(text="Target")
@@ -687,7 +772,9 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
 
 
 _CLASSES = (
+    ODM_RuntimeState,
     ODM_Settings,
+    ODM_OT_cancel_operation,
     ODM_OT_use_active_object,
     ODM_OT_setup_object_index,
     ODM_OT_render_raw_passes,
@@ -699,37 +786,44 @@ _CLASSES = (
 )
 
 
-def _owns_scene_settings_property() -> bool:
+def _owns_scene_property(attribute: str, property_type: type[PropertyGroup]) -> bool:
     scene_type = cast(Any, Scene)
-    deferred_property = getattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE, None)
+    deferred_property = getattr(scene_type, attribute, None)
     keywords = getattr(deferred_property, "keywords", {})
-    return keywords.get("type") is ODM_Settings
+    return keywords.get("type") is property_type
 
 
 def register() -> None:
-    """Register classes and the owned scene property idempotently."""
+    """Register classes and the owned scene properties idempotently."""
     scene_type = cast(Any, Scene)
-    if hasattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE) and not _owns_scene_settings_property():
-        raise RuntimeError(
-            f"Scene.{_SCENE_SETTINGS_ATTRIBUTE} already exists and is not owned by Object Datamosh"
-        )
+    scene_properties = (
+        (_SCENE_SETTINGS_ATTRIBUTE, ODM_Settings),
+        (_SCENE_RUNTIME_ATTRIBUTE, ODM_RuntimeState),
+    )
+    for attribute, property_type in scene_properties:
+        if hasattr(scene_type, attribute) and not _owns_scene_property(attribute, property_type):
+            raise RuntimeError(
+                f"Scene.{attribute} already exists and is not owned by Object Datamosh"
+            )
 
     for cls in _CLASSES:
         if not getattr(cls, "is_registered", False):
             bpy.utils.register_class(cls)
-    if not hasattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE):
-        setattr(
-            scene_type,
-            _SCENE_SETTINGS_ATTRIBUTE,
-            PointerProperty(type=ODM_Settings),
-        )
+    for attribute, property_type in scene_properties:
+        if not hasattr(scene_type, attribute):
+            setattr(scene_type, attribute, PointerProperty(type=property_type))
 
 
 def unregister() -> None:
     """Remove only data registered by this extension, idempotently."""
     scene_type = cast(Any, Scene)
-    if _owns_scene_settings_property():
-        delattr(scene_type, _SCENE_SETTINGS_ATTRIBUTE)
+    scene_properties = (
+        (_SCENE_SETTINGS_ATTRIBUTE, ODM_Settings),
+        (_SCENE_RUNTIME_ATTRIBUTE, ODM_RuntimeState),
+    )
+    for attribute, property_type in scene_properties:
+        if _owns_scene_property(attribute, property_type):
+            delattr(scene_type, attribute)
     for cls in reversed(_CLASSES):
         if getattr(cls, "is_registered", False):
             bpy.utils.unregister_class(cls)

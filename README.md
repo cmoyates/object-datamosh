@@ -40,7 +40,9 @@ The sidebar currently provides:
 - a status field and an explicit warning when the blend file has not been saved.
 
 The target assignment operator has a useful poll: it is available only when an active object
-exists. Repeated register/unregister calls and registration cycles are idempotent.
+exists and no Object Datamosh run is active. The sidebar includes scene-owned operation state for
+phase, frame range, current frame, completed and total work, progress, status, and cancellation.
+Repeated register/unregister calls and registration cycles are idempotent.
 
 ## Quick start: use Object Datamosh in Blender
 
@@ -465,9 +467,12 @@ object_datamosh.core: NumPy + Python only; never imports bpy
 ```
 
 No background thread calls Blender APIs. Runtime state belongs to Blender scenes, tagged Blender
-data, or returned immutable values; there is no mutable module-level runtime state. Setup and
-cleanup never delete, disconnect, or replace unrelated compositor nodes and restore pass settings
-that they change.
+data, or returned immutable values; there is no mutable module-level runtime state. The reusable
+`ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
+locking, cancellation requests, and idempotent universal cleanup while accepting a separate
+workflow-specific cleanup hook. Blender properties contain only serializable run metadata, never
+the lifecycle service itself. Setup and cleanup never delete, disconnect, or replace unrelated
+compositor nodes and restore pass settings that they change.
 
 ## Development and verification
 
