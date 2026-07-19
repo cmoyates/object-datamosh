@@ -24,13 +24,14 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-probe="$repo_root/scripts/issue26_foreground_probe.py"
 evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
 run_result="$work_root/result.json"
 evidence_tmp="$evidence_result.tmp.$$"
+source_worktree="$work_root/source"
+worktree_added=false
 blender_pid=""
 escape_sender_pid=""
 
@@ -58,9 +59,17 @@ stop_child() {
   wait "$pid" 2>/dev/null || true
 }
 
+remove_source_worktree() {
+  if $worktree_added; then
+    git -C "$repo_root" worktree remove --force "$source_worktree" >/dev/null 2>&1 || true
+    worktree_added=false
+  fi
+}
+
 cleanup() {
   stop_child "$escape_sender_pid" || true
   stop_child "$blender_pid" || true
+  remove_source_worktree
   rm -f "$evidence_tmp"
 }
 trap cleanup EXIT
@@ -73,8 +82,11 @@ if [[ -n "$(git status --porcelain --untracked-files=all -- "${source_scope[@]}"
 fi
 start_head="$(git rev-parse HEAD)"
 start_source_tree="$(git rev-parse HEAD:src/object_datamosh)"
-start_probe_sha="$(shasum -a 256 "$probe" | awk '{print $1}')"
-start_runner_sha="$(shasum -a 256 "$0" | awk '{print $1}')"
+start_probe_sha="$(git show "$start_head:scripts/issue26_foreground_probe.py" | shasum -a 256 | awk '{print $1}')"
+start_runner_sha="$(git show "$start_head:scripts/run_issue26_foreground_probe.sh" | shasum -a 256 | awk '{print $1}')"
+git worktree add --detach "$source_worktree" "$start_head" >/dev/null
+worktree_added=true
+probe="$source_worktree/scripts/issue26_foreground_probe.py"
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
@@ -188,16 +200,18 @@ print(json.dumps(payload, indent=2, sort_keys=True))
 PY
 
 if [[ -n "$(git status --porcelain --untracked-files=all -- "${source_scope[@]}")" \
+   || -n "$(git -C "$source_worktree" status --porcelain --untracked-files=all)" \
    || "$(git rev-parse HEAD)" != "$start_head" \
    || "$(git rev-parse HEAD:src/object_datamosh)" != "$start_source_tree" \
    || "$(shasum -a 256 "$probe" | awk '{print $1}')" != "$start_probe_sha" \
-   || "$(shasum -a 256 "$0" | awk '{print $1}')" != "$start_runner_sha" ]]; then
+   || "$(git show "$start_head:scripts/run_issue26_foreground_probe.sh" | shasum -a 256 | awk '{print $1}')" != "$start_runner_sha" ]]; then
   fail_with_log "Extension/probe identity changed during the foreground run"
 fi
 
 if $update_evidence; then
   cp "$run_result" "$evidence_tmp"
   mv "$evidence_tmp" "$evidence_result"
+  remove_source_worktree
   rm -r "$work_root"
   echo "Updated $evidence_result"
 else
