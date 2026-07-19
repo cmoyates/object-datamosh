@@ -2,13 +2,16 @@
   "gate": {
     "command": "uv run ty check",
     "exit_code": 0,
+    "launch_error": null,
     "name": "ty",
-    "output": "All checks passed!\n",
+    "output_head": "All checks passed!\n",
     "output_retained_bytes": 19,
     "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "output_tail": "",
     "output_total_bytes": 19,
-    "output_truncated": false
+    "output_truncated": false,
+    "tracked_changes": ""
   },
-  "git_head": "e6628a8a595aaa53416fc205c15f82836c3819ae",
+  "git_head": "05d8449ac530e5b37031feff75096607ae797413",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
 }

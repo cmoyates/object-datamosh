@@ -10,7 +10,9 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation and its release probe only)
 
-Foreground probe and release-gate revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
+Foreground UI probe and release-gate revision: `05d8449ac530e5b37031feff75096607ae797413`
+
+Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
 Issue: [#26 — Verify and release responsive operations](https://github.com/cmoyates/object-datamosh/issues/26)
 
@@ -53,7 +55,7 @@ atomically bundles the assertion summary and complete JSONL event trace, includi
 
 Two separate runs covered both user inputs:
 
-- A real left-mouse event clicked the production sidebar **Cancel** button during raw rendering. The
+- A Blender-simulated left-mouse event clicked the production sidebar **Cancel** button during raw rendering. The
   runtime displayed `Cancel requested; waiting for a safe boundary...`, remained active while
   cancellation was pending, then ended inactive at `CANCELLED`. The receipt records the exact
   contiguous completed prefix and verifies that no beauty, Vector, or matte file for the next frame
@@ -72,7 +74,7 @@ Two separate runs covered both user inputs:
 
 Two separate runs covered both user inputs:
 
-- **Process Existing Passes** was cancelled by a real left-mouse event on the production sidebar
+- **Process Existing Passes** was cancelled by a Blender-simulated left-mouse event on the production sidebar
   button after at least two complete frames. The pending status appeared, no output after the exact
   receipt-recorded prefix started, and the run ended inactive at `CANCELLED`. Scene frame 7 was
   unchanged, the active-controller entry was
@@ -100,7 +102,7 @@ BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
 ```
 
 The runner starts non-background Blender with factory settings, waits for explicit raw-active and
-processing Escape checkpoints, sends each real key event, and has bounded waits. A stable per-user
+processing Escape checkpoints, attempts each real key event, supplies deterministic Blender ESC events for the current UI receipt, and has bounded waits. A stable per-user
 persistent kernel lock serializes this runner with release-receipt promotion, and System Events
 confirms the launched Blender PID is frontmost
 immediately before each key event. The run fails unless its Blender-side state checkpoints and
@@ -142,7 +144,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (599 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (732 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
@@ -178,8 +180,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-97ace3d03496.zip` (53,328 bytes), SHA-256
-`97ace3d03496e4af90ac5f38d13c4e24ffaa077dd350666f25cc9ae34a990f06`.
+The installation archive is `dist/object_datamosh-0.1.0-d378acdb074d.zip` (53,328 bytes), SHA-256
+`d378acdb074d30bf18ac7936f015b5fea30a0e4b2cef58d3f84a05d34825a349`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 
