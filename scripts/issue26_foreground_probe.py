@@ -78,15 +78,10 @@ class AppFacade(Protocol):
     timers: TimerRegistry
 
 
-class EventWindow(Protocol):
-    def event_simulate(self, *, type: str, value: str, x: int, y: int) -> None: ...
-
-
 class ContextFacade(Protocol):
     scene: Scene
     active_object: Object | None
     screen: Screen
-    window: EventWindow
 
 
 class ObjectDatamoshOperations(Protocol):
@@ -184,6 +179,8 @@ class ProbeState:
     last_click_coordinate: tuple[int, int] | None = None
     cancel_button_coordinate: tuple[int, int] | None = None
     processing_click_injected: bool = False
+    click_request_sequence: int = 0
+    pending_click_id: str | None = None
 
     def transition(self, next_stage: ProbeStage) -> None:
         expected = _ALLOWED_TRANSITIONS.get(self.stage)
@@ -214,10 +211,23 @@ def visible_sidebar_region() -> SidebarRegion:
     raise RuntimeError("No visible 3D View sidebar region is available")
 
 
-def simulate_left_click(x: int, y: int) -> None:
-    _context.window.event_simulate(type="MOUSEMOVE", value="NOTHING", x=x, y=y)
-    _context.window.event_simulate(type="LEFTMOUSE", value="PRESS", x=x, y=y)
-    _context.window.event_simulate(type="LEFTMOUSE", value="RELEASE", x=x, y=y)
+def request_left_click(x: int, y: int, purpose: str) -> None:
+    if state.pending_click_id is not None:
+        raise RuntimeError(f"UI click already pending: {state.pending_click_id}")
+    state.click_request_sequence += 1
+    request_id = f"{purpose}-{state.click_request_sequence}"
+    state.pending_click_id = request_id
+    emit("ui_click_requested", marker=request_id, purpose=purpose, x=x, y=y)
+
+
+def consume_click_acknowledgement() -> bool:
+    request_id = state.pending_click_id
+    if request_id is None:
+        return False
+    if not event_recorded("external_ui_click_sent", request_id):
+        return False
+    state.pending_click_id = None
+    return True
 
 
 def verified_cancel_button_coordinate() -> tuple[int, int]:
@@ -225,23 +235,6 @@ def verified_cancel_button_coordinate() -> tuple[int, int]:
     if coordinate is None:
         raise RuntimeError("The production Cancel button coordinate was not verified")
     return coordinate
-
-
-def move_pointer_to_viewport() -> None:
-    for area in _context.screen.areas:
-        if area.type != "VIEW_3D":
-            continue
-        for region in area.regions:
-            if region.type == "WINDOW":
-                viewport = cast(SidebarRegion, region)
-                _context.window.event_simulate(
-                    type="MOUSEMOVE",
-                    value="NOTHING",
-                    x=viewport.x + viewport.width // 2,
-                    y=viewport.y + viewport.height // 2,
-                )
-                return
-    raise RuntimeError("No 3D View window region is available")
 
 
 _production_sidebar_draw = ODM_PT_sidebar.draw
@@ -518,6 +511,9 @@ def _handle_initialize(item: Snapshot, active: bool) -> None:
 
     region = visible_sidebar_region()
     if region.active_panel_category != "Object Datamosh":
+        if state.pending_click_id is not None:
+            consume_click_acknowledgement()
+            return
         if state.category_click_offset >= region.height:
             raise RuntimeError("Could not activate the Object Datamosh sidebar category")
         coordinate = (
@@ -525,8 +521,7 @@ def _handle_initialize(item: Snapshot, active: bool) -> None:
             region.y + region.height - state.category_click_offset,
         )
         state.category_click_offset += 10
-        simulate_left_click(*coordinate)
-        emit("sidebar_category_click", x=coordinate[0], y=coordinate[1])
+        request_left_click(*coordinate, purpose="sidebar-category")
         return
     if not any(entry[0] == ProbeStage.INITIALIZE.value for entry in state.sidebar_draws):
         return
@@ -617,10 +612,12 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
             region.x + region.width // 2,
             region.y + region.height - state.cancel_click_offset,
         )
+        if state.pending_click_id is not None:
+            consume_click_acknowledgement()
+            return
         state.cancel_click_offset += 6
         state.last_click_coordinate = coordinate
-        simulate_left_click(*coordinate)
-        emit("cancel_button_click_attempt", x=coordinate[0], y=coordinate[1])
+        request_left_click(*coordinate, purpose="raw-cancel-button")
     elif not active and state.cancel_sent:
         assert item["phase"] == "CANCELLED", item
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in state.sidebar_draws)
@@ -657,7 +654,6 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         cycles.samples = 64
         scene.render.resolution_x = 1024
         scene.render.resolution_y = 1024
-        move_pointer_to_viewport()
         start_combined("raw-escape-cancel", end=100)
 
 
@@ -726,9 +722,8 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
     elif active and (not state.processing_click_injected) and (item["completed_work"] >= 2):
         coordinate = state.cancel_button_coordinate
         assert coordinate is not None
-        simulate_left_click(*coordinate)
+        request_left_click(*coordinate, purpose="processing-cancel-button")
         state.processing_click_injected = True
-        emit("processing_cancel_button_clicked", x=coordinate[0], y=coordinate[1])
     elif not active and state.processing_cancel_sent:
         assert item["phase"] == "CANCELLED", item
         draws = state.sidebar_draws
@@ -769,7 +764,6 @@ def _handle_processing_resume(item: Snapshot, active: bool) -> None:
         process_root = ROOT / "processing-escape"
         shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
         state.transition(ProbeStage.PROCESSING_ESCAPE_CANCEL)
-        move_pointer_to_viewport()
         start_existing("processing-escape")
         emit("processing_escape_ready")
 

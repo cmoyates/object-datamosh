@@ -26,9 +26,9 @@ scene at one sample so ten complete frames could be checked quickly. It observed
 runtime values by wrapping the registered production `ODM_PT_sidebar.draw` method at every redraw.
 The probe opens the UI region and selects its real **Object Datamosh** panel category before running.
 The tracked shell runner sent real macOS Escape key events to the foreground Blender application
-through System Events. Blender's event-simulation test mode selected the production tab and delivered
-real left-mouse press/release events to its **Cancel** control during raw and processing runs; the
-runtime response identifies the successful button coordinate retained in the receipt.
+through System Events. The same macOS UI process selected the production tab and delivered real
+left-mouse clicks to its **Cancel** control during raw and processing runs; the runtime response
+identifies the successful button coordinate retained in the receipt.
 The retained
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
 atomically bundles the assertion summary and complete JSONL event trace, including the terminal
