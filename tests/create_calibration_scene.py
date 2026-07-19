@@ -40,7 +40,11 @@ def main() -> None:
     assert calibration.target.name.startswith("ODM_")
     assert calibration.camera.name.startswith("ODM_")
     assert calibration.scene.camera == calibration.camera
-    assert is_owned(cast(Any, calibration.scene.collection))
+    assert len(calibration.scene.collection.children) == 1
+    calibration_collection = calibration.scene.collection.children[0]
+    assert calibration_collection.name.startswith("ODM_")
+    assert is_owned(cast(Any, calibration_collection))
+    assert set(calibration_collection.objects) == {calibration.target, calibration.camera}
     assert calibration.scene.view_layers[0].name.startswith("ODM_")
     assert is_owned(cast(Any, calibration.scene))
     assert is_owned(cast(Any, calibration.target))

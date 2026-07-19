@@ -17,6 +17,7 @@ _TARGET_NAME = "ODM_Calibration_Rectangle"
 _CAMERA_NAME = "ODM_Calibration_Camera"
 _MATERIAL_NAME = "ODM_Calibration_Bright"
 _WORLD_NAME = "ODM_Calibration_World"
+_COLLECTION_NAME = "ODM_Calibration_Collection"
 _START_FRAME = 1
 _END_FRAME = 8
 _START_LOCATION = (-2.0, 0.0, 0.0)
@@ -66,7 +67,9 @@ def create_vector_calibration_scene(paths: SequencePaths) -> VectorCalibrationSc
     """
     scene = bpy.data.scenes.new(_SCENE_NAME)
     mark_owned(cast(Any, scene))
-    mark_owned(cast(Any, scene.collection))
+    calibration_collection = bpy.data.collections.new(_COLLECTION_NAME)
+    mark_owned(cast(Any, calibration_collection))
+    scene.collection.children.link(calibration_collection)
     scene.view_layers[0].name = "ODM_Calibration_View_Layer"
     mark_owned(cast(Any, scene.view_layers[0]))
     scene.frame_start = _START_FRAME
@@ -94,7 +97,7 @@ def create_vector_calibration_scene(paths: SequencePaths) -> VectorCalibrationSc
     mesh.update()
     target = bpy.data.objects.new(_TARGET_NAME, mesh)
     mark_owned(cast(Any, target))
-    scene.collection.objects.link(target)
+    calibration_collection.objects.link(target)
     mesh.materials.append(_create_bright_material())
     target.location = _START_LOCATION
     target.keyframe_insert("location", frame=_START_FRAME)
@@ -125,7 +128,7 @@ def create_vector_calibration_scene(paths: SequencePaths) -> VectorCalibrationSc
     camera_data.ortho_scale = 7.0
     camera = bpy.data.objects.new(_CAMERA_NAME, camera_data)
     mark_owned(cast(Any, camera))
-    scene.collection.objects.link(camera)
+    calibration_collection.objects.link(camera)
     camera.location = (0.0, 0.0, 10.0)
     scene.camera = camera
 
