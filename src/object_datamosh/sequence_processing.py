@@ -357,10 +357,6 @@ class ProcessingSession:
                 self._is_finished = True
 
     def _process_current_frame(self) -> None:
-        if self.should_cancel is not None and self.should_cancel():
-            self._is_finished = True
-            raise SequenceProcessingCancelled(self.completed_frames)
-
         frame_number = self.current_frame
         frame = self.paths.frame(frame_number)
         raw_frame = self.resolved_inputs[frame_number]

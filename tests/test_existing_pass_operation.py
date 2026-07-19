@@ -5,9 +5,10 @@ from object_datamosh.existing_pass_operation import ExistingPassModalController
 
 
 class WindowManagerRecorder:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_timer_remove: bool = False) -> None:
         self.timer = object()
         self.windows: tuple[object, ...] = ()
+        self.fail_timer_remove = fail_timer_remove
 
     def progress_begin(self, _minimum: int, _maximum: int) -> None:
         pass
@@ -24,14 +25,19 @@ class WindowManagerRecorder:
 
     def event_timer_remove(self, timer: object) -> None:
         assert timer is self.timer
+        if self.fail_timer_remove:
+            raise RuntimeError("timer removal failed")
 
     def modal_handler_add(self, _operator: object) -> None:
         pass
 
 
 class ReportingOperator:
-    def report(self, type: Any, message: str) -> None:
-        del type, message
+    def __init__(self) -> None:
+        self.reports: list[tuple[set[str], str]] = []
+
+    def report(self, type: set[str], message: str) -> None:
+        self.reports.append((type, message))
 
 
 def test_zero_frame_trail_recovery_is_published_without_falsy_fallback() -> None:
@@ -70,3 +76,56 @@ def test_zero_frame_trail_recovery_is_published_without_falsy_fallback() -> None
     assert runtime.status == "Restoring resume history at frame 0"
     controller.cancel()
     assert not runtime.active
+
+
+def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
+    runtime = SimpleNamespace(
+        active=False,
+        cancel_requested=False,
+        phase="IDLE",
+        run_identity="",
+        current_frame=0,
+        frame_start=0,
+        frame_end=0,
+        completed_work=0,
+        total_work=0,
+        progress=0.0,
+        status="Ready",
+    )
+    settings = SimpleNamespace(status="Ready")
+
+    class Session:
+        frame_start = 1
+        frame_end = 1
+        current_frame = 1
+        recovery_frame = None
+        retained_frames: tuple[int, ...] = ()
+        completed_frames: tuple[str, ...] = ()
+        is_finished = False
+
+        def process_next_frame(self) -> None:
+            self.completed_frames = ("frame.exr",)
+            self.retained_frames = (1,)
+            self.is_finished = True
+
+        @property
+        def result(self) -> SimpleNamespace:
+            return SimpleNamespace(frames=self.completed_frames)
+
+    operator = ReportingOperator()
+    window_manager = WindowManagerRecorder(fail_timer_remove=True)
+    context = SimpleNamespace(window_manager=window_manager, window=object())
+    controller = ExistingPassModalController(
+        operator,
+        cast(Any, runtime),
+        cast(Any, settings),
+    )
+    controller.start(context, cast(Any, Session()))
+
+    result = controller.handle_event(
+        SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    )
+
+    assert result == {"CANCELLED"}
+    assert runtime.phase == "FAILED"
+    assert operator.reports == [({"ERROR"}, "Cleanup failed: timer removal failed")]

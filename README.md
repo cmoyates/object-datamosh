@@ -361,7 +361,9 @@ and reprocesses from that frame with clean history. Resume never skips a gap.
 most one complete output frame or one frame of Trail resume-history reconstruction, publishes the
 phase, current frame, completed/total work, and normalized progress to the sidebar, requests a
 sidebar redraw, and then yields to Blender's event loop. The Blender progress display follows the
-same complete-output-frame boundaries. The initiating scene and configured range remain the run's
+same complete-output-frame boundaries. Blender 5.0 does not expose timer identity on modal events,
+so the lifecycle gates unidentified timer events against its owned monotonic cadence and ignores
+early events from unrelated timers. The initiating scene and configured range remain the run's
 canonical context; configuration controls and Object Datamosh actions in every scene remain locked
 until this operation finishes cleanup.
 

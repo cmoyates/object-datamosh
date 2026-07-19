@@ -74,7 +74,7 @@ class ExistingPassModalController:
         if event.type == "ESC":
             self._lifecycle.request_cancel()
             return {"RUNNING_MODAL"}
-        if event.type != "TIMER" or not self._lifecycle.owns_timer_event(event):
+        if event.type != "TIMER" or not self._lifecycle.accepts_timer_event(event):
             return {"PASS_THROUGH"}
         return self._handle_timer()
 
@@ -82,22 +82,27 @@ class ExistingPassModalController:
         """Release resources when Blender cancels the operator externally."""
         message = "Cancelled by Blender"
         self._settings.status = message
-        self.finalize(OperationPhase.CANCELLED, message)
+        if not self.finalize(OperationPhase.CANCELLED, message):
+            self._operator.report({"ERROR"}, self._settings.status)
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Publish an initialization error through the same lifecycle finalizer."""
         message = f"Processing failed during initialization at frame {frame_number}: {error}"
         self._settings.status = message
         self.finalize(OperationPhase.FAILED, message)
-        self._operator.report({"ERROR"}, message)
+        self._operator.report({"ERROR"}, self._settings.status)
 
-    def finalize(self, phase: OperationPhase, status: str) -> None:
-        """Finalize idempotently and synchronize the canonical terminal status."""
-        # The lifecycle publishes a cleanup failure before re-raising. A Blender callback must
-        # still return control rather than strand the modal operator in an exception.
-        with suppress(Exception):
+    def finalize(self, phase: OperationPhase, status: str) -> bool:
+        """Finalize idempotently and return whether cleanup reached the requested outcome."""
+        cleanup_succeeded = True
+        try:
             self._lifecycle.finalize(phase, status)
+        except Exception:
+            # The lifecycle publishes the cleanup failure before re-raising; keep Blender's
+            # callback boundary intact while preserving the failed outcome for the caller.
+            cleanup_succeeded = False
         self._settings.status = self._runtime.status
+        return cleanup_succeeded
 
     def _handle_timer(self) -> set[Any]:
         session = self._session
@@ -131,8 +136,9 @@ class ExistingPassModalController:
         except SequenceProcessingCancelled as error:
             message = f"Cancelled after {len(error.completed_frames)} frame(s)"
             self._settings.status = message
-            self.finalize(OperationPhase.CANCELLED, message)
-            self._operator.report({"WARNING"}, message)
+            cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
+            report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
+            self._operator.report(report_level, self._settings.status)
             return {"CANCELLED"}
         except Exception as error:
             return self._fail_step(frame_number, error)
@@ -145,7 +151,9 @@ class ExistingPassModalController:
             return self._fail_step(frame_number, error)
         message = f"Processed {len(result.frames)} frame(s)"
         self._settings.status = message
-        self.finalize(OperationPhase.COMPLETED, message)
+        if not self.finalize(OperationPhase.COMPLETED, message):
+            self._operator.report({"ERROR"}, self._settings.status)
+            return {"CANCELLED"}
         self._operator.report({"INFO"}, message)
         return {"FINISHED"}
 
@@ -176,7 +184,7 @@ class ExistingPassModalController:
                 status=message,
             )
         self.finalize(OperationPhase.FAILED, message)
-        self._operator.report({"ERROR"}, message)
+        self._operator.report({"ERROR"}, self._settings.status)
         return {"CANCELLED"}
 
     def _cleanup_session(self) -> None:

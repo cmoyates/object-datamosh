@@ -213,6 +213,13 @@ def test_processing_session_resumes_after_its_last_complete_frame(tmp_path: Path
         images[frame.matte] = np.ones((1, 2), dtype=np.float32)
     io = MemoryImageIO(images)
     cancellation_requested = False
+    cancellation_checks = 0
+
+    def should_cancel() -> bool:
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_requested
+
     first_session = ProcessingSession.create(
         paths,
         frame_start=1,
@@ -220,12 +227,14 @@ def test_processing_session_resumes_after_its_last_complete_frame(tmp_path: Path
         matte_provider=ObjectIndexMatteProvider(),
         settings=FeedbackSettings(persistence=1.0, block_size=1),
         image_io=io,
-        should_cancel=lambda: cancellation_requested,
+        should_cancel=should_cancel,
     )
     first_session.process_next_frame()
+    assert cancellation_checks == 1
     cancellation_requested = True
     with pytest.raises(SequenceProcessingCancelled):
         first_session.process_next_frame()
+    assert cancellation_checks == 2
 
     resumed = ProcessingSession.create(
         paths,

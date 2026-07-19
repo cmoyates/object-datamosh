@@ -82,7 +82,11 @@ def run_processing_modal_scenarios(
         )()
         assert process_operator.modal(modal_context, foreign_timer_event) == {"PASS_THROUGH"}
         assert not first.processed.exists()
-        timer_event = type("TimerEvent", (), {"type": "TIMER"})()
+        timer_event = type(
+            "TimerEvent",
+            (),
+            {"type": "TIMER", "timer": modal_window_manager.timer},
+        )()
         assert process_operator.modal(modal_context, timer_event) == {"RUNNING_MODAL"}
         assert first.processed.is_file()
         assert not second.processed.exists()

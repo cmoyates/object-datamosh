@@ -97,6 +97,30 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
     ]
 
 
+def test_timer_events_without_identity_follow_the_owned_timer_cadence() -> None:
+    now = 10.0
+
+    def clock() -> float:
+        return now
+
+    runtime = RuntimeState()
+    window_manager = WindowManager()
+    lifecycle = ModalOperationLifecycle(object(), runtime, timer_interval=0.1, clock=clock)
+    lifecycle.begin(Context(window_manager, object()), frame_start=1, frame_end=1, total_work=1)
+    unidentified_timer = type("TimerEvent", (), {})()
+
+    assert not lifecycle.accepts_timer_event(unidentified_timer)
+    now = 10.1
+    assert lifecycle.accepts_timer_event(unidentified_timer)
+    assert not lifecycle.accepts_timer_event(unidentified_timer)
+    assert lifecycle.accepts_timer_event(
+        type("OwnedTimerEvent", (), {"timer": window_manager.timer})()
+    )
+    assert not lifecycle.accepts_timer_event(
+        type("ForeignTimerEvent", (), {"timer": object()})()
+    )
+
+
 def test_unused_lifecycle_cannot_update_or_cancel_another_run() -> None:
     runtime = RuntimeState(
         active=True, cancel_requested=False, run_identity="another-run"

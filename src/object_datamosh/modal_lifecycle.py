@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import suppress
 from enum import StrEnum
+from time import monotonic
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -54,13 +55,16 @@ class ModalOperationLifecycle:
         cleanup: Callable[[], None] | None = None,
         timer_interval: float = 0.1,
         run_identity_factory: Callable[[], str] | None = None,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._operator = operator
         self._runtime = runtime
         self._cleanup = cleanup
         self._timer_interval = timer_interval
         self._run_identity_factory = run_identity_factory or (lambda: uuid4().hex)
+        self._clock = clock
         self._timer: object | None = None
+        self._next_step_deadline: float | None = None
         self._window_manager: Any | None = None
         self._progress_started = False
         self._owns_runtime = False
@@ -111,6 +115,7 @@ class ModalOperationLifecycle:
                 self._timer_interval,
                 window=context.window,
             )
+            self._next_step_deadline = self._clock() + self._timer_interval
             window_manager.modal_handler_add(self._operator)
         except Exception:
             with suppress(Exception):
@@ -142,10 +147,19 @@ class ModalOperationLifecycle:
             self._window_manager.progress_update(completed_work)
         request_sidebar_redraw(self._window_manager)
 
-    def owns_timer_event(self, event: object) -> bool:
-        """Whether a timer event identifies this lifecycle's timer when Blender exposes it."""
+    def accepts_timer_event(self, event: object) -> bool:
+        """Accept only the owned timer, or its cadence when Blender omits timer identity."""
         event_timer = getattr(event, "timer", None)
-        return event_timer is None or event_timer is self._timer
+        if event_timer is not None:
+            return event_timer is self._timer
+        deadline = self._next_step_deadline
+        now = self._clock()
+        if deadline is None or now < deadline:
+            return False
+        # Blender 5.0 does not identify TIMER events, so preserve the owned timer's bounded cadence
+        # even when a different add-on emits more frequent timer events.
+        self._next_step_deadline = now + self._timer_interval
+        return True
 
     def request_cancel(self) -> bool:
         """Mark active work for cancellation without mutating workflow resources."""
@@ -177,6 +191,7 @@ class ModalOperationLifecycle:
             except Exception as error:
                 cleanup_errors.append(error)
             self._timer = None
+            self._next_step_deadline = None
         if self._progress_started and self._window_manager is not None:
             try:
                 self._window_manager.progress_end()
