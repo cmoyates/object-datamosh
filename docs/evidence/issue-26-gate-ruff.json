@@ -1,0 +1,14 @@
+{
+  "gate": {
+    "command": "uv run ruff check .",
+    "exit_code": 0,
+    "name": "ruff",
+    "output": "All checks passed!\n",
+    "output_retained_bytes": 19,
+    "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "output_total_bytes": 19,
+    "output_truncated": false
+  },
+  "git_head": "e6628a8a595aaa53416fc205c15f82836c3819ae",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
+}

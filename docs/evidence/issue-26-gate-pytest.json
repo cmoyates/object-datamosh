@@ -1,0 +1,14 @@
+{
+  "gate": {
+    "command": "uv run pytest -q",
+    "exit_code": 0,
+    "name": "pytest",
+    "output": "........................................................................ [ 35%]\n........................................................................ [ 70%]\n...........................................................              [100%]\n=========================== short test summary info ============================\nSKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime\n203 passed, 1 skipped in 0.71s\n",
+    "output_retained_bytes": 430,
+    "output_sha256": "7358e3d0bb02c0b456a2a08fe088fc9217c69ed2349c6a84a651b27ed548b4dc",
+    "output_total_bytes": 430,
+    "output_truncated": false
+  },
+  "git_head": "e6628a8a595aaa53416fc205c15f82836c3819ae",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
+}

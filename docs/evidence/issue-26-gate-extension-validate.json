@@ -1,0 +1,14 @@
+{
+  "gate": {
+    "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension validate src/object_datamosh",
+    "exit_code": 0,
+    "name": "extension-validate",
+    "output": "INFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules\nINFO:root:INFO: Found installed dependencies. Going to adjust sys.path.\nINFO:root:INFO: Unregistered Photogrammetry Import Export Addon\nBlenderMCP addon registered\nSuccess parsing TOML in \"src/object_datamosh\"\nBlenderMCP addon unregistered\n",
+    "output_retained_bytes": 318,
+    "output_sha256": "69a5995adc995478f1d6c6dd1001adeadcec9e9202e2ce5e725280de343c7c4a",
+    "output_total_bytes": 318,
+    "output_truncated": false
+  },
+  "git_head": "e6628a8a595aaa53416fc205c15f82836c3819ae",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
+}
