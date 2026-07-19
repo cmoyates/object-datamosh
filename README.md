@@ -31,7 +31,8 @@ The sidebar currently provides:
 - a **Create Vector Calibration Scene** action for a separate manual-calibration scene;
 - the active view-layer name;
 - sequence start/end frames, an optional output-directory override, a conservative raw-output
-  overwrite toggle, **Render Raw Passes**, reset/recovery policy, and **Process Existing Passes**;
+  overwrite toggle, **Render Raw Passes**, **Render and Process**, reset/recovery policy, and
+  **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - Hard Localized / Trail mode, trail decay, persistence, block size,
   motion-channel/direction/axis/gain/clamp/quantization, diffusion, refresh-probability, and
@@ -91,7 +92,10 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   decoding remains experimental and is not part of the MVP.
 - **Image I/O:** `ImageSequenceIO` is the processing boundary. `BlenderImageIO` is its Blender
   implementation and reads/writes full-float RGBA OpenEXR using temporary `ODM_` Image
-  data-blocks. Matte files use scalar coverage from the EXR red channel; `read_mask` returns that
+  data-blocks. Blender 5.0 compositor multilayer pass files are decoded through the extension's
+  narrow NumPy/standard-library scanline ZIP reader because Blender identifies those files but
+  does not expose their pixels through `Image.pixels`. Matte files use scalar coverage from the
+  EXR red channel; `read_mask` returns that
   channel as a contiguous `(height, width)` `float32` array. The implementation removes temporary
   data-blocks and restores render image settings in `finally` paths.
 - **Ownership:** extension-created data uses the `ODM_` prefix and the
@@ -152,6 +156,22 @@ raw files is intended.
 Object Index remains render-engine dependent. Use Cycles for the documented Blender 5.0.0 path,
 or verify that the chosen engine exposes and emits Image, Vector, and Object Index before a
 production render. A missing pass fails with the pass name and inspected directory.
+
+## Render and Process
+
+After Object Index setup, **Render and Process** runs the raw renderer to completion and then hands
+its exact discovered `FramePaths` to sequential processing. It never reconstructs raw input names
+for that handoff. Status changes from **Rendering raw passes...** to **Processing rendered
+passes...**, and a failure identifies the active phase.
+
+Processing does not start if rendering fails or is cancelled. The raw renderer accepts only one
+newly emitted file per pass and frame, so an unchanged stale file or an incomplete frame fails the
+render phase instead of becoming processing input. A render interruption retains only its complete
+raw-frame prefix. A processing interruption retains raw inputs and the atomically recorded
+processed-frame prefix; use **Process Existing Passes → Resume** with unchanged settings to
+continue. The combined action intentionally starts a new reprocess run rather than silently
+resuming old processed output. Existing raw or processed files are still protected by their
+separate overwrite toggles and are never deleted automatically.
 
 ## Process existing pass sequences
 
@@ -292,6 +312,7 @@ Blender sidebar / operators
         │
         ├── Object Index setup/restore ───────────────── owned compositor nodes
         ├── Render Raw Passes ────────────────────────── sequential Blender render service
+        ├── Render and Process ───────────────────────── exact discovered-path phase handoff
         ├── Process Existing Passes ─────────────────── feedback + EXR + recovery manifest
         ├── Create Vector Calibration Scene ─────────── separate owned Blender scene
         ├── SequencePaths + matte-provider contracts ── render/process boundaries
@@ -348,7 +369,8 @@ third-party runtime dependency.
   target assignment and status, path derivation, setup idempotency, cleanup/restoration, unrelated
   node survival, separate vector-calibration scene creation and ownership, the raw-render
   operator, collision refusal, bounded cancellation, a two-frame
-  Cycles beauty/vector/matte render, emitted filename discovery, full-float EXR contracts, temporary
+  Cycles beauty/vector/matte render, emitted filename discovery, a two-frame combined render and
+  process run, full-float EXR contracts, temporary
   image cleanup, render-setting restoration, processing fixture-generated two-frame pass
   sequences, processed EXR contracts, hard-localized output, trail controls, and processed-output
   collision refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass

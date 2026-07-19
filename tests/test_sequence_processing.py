@@ -6,7 +6,7 @@ import pytest
 
 from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
-from object_datamosh.core.paths import SequencePaths
+from object_datamosh.core.paths import FramePaths, SequencePaths
 from object_datamosh.sequence_processing import (
     MissingHistoryPolicy,
     ResolutionChangePolicy,
@@ -81,6 +81,38 @@ def test_process_sequence_rejects_an_inverted_frame_range(tmp_path: Path) -> Non
         assert str(error) == "frame_start must not be greater than frame_end"
     else:
         raise AssertionError("processing accepted an inverted frame range")
+
+
+def test_process_sequence_reads_the_exact_discovered_raw_paths(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    expected = paths.frame(1)
+    discovered = FramePaths(
+        frame=1,
+        beauty=tmp_path / "emitted" / "beauty-result.exr",
+        vector=tmp_path / "emitted" / "vector-result.exr",
+        matte=tmp_path / "emitted" / "matte-result.exr",
+        processed=expected.processed,
+    )
+    io = MemoryImageIO(
+        {
+            discovered.beauty: _rgba(0.5),
+            discovered.vector: _rgba(0.0),
+            discovered.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+
+    result = process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=io,
+        input_frames=(discovered,),
+    )
+
+    assert result.frames == (expected.processed,)
+    np.testing.assert_array_equal(io.written[expected.processed], _rgba(0.5))
 
 
 def test_process_sequence_initializes_then_carries_feedback_in_frame_order(tmp_path: Path) -> None:

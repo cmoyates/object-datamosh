@@ -39,6 +39,7 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
+from .orchestration import RenderAndProcessPhase, render_and_process
 from .raw_render import RawRenderCancelled, render_raw_passes
 from .sequence_processing import (
     MissingHistoryPolicy,
@@ -369,6 +370,109 @@ class ODM_OT_render_raw_passes(Operator):
         return {"FINISHED"}
 
 
+def _matte_provider_for_settings(settings: ODM_Settings):
+    """Build the configured matte provider at the Blender boundary."""
+    if settings.matte_source == MatteSource.EXTERNAL:
+        if not settings.external_matte_directory:
+            raise ValueError("Choose an external matte directory before processing")
+        return ExternalMatteProvider(Path(bpy.path.abspath(settings.external_matte_directory)))
+    if settings.matte_source == MatteSource.CRYPTOMATTE:
+        return CryptomatteMatteProvider()
+    return ObjectIndexMatteProvider()
+
+
+class ODM_OT_render_and_process(Operator):
+    """Render the raw frame range and process only its discovered outputs."""
+
+    bl_idname = "object_datamosh.render_and_process"
+    bl_label = "Render and Process"
+    bl_description = "Render raw passes, then process exactly the completed rendered range"
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        if context.scene is None or context.view_layer is None:
+            return False
+        settings = settings_for_scene(context.scene)
+        return (
+            settings.target_object is not None
+            and settings.frame_start <= settings.frame_end
+            and has_object_index_setup(context.scene)
+        )
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        view_layer = context.view_layer
+        if scene is None or view_layer is None:
+            self.report({"ERROR"}, "An active scene and view layer are required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        paths = sequence_paths_for_scene(scene)
+        progress = _WindowManagerProgress(context.window_manager)
+        phase = RenderAndProcessPhase.RENDERING
+
+        def update_phase(value: RenderAndProcessPhase) -> None:
+            nonlocal phase
+            phase = value
+            settings.status = (
+                "Rendering raw passes..."
+                if value is RenderAndProcessPhase.RENDERING
+                else "Processing rendered passes..."
+            )
+
+        def render_phase():
+            return render_raw_passes(
+                scene,
+                view_layer,
+                paths,
+                frame_start=settings.frame_start,
+                frame_end=settings.frame_end,
+                overwrite=settings.overwrite_raw,
+                progress=progress,
+            )
+
+        def process_phase(input_frames):
+            return process_sequence(
+                paths,
+                frame_start=settings.frame_start,
+                frame_end=settings.frame_end,
+                matte_provider=_matte_provider_for_settings(settings),
+                settings=feedback_settings_for_scene(scene),
+                image_io=BlenderImageIO(),
+                overwrite=settings.overwrite_processed,
+                reset_frames=parse_reset_frames(settings.reset_frames),
+                resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                run_mode=SequenceRunMode.REPROCESS,
+                missing_history=MissingHistoryPolicy(settings.missing_history),
+                progress=progress,
+                input_frames=input_frames,
+            )
+
+        try:
+            result = render_and_process(render_phase, process_phase, on_phase=update_phase)
+        except (RawRenderCancelled, SequenceProcessingCancelled) as error:
+            message = f"Render and Process cancelled during {phase.value.lower()}: {error}"
+            settings.status = message
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        except (
+            FileExistsError,
+            NotImplementedError,
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            message = f"Render and Process failed during {phase.value.lower()}: {error}"
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        frame_count = len(result.processed.frames)
+        message = f"Render and Process complete: {frame_count} frame(s)"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_OT_process_sequence(Operator):
     """Process existing pass files through localized temporal feedback."""
 
@@ -389,22 +493,9 @@ class ODM_OT_process_sequence(Operator):
             self.report({"ERROR"}, "An active scene is required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
-        if settings.matte_source == MatteSource.EXTERNAL:
-            if not settings.external_matte_directory:
-                message = "Choose an external matte directory before processing"
-                settings.status = message
-                self.report({"ERROR"}, message)
-                return {"CANCELLED"}
-            matte_provider = ExternalMatteProvider(
-                Path(bpy.path.abspath(settings.external_matte_directory))
-            )
-        elif settings.matte_source == MatteSource.CRYPTOMATTE:
-            matte_provider = CryptomatteMatteProvider()
-        else:
-            matte_provider = ObjectIndexMatteProvider()
-
         settings.status = "Processing existing passes..."
         try:
+            matte_provider = _matte_provider_for_settings(settings)
             result = process_sequence(
                 sequence_paths_for_scene(scene),
                 frame_start=settings.frame_start,
@@ -543,6 +634,7 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     sequence.prop(settings, "output_directory")
     sequence.prop(settings, "overwrite_raw")
     sequence.operator(ODM_OT_render_raw_passes.bl_idname)
+    sequence.operator(ODM_OT_render_and_process.bl_idname)
     sequence.prop(settings, "sequence_run_mode")
     sequence.prop(settings, "reset_frames")
     sequence.prop(settings, "resolution_change")
@@ -599,6 +691,7 @@ _CLASSES = (
     ODM_OT_use_active_object,
     ODM_OT_setup_object_index,
     ODM_OT_render_raw_passes,
+    ODM_OT_render_and_process,
     ODM_OT_process_sequence,
     ODM_OT_create_vector_calibration,
     ODM_OT_restore_object_index,

@@ -187,6 +187,7 @@ def main() -> None:
         "object_datamosh.setup_object_index",
         "object_datamosh.restore_object_index",
         "object_datamosh.render_raw_passes",
+        "object_datamosh.render_and_process",
         "object_datamosh.process_sequence",
         "object_datamosh.create_vector_calibration",
     }
@@ -369,6 +370,32 @@ def main() -> None:
         assert settings.status == "Rendered 1 raw frame(s)"
         assert SequencePaths(operator_root).frame(1).beauty.is_file()
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
+
+        combined_root = temp_root / "combined"
+        combined_paths = SequencePaths(combined_root)
+        settings.output_directory = str(combined_root)
+        settings.frame_start = 1
+        settings.frame_end = 2
+        settings.overwrite_raw = False
+        settings.overwrite_processed = False
+        combined_images_before = len(bpy.data.images)
+        combined_frame_before = scene.frame_current
+        assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
+        assert object_datamosh_ops.render_and_process() == {"FINISHED"}
+        assert settings.status == "Render and Process complete: 2 frame(s)"
+        combined_inventory = tuple(
+            path
+            for frame in (combined_paths.frame(1), combined_paths.frame(2))
+            for path in (frame.beauty, frame.vector, frame.matte, frame.processed)
+        )
+        assert all(path.is_file() for path in combined_inventory), combined_inventory
+        assert len(bpy.data.images) == combined_images_before
+        assert scene.frame_current == combined_frame_before
+        assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
+        print(
+            "Render and Process outputs:",
+            ", ".join(path.name for path in combined_inventory),
+        )
 
         configured_paths = SequencePaths(temp_root / "configured")
         render_paths = SequencePaths(temp_root / "rendered")
