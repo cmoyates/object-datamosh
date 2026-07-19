@@ -359,9 +359,8 @@ class ODM_OT_process_sequence(Operator):
             self.report({"WARNING"}, message)
             return {"CANCELLED"}
         except (
-            FileExistsError,
-            FileNotFoundError,
             NotImplementedError,
+            OSError,
             RuntimeError,
             TypeError,
             ValueError,

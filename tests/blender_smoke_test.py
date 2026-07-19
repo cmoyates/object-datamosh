@@ -24,6 +24,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 import object_datamosh  # noqa: E402
+import object_datamosh.ui as ui_module  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.compositor_setup import (  # noqa: E402
     restore_object_index_passes,
@@ -517,6 +518,25 @@ def main() -> None:
         else:
             raise AssertionError("processing overwrote existing outputs without permission")
         assert "overwrite is disabled" in settings.status
+
+        original_process_sequence = ui_module.process_sequence
+
+        def permission_denied(*args: Any, **kwargs: Any) -> None:
+            del args, kwargs
+            raise PermissionError("Processed output directory is not writable")
+
+        try:
+            ui_module.process_sequence = permission_denied
+            try:
+                object_datamosh_ops.process_sequence()
+            except RuntimeError as error:
+                assert "not writable" in str(error)
+            else:
+                raise AssertionError("processing did not report an output permission failure")
+            assert settings.status == "Processed output directory is not writable"
+        finally:
+            ui_module.process_sequence = original_process_sequence
+
         print(
             "Sequence processing outputs:",
             ", ".join(path.name for path in (first.processed, second.processed)),
