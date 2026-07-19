@@ -7,7 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from .core.paths import FramePaths
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
@@ -166,6 +166,13 @@ ProcessingFactory = Callable[
 ]
 
 
+class CombinedRenderSession(RenderSession, Protocol):
+    """Raw-render session whose discovered outputs are valid processing inputs."""
+
+    @property
+    def completed_frames(self) -> tuple[FramePaths, ...]: ...
+
+
 class RenderAndProcessModalController:
     """Coordinate rendering and processing through one modal lifecycle."""
 
@@ -186,9 +193,10 @@ class RenderAndProcessModalController:
         self._adapter = adapter
         self._create_processing = create_processing
         self._on_cleanup = on_cleanup
-        self._render_session: RenderSession | None = None
+        self._render_session: CombinedRenderSession | None = None
         self._processing_session: IncrementalProcessingSession | None = None
         self._state: RenderAndProcessStateMachine | None = None
+        self._cancel_requested = False
         self._lifecycle = ModalOperationLifecycle(
             operator,
             runtime,
@@ -206,7 +214,7 @@ class RenderAndProcessModalController:
             on_failed=self._fail_rendering,
         )
 
-    def start(self, context: Any, render_session: RenderSession) -> None:
+    def start(self, context: Any, render_session: CombinedRenderSession) -> None:
         """Install the sole modal lifecycle and enter the rendering phase."""
         self._render_session = render_session
         self._render_controller.attach(render_session)
@@ -220,6 +228,7 @@ class RenderAndProcessModalController:
             frame_start=state.frame_start,
             frame_end=state.frame_end,
             total_work=state.total_work,
+            phase_total_work=state.frame_count,
         )
         state.begin_rendering()
         self._lifecycle.update(
@@ -249,26 +258,50 @@ class RenderAndProcessModalController:
         state = self._state
         if state is None or state.is_terminal:
             return False
-        if self._runtime.cancel_requested:
+        if self.cancel_requested:
             return True
-        return self._lifecycle.request_cancel()
+        self._cancel_requested = True
+        with suppress(Exception):
+            self._lifecycle.request_cancel()
+        return True
+
+    @property
+    def cancel_requested(self) -> bool:
+        """Whether cancellation is pending even if scene-owned RNA is unavailable."""
+        if self._cancel_requested:
+            return True
+        try:
+            return self._runtime.cancel_requested
+        except Exception:
+            return False
 
     def cancel(self) -> None:
         """Finalize safely when Blender cancels the owning operator."""
-        if self._state is not None and not self._state.is_terminal:
-            self._finish_cancelled(self._state.processed_count)
+        state = self._state
+        if state is None or state.is_terminal:
+            return
+        rendered_count = (
+            len(self._render_session.completed_frames)
+            if state.state is RenderAndProcessState.RENDERING
+            and self._render_session is not None
+            else None
+        )
+        self._finish_cancelled(rendered_count)
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Route partial setup failure through the combined finalizer."""
         self._fail("initialization", frame_number, error)
 
-    def _begin_processing(self, session: RenderSession) -> set[Any]:
+    def _begin_processing(self, completed_session: RenderSession) -> set[Any]:
         state = self._require_state()
-        frames = cast(tuple[FramePaths, ...], session.completed_frames)
-        for frame in frames:
-            state.record_rendered_frame(frame.frame)
         try:
-            processing = self._create_processing(frames, lambda: self._runtime.cancel_requested)
+            session = self._render_session
+            if session is None or completed_session is not session:
+                raise RuntimeError("raw rendering returned an unexpected session")
+            frames = session.completed_frames
+            for frame in frames:
+                state.record_rendered_frame(frame.frame)
+            processing = self._create_processing(frames, lambda: self.cancel_requested)
             self._processing_session = processing
             state.begin_processing()
             current_frame = processing.recovery_frame or processing.current_frame
@@ -277,9 +310,11 @@ class RenderAndProcessModalController:
                 current_frame=current_frame,
                 completed_work=state.completed_work,
                 status=f"Processing frame {current_frame} of {state.frame_end}",
+                phase_completed_work=state.processed_count,
+                phase_total_work=state.frame_count,
             )
         except Exception as error:
-            return self._fail("transition to processing", state.current_frame, error)
+            return self._fail("transition to processing", state.frame_start, error)
         return {"RUNNING_MODAL"}
 
     def _advance_processing(self) -> set[Any]:
@@ -289,31 +324,35 @@ class RenderAndProcessModalController:
             return self._fail(
                 "processing", state.current_frame, RuntimeError("processing session unavailable")
             )
-        if self._runtime.cancel_requested:
-            return self._finish_cancelled(state.processed_count)
+        if self.cancel_requested:
+            return self._finish_cancelled(None)
+        recovering_history = session.recovery_frame is not None
         frame_number = session.recovery_frame or session.current_frame
         completed_before = len(session.completed_frames)
         try:
             session.process_next_frame()
         except SequenceProcessingCancelled:
-            return self._finish_cancelled(state.processed_count)
+            return self._finish_cancelled(None)
         except Exception as error:
             return self._fail("processing", frame_number, error)
+        status: str | None = None
         if len(session.completed_frames) > completed_before:
             state.record_processed_frame(frame_number)
-            self._lifecycle.update(
-                phase=OperationPhase.PROCESSING,
-                current_frame=frame_number,
-                completed_work=state.completed_work,
-                status=f"Processed frame {frame_number} of {state.frame_end}",
-            )
-        elif session.recovery_frame is not None:
-            self._lifecycle.update(
-                phase=OperationPhase.PROCESSING,
-                current_frame=frame_number,
-                completed_work=state.completed_work,
-                status=f"Restored resume history through frame {frame_number}",
-            )
+            status = f"Processed frame {frame_number} of {state.frame_end}"
+        elif recovering_history:
+            status = f"Restored resume history through frame {frame_number}"
+        if status is not None:
+            try:
+                self._lifecycle.update(
+                    phase=OperationPhase.PROCESSING,
+                    current_frame=frame_number,
+                    completed_work=state.completed_work,
+                    status=status,
+                    phase_completed_work=state.processed_count,
+                    phase_total_work=state.frame_count,
+                )
+            except Exception as error:
+                return self._fail("processing", frame_number, error)
         if not session.is_finished:
             return {"RUNNING_MODAL"}
         try:
@@ -324,10 +363,10 @@ class RenderAndProcessModalController:
         message = f"Render and Process complete: {len(result.frames)} frame(s)"
         return self._finalize(OperationPhase.COMPLETED, message, {"FINISHED"}, {"INFO"})
 
-    def _finish_cancelled(self, phase_completed: int) -> set[Any]:
+    def _finish_cancelled(self, rendered_count: int | None) -> set[Any]:
         state = self._require_state()
-        if state.state is RenderAndProcessState.RENDERING:
-            while state.rendered_count < phase_completed:
+        if state.state is RenderAndProcessState.RENDERING and rendered_count is not None:
+            while state.rendered_count < rendered_count:
                 state.record_rendered_frame(state.frame_start + state.rendered_count)
         state.cancel()
         message = (
@@ -357,7 +396,10 @@ class RenderAndProcessModalController:
         except Exception:
             report_level = {"ERROR"}
             result = {"CANCELLED"}
-        visible = self._runtime.status
+        try:
+            visible = self._runtime.status
+        except Exception:
+            visible = message
         with suppress(Exception):
             self._settings.status = visible
         self._operator.report(report_level, visible)

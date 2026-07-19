@@ -40,6 +40,8 @@ class RuntimeState(Protocol):
     frame_end: int
     completed_work: int
     total_work: int
+    phase_completed_work: int
+    phase_total_work: int
     progress: float
     status: str
 
@@ -78,12 +80,17 @@ class ModalOperationLifecycle:
         frame_start: int,
         frame_end: int,
         total_work: int,
+        phase_total_work: int | None = None,
     ) -> None:
         """Expose a fresh run and install its progress display and modal timer."""
         if self._runtime.active:
             raise RuntimeError("Another Object Datamosh operation is already active")
         if total_work < 0:
             raise ValueError("total_work must be non-negative")
+        if phase_total_work is None:
+            phase_total_work = total_work
+        if phase_total_work < 0 or phase_total_work > total_work:
+            raise ValueError("phase_total_work must be within the configured total work")
 
         if self._finalized or self._owns_runtime:
             raise RuntimeError("This modal lifecycle has already been used")
@@ -99,6 +106,8 @@ class ModalOperationLifecycle:
             runtime.frame_end = frame_end
             runtime.completed_work = 0
             runtime.total_work = total_work
+            runtime.phase_completed_work = 0
+            runtime.phase_total_work = phase_total_work
             runtime.progress = 0.0
             runtime.status = "Initializing..."
             # Blender operators run on the main thread, so publishing ``active`` last makes the
@@ -141,6 +150,8 @@ class ModalOperationLifecycle:
         current_frame: int,
         completed_work: int,
         status: str,
+        phase_completed_work: int | None = None,
+        phase_total_work: int | None = None,
     ) -> None:
         """Publish one safe work boundary to Blender's runtime and progress surfaces."""
         if self._finalized:
@@ -150,9 +161,19 @@ class ModalOperationLifecycle:
         total_work = self._runtime.total_work
         if completed_work < 0 or completed_work > total_work:
             raise ValueError("completed_work must be within the configured total work")
+        if phase_total_work is None:
+            phase_total_work = self._runtime.phase_total_work
+        if phase_completed_work is None:
+            phase_completed_work = completed_work
+        if phase_total_work < 0 or phase_total_work > total_work:
+            raise ValueError("phase_total_work must be within the configured total work")
+        if phase_completed_work < 0 or phase_completed_work > phase_total_work:
+            raise ValueError("phase_completed_work must be within the current phase total")
         self._runtime.phase = phase.value
         self._runtime.current_frame = current_frame
         self._runtime.completed_work = completed_work
+        self._runtime.phase_completed_work = phase_completed_work
+        self._runtime.phase_total_work = phase_total_work
         self._runtime.progress = completed_work / total_work if total_work else 0.0
         self._runtime.status = status
         if self._progress_started and self._window_manager is not None:

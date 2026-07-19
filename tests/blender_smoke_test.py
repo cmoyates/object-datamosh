@@ -123,6 +123,8 @@ def main() -> None:
         "frame_end",
         "completed_work",
         "total_work",
+        "phase_completed_work",
+        "phase_total_work",
         "progress",
         "status",
     ):
@@ -142,6 +144,8 @@ def main() -> None:
     assert runtime.frame_end == 0
     assert runtime.completed_work == 0
     assert runtime.total_work == 0
+    assert runtime.phase_completed_work == 0
+    assert runtime.phase_total_work == 0
     assert runtime.progress == 0.0
     assert runtime.status == "Ready"
     assert settings.matte_source == "OBJECT_INDEX"
@@ -220,6 +224,8 @@ def main() -> None:
     runtime.current_frame = 2
     runtime.completed_work = 1
     runtime.total_work = 4
+    runtime.phase_completed_work = 1
+    runtime.phase_total_work = 4
     runtime.progress = 0.25
     runtime.status = "Processing frame 2 of 4"
     active_layout = LayoutRecorder()

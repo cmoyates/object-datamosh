@@ -17,6 +17,8 @@ class RuntimeState:
     frame_end: int = 0
     completed_work: int = 0
     total_work: int = 0
+    phase_completed_work: int = 0
+    phase_total_work: int = 0
     progress: float = 0.0
     status: str = "stale"
 
@@ -88,6 +90,8 @@ def test_begin_exposes_a_fresh_scene_run_and_installs_one_modal_timer() -> None:
         frame_end=5,
         completed_work=0,
         total_work=3,
+        phase_completed_work=0,
+        phase_total_work=3,
         progress=0.0,
         status="Initializing...",
     )

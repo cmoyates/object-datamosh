@@ -21,6 +21,8 @@ class RuntimeState:
     frame_end: int = 0
     completed_work: int = 0
     total_work: int = 0
+    phase_completed_work: int = 0
+    phase_total_work: int = 0
     progress: float = 0.0
     status: str = "Ready"
 

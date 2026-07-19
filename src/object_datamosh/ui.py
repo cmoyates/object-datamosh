@@ -55,6 +55,7 @@ from .sequence_processing import (
     parse_reset_frames,
     process_sequence,
 )
+from .sidebar import draw_sidebar
 
 _SCENE_SETTINGS_ATTRIBUTE = "ODM_settings"
 _SCENE_RUNTIME_ATTRIBUTE = "ODM_runtime"
@@ -167,6 +168,12 @@ class ODM_RuntimeState(PropertyGroup):
     )
     total_work: IntProperty(  # ty: ignore[invalid-type-form]
         name="Total", default=0, min=0, options={"SKIP_SAVE"}
+    )
+    phase_completed_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Phase Completed", default=0, min=0, options={"SKIP_SAVE"}
+    )
+    phase_total_work: IntProperty(  # ty: ignore[invalid-type-form]
+        name="Phase Total", default=0, min=0, options={"SKIP_SAVE"}
     )
     progress: FloatProperty(  # ty: ignore[invalid-type-form]
         name="Progress",
@@ -898,102 +905,19 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
     operation_active = runtime.active or _active_modal_controller() is not None
     paths = sequence_paths_for_scene(scene)
 
-    operation = layout.box()
-    operation.label(text=f"Operation: {'Active' if operation_active else 'Idle'}")
     phase_label = {
         OperationPhase.RENDERING.value: "Rendering Raw Passes",
         OperationPhase.PROCESSING.value: "Processing Passes",
     }.get(runtime.phase, runtime.phase.title())
-    operation.label(text=f"Phase: {phase_label}")
-    operation.label(text=f"Frame Range: {runtime.frame_start}-{runtime.frame_end}")
-    operation.label(text=f"Current Frame: {runtime.current_frame}")
-    phase_total = (
-        max(0, runtime.frame_end - runtime.frame_start + 1) if runtime.total_work else 0
+    draw_sidebar(
+        layout,
+        context,
+        settings,
+        runtime,
+        paths,
+        operation_active=operation_active,
+        phase_label=phase_label,
     )
-    phase_completed = runtime.completed_work
-    if (
-        runtime.phase == OperationPhase.PROCESSING.value
-        and runtime.total_work == phase_total * 2
-    ):
-        phase_completed = max(0, runtime.completed_work - phase_total)
-    operation.label(text=f"Phase Work: {phase_completed}/{phase_total}")
-    operation.label(text=f"Overall Work: {runtime.completed_work}/{runtime.total_work}")
-    operation.label(text=f"Progress: {runtime.progress:.0%}")
-    operation.label(text=f"Status: {runtime.status}")
-    if operation_active:
-        operation.operator(ODM_OT_cancel_operation.bl_idname)
-
-    target = layout.box()
-    target.enabled = not operation_active
-    target.label(text="Target")
-    target.prop(settings, "target_object")
-    target.operator(ODM_OT_use_active_object.bl_idname)
-    view_layer_name = context.view_layer.name if context.view_layer is not None else "None"
-    target.label(text=f"View Layer: {view_layer_name}")
-
-    sequence = layout.box()
-    sequence.enabled = not operation_active
-    sequence.label(text="Sequence")
-    row = sequence.row(align=True)
-    row.prop(settings, "frame_start")
-    row.prop(settings, "frame_end")
-    sequence.prop(settings, "output_directory")
-    sequence.prop(settings, "overwrite_raw")
-    sequence.operator(ODM_OT_render_raw_passes.bl_idname)
-    sequence.operator(ODM_OT_render_and_process.bl_idname)
-    sequence.prop(settings, "sequence_run_mode")
-    sequence.prop(settings, "reset_frames")
-    sequence.prop(settings, "resolution_change")
-    if settings.sequence_run_mode == "RESUME":
-        sequence.prop(settings, "missing_history")
-    else:
-        sequence.prop(settings, "overwrite_processed")
-    sequence.operator(ODM_OT_process_sequence.bl_idname)
-    sequence.label(text=f"Output: {paths.root}")
-    if paths.warning:
-        warning = sequence.row()
-        warning.alert = True
-        warning.label(text=paths.warning, icon="ERROR")
-
-    matte = layout.box()
-    matte.enabled = not operation_active
-    matte.label(text="Matte")
-    matte.prop(settings, "matte_source")
-    if settings.matte_source == "EXTERNAL":
-        matte.prop(settings, "external_matte_directory")
-    elif settings.matte_source == "CRYPTOMATTE":
-        matte.label(text="Experimental; decoding is not yet available", icon="INFO")
-    else:
-        row = matte.row(align=True)
-        row.operator(ODM_OT_setup_object_index.bl_idname)
-        row.operator(ODM_OT_restore_object_index.bl_idname)
-
-    calibration = layout.box()
-    calibration.enabled = not operation_active
-    calibration.label(text="Vector Calibration")
-    calibration.operator(ODM_OT_create_vector_calibration.bl_idname)
-
-    feedback = layout.box()
-    feedback.enabled = not operation_active
-    feedback.label(text="Feedback")
-    feedback.prop(settings, "feedback_mode")
-    feedback.prop(settings, "trail_decay")
-    feedback.prop(settings, "persistence")
-    feedback.prop(settings, "block_size")
-    feedback.prop(settings, "motion_channels")
-    feedback.prop(settings, "reverse_motion")
-    axis = feedback.row(align=True)
-    axis.prop(settings, "flip_x")
-    axis.prop(settings, "flip_y")
-    feedback.prop(settings, "motion_gain")
-    feedback.prop(settings, "motion_clamp")
-    feedback.prop(settings, "motion_quantization")
-    feedback.prop(settings, "diffusion")
-    feedback.prop(settings, "refresh_probability")
-    feedback.prop(settings, "seed")
-
-    if not operation_active:
-        layout.label(text=f"Status: {settings.status}")
 
 
 _CLASSES = (

@@ -23,6 +23,8 @@ class RuntimeState:
     frame_end: int = 0
     completed_work: int = 0
     total_work: int = 0
+    phase_completed_work: int = 0
+    phase_total_work: int = 0
     progress: float = 0.0
     status: str = "Ready"
 
@@ -65,10 +67,10 @@ class RenderSession:
     frame_start = 3
     frame_end = 4
 
-    def __init__(self, output_frames: tuple[object, ...] = ()) -> None:
+    def __init__(self, output_frames: tuple[FramePaths, ...] = ()) -> None:
         self.output_frames = output_frames
         self.current_frame = self.frame_start
-        self.completed_frames: tuple[object, ...] = ()
+        self.completed_frames: tuple[FramePaths, ...] = ()
         self.is_finished = False
 
     def prepare_next_frame(self) -> RenderFrameRequest:
@@ -78,9 +80,11 @@ class RenderSession:
             view_layer=SimpleNamespace(name="ViewLayer"),
         )
 
-    def complete_frame(self, request: RenderFrameRequest) -> object:
+    def complete_frame(self, request: RenderFrameRequest) -> FramePaths:
         index = request.frame - self.frame_start
-        completed = self.output_frames[index] if self.output_frames else request.frame
+        if not self.output_frames:
+            raise RuntimeError("the test render session has no discovered outputs")
+        completed = self.output_frames[index]
         self.completed_frames = (*self.completed_frames, completed)
         self.current_frame += 1
         self.is_finished = self.current_frame > self.frame_end
@@ -245,6 +249,8 @@ def test_combined_controller_starts_one_modal_lifecycle_for_both_phases() -> Non
     assert runtime.current_frame == 3
     assert runtime.completed_work == 0
     assert runtime.total_work == 4
+    assert runtime.phase_completed_work == 0
+    assert runtime.phase_total_work == 2
     assert runtime.status == "Ready to render frame 3 of 4"
     assert window_manager.events == [
         ("progress_begin", (0, 4)),
@@ -313,6 +319,8 @@ def test_rendering_transition_passes_exact_discovered_frames_to_processing(
     assert runtime.current_frame == 3
     assert runtime.completed_work == 2
     assert runtime.total_work == 4
+    assert runtime.phase_completed_work == 0
+    assert runtime.phase_total_work == 2
     assert runtime.progress == 0.5
     assert runtime.status == "Processing frame 3 of 4"
 
@@ -359,6 +367,8 @@ def test_processing_advances_one_frame_per_timer_and_finalizes_the_shared_lifecy
     assert runtime.active is False
     assert runtime.phase == "COMPLETED"
     assert runtime.completed_work == 4
+    assert runtime.phase_completed_work == 2
+    assert runtime.phase_total_work == 2
     assert runtime.progress == 1.0
     assert runtime.status == "Render and Process complete: 2 frame(s)"
     assert settings.status == runtime.status
@@ -439,7 +449,7 @@ def test_cancel_request_during_processing_stops_before_another_frame(tmp_path: P
     controller.handle_event(timer)
     controller.handle_event(timer)
 
-    assert controller.request_cancel()
+    assert controller.handle_event(SimpleNamespace(type="ESC")) == {"RUNNING_MODAL"}
     assert runtime.status == "Cancel requested; waiting for a safe boundary..."
     assert controller.handle_event(timer) == {"CANCELLED"}
 
@@ -447,6 +457,8 @@ def test_cancel_request_during_processing_stops_before_another_frame(tmp_path: P
     assert runtime.active is False
     assert runtime.phase == "CANCELLED"
     assert runtime.completed_work == 3
+    assert runtime.phase_completed_work == 1
+    assert runtime.phase_total_work == 2
     assert runtime.status == "Render and Process cancelled after 3 of 4 steps"
 
 
@@ -518,4 +530,91 @@ def test_processing_failure_reports_the_combined_phase_and_frame(tmp_path: Path)
     assert runtime.status == (
         "Render and Process failed during processing at frame 3: image write failed"
     )
+    assert operator.reports[-1] == ({"ERROR"}, runtime.status)
+
+
+def test_external_cancel_during_rendering_retains_discovered_progress(tmp_path: Path) -> None:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = RuntimeState()
+    settings = SimpleNamespace(status="Ready")
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        settings,
+        adapter=adapter,
+        create_processing=lambda _frames, _should_cancel: ProcessingSession(
+            (tmp_path / "p3", tmp_path / "p4")
+        ),
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+
+    controller.cancel()
+
+    assert not runtime.active
+    assert runtime.phase == "CANCELLED"
+    assert runtime.completed_work == 1
+    assert runtime.phase_completed_work == 1
+    assert runtime.phase_total_work == 2
+    assert runtime.status == "Render and Process cancelled after 1 of 4 steps"
+    assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
+    assert window_manager.events.count(("progress_end", None)) == 1
+
+
+def test_transition_failure_uses_shared_finalizer_and_reports_phase(tmp_path: Path) -> None:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = RuntimeState()
+    settings = SimpleNamespace(status="Ready")
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+
+    def fail_transition(
+        _frames: tuple[FramePaths, ...], _should_cancel: object
+    ) -> ProcessingSession:
+        raise RuntimeError("processor initialization failed")
+
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        settings,
+        adapter=adapter,
+        create_processing=fail_transition,
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.completed_work == 2
+    assert runtime.status == (
+        "Render and Process failed during transition to processing at frame 3: "
+        "processor initialization failed"
+    )
+    assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
+    assert window_manager.events.count(("progress_end", None)) == 1
     assert operator.reports[-1] == ({"ERROR"}, runtime.status)

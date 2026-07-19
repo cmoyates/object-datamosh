@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from blender_modal_test_support import ModalWindowManagerRecorder, ProcessOperatorHarness
+from blender_modal_test_support import (
+    LayoutRecorder,
+    ModalWindowManagerRecorder,
+    ProcessOperatorHarness,
+)
 
 from object_datamosh.core.paths import SequencePaths
-from object_datamosh.ui import ODM_OT_render_and_process
+from object_datamosh.ui import ODM_OT_render_and_process, _draw_sidebar
 
 
 def run_combined_modal_scenario(
@@ -47,6 +51,11 @@ def run_combined_modal_scenario(
     assert runtime.active
     assert runtime.phase == "RENDERING"
     assert runtime.total_work == 4
+    rendering_layout = LayoutRecorder()
+    _draw_sidebar(rendering_layout, cast(Any, context), scene)
+    assert "Phase: Rendering Raw Passes" in rendering_layout.labels
+    assert "Phase Work: 0/2" in rendering_layout.labels
+    assert "Overall Work: 0/4" in rendering_layout.labels
     assert not object_datamosh_ops.render_and_process.poll()
     assert window_manager.events[:4] == [
         ("progress_begin", (0, 4)),
@@ -62,6 +71,11 @@ def run_combined_modal_scenario(
     assert runtime.phase == "PROCESSING"
     assert runtime.completed_work == 2
     assert runtime.progress == 0.5
+    processing_layout = LayoutRecorder()
+    _draw_sidebar(processing_layout, cast(Any, context), scene)
+    assert "Phase: Processing Passes" in processing_layout.labels
+    assert "Phase Work: 0/2" in processing_layout.labels
+    assert "Overall Work: 2/4" in processing_layout.labels
     assert operator.modal(context, timer) == {"RUNNING_MODAL"}
     assert runtime.phase == "PROCESSING"
     assert runtime.completed_work == 3
@@ -78,6 +92,10 @@ def run_combined_modal_scenario(
     assert runtime.phase == "COMPLETED"
     assert runtime.completed_work == 4
     assert runtime.progress == 1.0
+    completed_layout = LayoutRecorder()
+    _draw_sidebar(completed_layout, cast(Any, context), scene)
+    assert "Phase Work: 2/2" in completed_layout.labels
+    assert "Overall Work: 4/4" in completed_layout.labels
     assert runtime.status == "Render and Process complete: 2 frame(s)"
     assert settings.status == runtime.status
     assert scene.frame_current == original_frame
