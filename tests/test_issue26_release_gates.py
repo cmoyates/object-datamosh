@@ -17,6 +17,8 @@ require_unchanged_identity = cast(
     Callable[[Any, Any], None], _NAMESPACE["require_unchanged_identity"]
 )
 run_gate = _NAMESPACE["run_gate"]
+signal_process_group = _NAMESPACE["signal_process_group"]
+_signal_process_group_globals = cast(dict[str, Any], signal_process_group.__globals__)
 write_gate_result = _NAMESPACE["write_gate_result"]
 
 
@@ -98,6 +100,17 @@ def test_gate_receipt_retains_complete_output_below_limit(tmp_path: Path) -> Non
     assert result.output_total_bytes == 40960
     assert len(result.output_head.encode()) == 40960
     assert result.output_tail == ""
+
+
+def test_signal_process_group_accepts_an_already_exited_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def exited_process(_pid: int, _signal_number: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(_signal_process_group_globals["os"], "killpg", exited_process)
+
+    signal_process_group(123, 15)
 
 
 def test_gate_receipt_captures_a_timeout(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -82,6 +83,12 @@ def atomic_copy(source: Path, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
         raise RuntimeError(f"Published archive verification failed: {destination}")
     temporary.replace(destination)
+
+
+def signal_process_group(pid: int, signal_number: int) -> None:
+    """Signal a gate process group unless it already exited."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pid, signal_number)
 
 
 def require_unchanged_identity(expected: SourceIdentity, actual: SourceIdentity) -> None:
@@ -176,11 +183,11 @@ def run_gate(
         exit_code = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         timed_out = True
-        os.killpg(process.pid, signal.SIGTERM)
+        signal_process_group(process.pid, signal.SIGTERM)
         try:
             exit_code = process.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            signal_process_group(process.pid, signal.SIGKILL)
             exit_code = process.wait(timeout=5.0)
     output_thread.join(timeout=10.0)
     if output_thread.is_alive():

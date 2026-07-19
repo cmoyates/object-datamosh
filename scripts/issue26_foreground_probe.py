@@ -25,7 +25,11 @@ for import_root in (SCRIPTS, SRC):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-from issue26_evidence import raw_render_intervals  # noqa: E402
+from issue26_evidence import (  # noqa: E402
+    completed_processed_prefix,
+    completed_raw_prefix,
+    raw_render_intervals,
+)
 
 import object_datamosh  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
@@ -183,8 +187,6 @@ class ProbeState:
     baseline_complete_handlers: int = 0
     baseline_cancel_handlers: int = 0
     cancel_sent: bool = False
-    escape_seen: bool = False
-    processing_cancel_sent: bool = False
     processing_escape_seen: bool = False
     restart_cancel_sent: bool = False
     scene_initialized: bool = False
@@ -621,16 +623,7 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
             for entry in state.sidebar_draws
         )
         paths = SequencePaths(ROOT / "raw-button-cancel")
-        completed = [n for n in range(1, 101) if paths.frame(n).beauty.is_file()]
-        assert completed
-        assert completed == list(range(1, len(completed) + 1)), completed
-        for number in completed:
-            frame = paths.frame(number)
-            assert all(path.is_file() for path in (frame.beauty, frame.vector, frame.matte))
-        next_frame = paths.frame(len(completed) + 1)
-        assert not any(
-            path.exists() for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
-        )
+        completed = completed_raw_prefix(paths, end=100)
         assert item["scene_frame"] == state.original_frame
         assert_controller_cleared()
         assert len(_app.handlers.render_complete) == state.baseline_complete_handlers
@@ -647,7 +640,6 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
             "production_mouse_click": True,
         }
         state.transition(ProbeStage.RAW_ESCAPE_CANCEL)
-        state.escape_seen = False
         scene = _context.scene
         cycles = cast(Any, scene.cycles)
         cycles.samples = 64
@@ -658,9 +650,7 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
 
 def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
-    if active and bool(item["cancel_requested"]):
-        state.escape_seen = True
-    elif active:
+    if active and not bool(item["cancel_requested"]):
         if item["phase"] != "RENDERING":
             raise RuntimeError(f"Raw Escape entered unexpected phase: {item!r}")
         if (
@@ -672,21 +662,12 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
             emit("blender_escape_simulated", stage=stage)
         if state.raw_escape_simulated and item["completed_work"] >= 10:
             raise RuntimeError("Blender did not dispatch the simulated raw Escape within 10 frames")
-    elif item["phase"] == "CANCELLED":
+    elif not active and item["phase"] == "CANCELLED":
         draws = state.sidebar_draws
         assert isinstance(draws, list)
         pending_visible = any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
         paths = SequencePaths(ROOT / "raw-escape-cancel")
-        completed = [n for n in range(1, 101) if paths.frame(n).beauty.is_file()]
-        assert completed
-        assert completed == list(range(1, len(completed) + 1)), completed
-        for number in completed:
-            frame = paths.frame(number)
-            assert all(path.is_file() for path in (frame.beauty, frame.vector, frame.matte))
-        next_frame = paths.frame(len(completed) + 1)
-        assert not any(
-            path.exists() for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
-        )
+        completed = completed_raw_prefix(paths, end=100)
         assert item["scene_frame"] == state.original_frame
         assert_raw_escape_sent_during_render()
         assert_controller_cleared()
@@ -711,7 +692,6 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
         process_root = ROOT / "processing-cancel"
         shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
         state.transition(ProbeStage.PROCESSING_CANCEL)
-        state.processing_cancel_sent = False
         start_existing("processing-cancel")
     else:
         raise RuntimeError(f"Raw Escape ended unexpectedly: {item!r}")
@@ -720,7 +700,6 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
 def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
     stage = state.stage.value
     if active and item["cancel_requested"] and state.processing_click_injected:
-        state.processing_cancel_sent = True
         assert item["phase"] == "CANCELLING"
         assert item["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
     elif active and (not state.processing_click_injected) and (item["completed_work"] >= 2):
@@ -730,7 +709,6 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
         state.processing_click_injected = True
         emit("processing_cancel_button_clicked", x=coordinate[0], y=coordinate[1])
     elif not active and item["phase"] == "CANCELLED" and state.processing_click_injected:
-        state.processing_cancel_sent = True
         draws = state.sidebar_draws
         assert any(
             entry[0] == stage
@@ -739,14 +717,7 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
             for entry in draws
         )
         paths = SequencePaths(ROOT / "processing-cancel")
-        completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-        assert completed
-        assert completed == list(range(1, len(completed) + 1)), completed
-        assert len(completed) < 10, completed
-        assert not paths.frame(len(completed) + 1).processed.exists()
-        manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        assert payload["completed_frames"] == completed
+        completed = completed_processed_prefix(paths, end=10)
         assert item["scene_frame"] == state.original_frame
         assert_controller_cleared()
         evidence = state.evidence
@@ -804,14 +775,7 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
         draws = state.sidebar_draws
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
         paths = SequencePaths(ROOT / "processing-escape")
-        completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-        assert completed
-        assert completed == list(range(1, len(completed) + 1)), completed
-        assert len(completed) < 10, completed
-        assert not paths.frame(len(completed) + 1).processed.exists()
-        manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        assert payload["completed_frames"] == completed
+        completed = completed_processed_prefix(paths, end=10)
         assert item["scene_frame"] == state.original_frame
         assert_controller_cleared()
         evidence = state.evidence
