@@ -1,8 +1,8 @@
 {
   "blender_build_hash": "a37564c4df7a",
   "blender_version": "5.0.0",
-  "event_log_file": "issue-26-foreground-events-d8f3aeb5a868535ca0fa164891be558af945bc6da38836c510570127f0aaf837.jsonl",
-  "event_log_sha256_before_completion": "d8f3aeb5a868535ca0fa164891be558af945bc6da38836c510570127f0aaf837",
+  "event_log_file": "issue-26-foreground-events-227edb8558828df05c5d43886725c2e4147c00849bbb2ed8d30bd3e4b90f0720.jsonl",
+  "event_log_sha256_before_completion": "227edb8558828df05c5d43886725c2e4147c00849bbb2ed8d30bd3e4b90f0720",
   "evidence": {
     "combined_success": {
       "completed_work": 20,
@@ -114,7 +114,8 @@
     },
     "processing_escape_cancel": {
       "completed_frames": [
-        1
+        1,
+        2
       ],
       "controller_cleared": true,
       "pending_state_visible": true,
@@ -133,8 +134,7 @@
     "raw_escape_cancel": {
       "completed_frames": [
         1,
-        2,
-        3
+        2
       ],
       "controller_cleared": true,
       "escape_sent_during_render": true,
@@ -143,13 +143,13 @@
     }
   },
   "extension_source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
-  "git_head": "3da75659dbcd259ea2be64d7822759af0bc6e03b",
-  "heartbeat_count": 544,
+  "git_head": "803e1bd9ce1de486f0a6f2a6ac9a6e74f10bf2d9",
+  "heartbeat_count": 599,
   "heartbeats_during_render": 0,
-  "probe_sha256": "695d4fa8cd68d7dee5d3e2990b476d795dc2ba51e2b7308dda76228a0bd78c26",
+  "probe_sha256": "7e76140d12d2509e654224e36b65d0b5c27d7d099245f4c06ca198f0ff101299",
   "render_cancel_handlers": 1,
   "render_complete_handlers": 1,
-  "runner_sha256": "9dd34a1f9147a2ecb710844752e2cdc7fad2f40db14e31f327f3a3ed4aabccfb",
+  "runner_sha256": "2fca7e00d88faa57d25ad24d2aa364de618ab94d514acfe067316ceeb67fc63a",
   "scene_frame": 7,
   "success": true
 }

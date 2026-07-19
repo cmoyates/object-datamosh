@@ -1,0 +1,99 @@
+{
+  "archive": {
+    "path": "dist/object_datamosh-0.1.0.zip",
+    "sha256": "9b36c10905ec76b9949e54655ad7c9f8a06e7776f4fc6f52119d5e8470c9b84d",
+    "size_bytes": 53328
+  },
+  "blender_bin": "/Applications/Blender.app/Contents/MacOS/Blender",
+  "foreground_receipt_sha256": "bd0ff9b373594e7a545ca55745212cdaf2e6c9c712056191c7d89a8664db6f47",
+  "gates": [
+    {
+      "command": "uv run ty check",
+      "exit_code": 0,
+      "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "output_tail": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "output_sha256": "59afb9a40f35352be7157a506b2ca12052c7c442d2cc58c214ccd3f4026338ec",
+      "output_tail": [
+        "........................................................................ [ 36%]",
+        "........................................................................ [ 72%]",
+        "........................................................                 [100%]",
+        "=========================== short test summary info ============================",
+        "SKIPPED [1] tests/blender_smoke_test.py:18: requires Blender's Python runtime",
+        "200 passed, 1 skipped in 0.30s"
+      ]
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "output_tail": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tests/blender_smoke_test.py",
+      "exit_code": 0,
+      "output_sha256": "fe0c1ca95d81d3e2a549a614b8dc59014a455de59d892fe9644fedbb8a58d4e8",
+      "output_tail": [
+        "Info: Object Index setup ready (pass 1)",
+        "Info: Cancel requested; waiting for a safe boundary...",
+        "Info: Rendered 1 raw frame(s)",
+        "Info: Object Index setup restored",
+        "Info: Object Index setup ready (pass 1)",
+        "Info: Cancel requested; waiting for a safe boundary...",
+        "Info: Cancel requested; waiting for a safe boundary...",
+        "Info: Render and Process complete: 2 frame(s)",
+        "Error: Render and Process failed during processing at frame 1: Cryptomatte decoding is experimental and is not available in the MVP",
+        "Info: Object Index setup restored",
+        "Render and Process outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_processed_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr, ODM_processed_0002.exr",
+        "Error: Cannot render, no camera",
+        "Object Index smoke outputs: ODM_beauty_0001.exr, ODM_vector_0001.exr, ODM_matte_0001.exr, ODM_beauty_0002.exr, ODM_vector_0002.exr, ODM_matte_0002.exr",
+        "Error: Processing failed during initialization at frame 1: Processed output exists and overwrite is disabled: /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_towcl_cu/processed/ODM_processed_0001.exr, /var/folders/3p/xy1mfckj5tz4kx3h_mzdyx1h0000gn/T/ODM_processing_smoke_towcl_cu/processed/ODM_processed_0002.exr",
+        "Info: Cancel requested; waiting for a safe boundary...",
+        "Sequence processing outputs: ODM_processed_0001.exr, ODM_processed_0002.exr",
+        "Object Datamosh Blender smoke test passed",
+        "Blender 5.0.0 (hash a37564c4df7a built 2025-11-18 10:00:50)",
+        "",
+        "Blender quit"
+      ]
+    },
+    {
+      "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension validate src/object_datamosh",
+      "exit_code": 0,
+      "output_sha256": "2fc7248677a898fdb0090dc47de9d5978bc2ac31cfc803345e6a3a75a5ee3b77",
+      "output_tail": [
+        "BlenderMCP addon registered",
+        "Success parsing TOML in \"src/object_datamosh\"",
+        "BlenderMCP addon unregistered",
+        "INFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules",
+        "INFO:root:INFO: Found installed dependencies. Going to adjust sys.path.",
+        "INFO:root:INFO: Unregistered Photogrammetry Import Export Addon"
+      ]
+    },
+    {
+      "command": "/Applications/Blender.app/Contents/MacOS/Blender --command extension build --source-dir src/object_datamosh --output-dir dist",
+      "exit_code": 0,
+      "output_sha256": "d9567301a2bf0c7e8e43e55949afbbcd52c70527829adf78efecb97255425ee4",
+      "output_tail": [
+        "BlenderMCP addon registered",
+        "building: object_datamosh-0.1.0.zip",
+        "complete",
+        "created: \"dist/object_datamosh-0.1.0.zip\", 53328",
+        "BlenderMCP addon unregistered",
+        "INFO:root:INFO: Registered Photogrammetry Import Export Addon with 62 modules",
+        "INFO:root:INFO: Found installed dependencies. Going to adjust sys.path.",
+        "INFO:root:INFO: Unregistered Photogrammetry Import Export Addon"
+      ]
+    }
+  ],
+  "git_head": "803e1bd9ce1de486f0a6f2a6ac9a6e74f10bf2d9",
+  "release_gate_script_sha256": "9f7ac2e3516e107a5803ceb71fe1c9af924eeb1cce98910f4623cf1a1c8a29b6",
+  "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c",
+  "success": true
+}
