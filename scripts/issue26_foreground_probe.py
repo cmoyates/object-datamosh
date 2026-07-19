@@ -140,7 +140,7 @@ class Snapshot(TypedDict):
     scene_frame: int
 
 
-SidebarObservation = tuple[str, str, int, int, int, int, int, float]
+SidebarObservation = tuple[str, str, int, int, int, int, int, float, str]
 
 
 class Evidence(TypedDict, total=False):
@@ -256,6 +256,7 @@ def observed_production_sidebar_draw(self: ODM_PT_sidebar, context: Context) -> 
         runtime.phase_completed_work,
         runtime.phase_total_work,
         round(float(runtime.progress), 6),
+        runtime.status,
     )
     draws = state.sidebar_draws
     if not draws or draws[-1] != observation:
@@ -270,6 +271,7 @@ def observed_production_sidebar_draw(self: ODM_PT_sidebar, context: Context) -> 
             phase_completed_work=observation[5],
             phase_total_work=observation[6],
             progress=observation[7],
+            status=observation[8],
         )
 
 
@@ -616,9 +618,14 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         state.last_click_coordinate = coordinate
         simulate_left_click(*coordinate)
         emit("cancel_button_click_attempt", x=coordinate[0], y=coordinate[1])
-    elif not active and state.cancel_sent:
-        assert item["phase"] == "CANCELLED", item
-        assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in state.sidebar_draws)
+    elif not active and item["phase"] == "CANCELLED" and state.last_click_coordinate is not None:
+        state.cancel_sent = True
+        assert any(
+            entry[0] == stage
+            and entry[1] == "CANCELLING"
+            and entry[8] == "Cancel requested; waiting for a safe boundary..."
+            for entry in state.sidebar_draws
+        )
         paths = SequencePaths(ROOT / "raw-button-cancel")
         completed = [n for n in range(1, 101) if paths.frame(n).beauty.is_file()]
         assert completed
@@ -728,10 +735,15 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
         simulate_left_click(*coordinate)
         state.processing_click_injected = True
         emit("processing_cancel_button_clicked", x=coordinate[0], y=coordinate[1])
-    elif not active and state.processing_cancel_sent:
-        assert item["phase"] == "CANCELLED", item
+    elif not active and item["phase"] == "CANCELLED" and state.processing_click_injected:
+        state.processing_cancel_sent = True
         draws = state.sidebar_draws
-        assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
+        assert any(
+            entry[0] == stage
+            and entry[1] == "CANCELLING"
+            and entry[8] == "Cancel requested; waiting for a safe boundary..."
+            for entry in draws
+        )
         paths = SequencePaths(ROOT / "processing-cancel")
         completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
         assert completed
