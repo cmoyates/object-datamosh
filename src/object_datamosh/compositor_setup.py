@@ -271,7 +271,7 @@ def temporary_raw_output_paths(
         (_VECTOR_OUTPUT_NAME, paths.root / "raw" / "vector", "ODM_vector_"),
         (_MATTE_OUTPUT_NAME, paths.root / "raw" / "matte", "ODM_matte_"),
     )
-    configured: list[tuple[Any, str, str]] = []
+    configured: list[tuple[str, Any, str, str]] = []
     try:
         for role, directory, prefix in outputs:
             node: Any | None = None
@@ -287,14 +287,27 @@ def temporary_raw_output_paths(
                     break
             if node is None:
                 raise RuntimeError(f"Object Index setup is missing its owned output: {role}")
-            configured.append((node, node.directory, node.file_name))
+            configured.append((role, node, node.directory, node.file_name))
             node.directory = str(directory)
             node.file_name = f"{prefix}{'#' * paths.frame_padding}"
         yield
     finally:
-        for node, directory, file_name in configured:
-            node.directory = directory
-            node.file_name = file_name
+        restoration_errors: list[str] = []
+        for role, node, directory, file_name in configured:
+            try:
+                node.directory = directory
+            except Exception as error:
+                restoration_errors.append(
+                    f"{role} directory restoration to {directory!r} failed: {error}"
+                )
+            try:
+                node.file_name = file_name
+            except Exception as error:
+                restoration_errors.append(
+                    f"{role} file_name restoration to {file_name!r} failed: {error}"
+                )
+        if restoration_errors:
+            raise RuntimeError("; ".join(restoration_errors))
 
 
 def restore_object_index_passes(scene: Scene) -> bool:

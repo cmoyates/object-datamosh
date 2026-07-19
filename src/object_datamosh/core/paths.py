@@ -47,8 +47,7 @@ class SequencePaths:
         return cls(root=root, frame_padding=frame_padding)
 
     def frame(self, frame: int) -> FramePaths:
-        _validate_frame(frame)
-        token = f"{frame:0{self.frame_padding}d}"
+        token = format_frame_token(frame, self.frame_padding)
         paths = FramePaths(
             frame=frame,
             beauty=self.root / "raw" / "beauty" / f"ODM_beauty_{token}.exr",
@@ -67,6 +66,14 @@ class SequencePaths:
         return paths
 
 
+def format_frame_token(frame: int, padding: int) -> str:
+    """Format a signed frame token exactly like Blender's hash expansion."""
+    _validate_frame(frame)
+    _validate_padding(padding)
+    sign = "-" if frame < 0 else ""
+    return f"{sign}{abs(frame):0{padding}d}"
+
+
 def _validate_frame(frame: int) -> None:
     if isinstance(frame, bool) or not isinstance(frame, Integral):
         raise TypeError("frame must be an integer")
@@ -75,5 +82,5 @@ def _validate_frame(frame: int) -> None:
 def _validate_padding(padding: int) -> None:
     if isinstance(padding, bool) or not isinstance(padding, Integral):
         raise TypeError("frame_padding must be an integer")
-    if padding < 0:
-        raise ValueError("frame_padding must not be negative")
+    if padding < 1:
+        raise ValueError("frame_padding must be at least one")

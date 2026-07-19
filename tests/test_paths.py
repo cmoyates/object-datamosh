@@ -31,9 +31,9 @@ def test_sequence_paths_use_a_safe_temporary_root_for_an_unanchored_blend(
     assert paths.warning == "Save the blend file to use a project-relative output directory."
 
 
-@pytest.mark.parametrize("padding", [-1, 1.5, True])
+@pytest.mark.parametrize("padding", [-1, 0, 1.5, True])
 def test_sequence_paths_reject_invalid_frame_padding(tmp_path: Path, padding: object) -> None:
-    error_type = ValueError if padding == -1 else TypeError
+    error_type = ValueError if padding in {-1, 0} else TypeError
     with pytest.raises(error_type, match="frame_padding"):
         SequencePaths(root=tmp_path, frame_padding=cast(Any, padding))
 
@@ -44,6 +44,14 @@ def test_sequence_paths_require_integral_frame_numbers(tmp_path: Path, frame: ob
 
     with pytest.raises(TypeError, match="frame must be an integer"):
         paths.frame(cast(Any, frame))
+
+
+def test_negative_frame_token_matches_blender_hash_expansion(tmp_path: Path) -> None:
+    frame = SequencePaths(root=tmp_path).frame(-1)
+
+    assert frame.beauty.name == "ODM_beauty_-0001.exr"
+    assert frame.vector.name == "ODM_vector_-0001.exr"
+    assert frame.matte.name == "ODM_matte_-0001.exr"
 
 
 def test_frame_path_resolution_logs_frame_pass_and_path_details(

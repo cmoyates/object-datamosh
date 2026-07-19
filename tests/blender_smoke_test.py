@@ -28,6 +28,7 @@ for import_root in (SOURCE_ROOT, TEST_ROOT):
 
 from blender_modal_test_support import LayoutRecorder  # noqa: E402
 from blender_processing_modal_smoke import run_processing_modal_scenarios  # noqa: E402
+from blender_raw_render_modal_smoke import run_raw_render_modal_scenarios  # noqa: E402
 
 import object_datamosh  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
@@ -412,9 +413,14 @@ def main() -> None:
         render.resolution_y = 12
         render.resolution_percentage = 100
         assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
-        assert object_datamosh_ops.render_raw_passes() == {"FINISHED"}
+        run_raw_render_modal_scenarios(
+            scene,
+            settings,
+            runtime,
+            object_datamosh_ops,
+            operator_root,
+        )
         assert settings.status == "Rendered 1 raw frame(s)"
-        assert SequencePaths(operator_root).frame(1).beauty.is_file()
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
 
         combined_root = temp_root / "combined"
@@ -467,7 +473,7 @@ def main() -> None:
                 raise AssertionError("Raw rendering accepted a view layer other than its setup")
         finally:
             scene.view_layers.remove(wrong_layer)
-        assert wrong_layer_progress.events == []
+        assert wrong_layer_progress.events == [("begin", 1), ("end", 0)]
         assert Path(beauty_node.directory) == configured_paths.root / "raw" / "beauty"
 
         camera = scene.camera
@@ -502,7 +508,16 @@ def main() -> None:
             frame_end=2,
             progress=progress,
         )
-        assert result.frames == (render_paths.frame(1), render_paths.frame(2))
+        assert tuple(frame.frame for frame in result.frames) == (1, 2)
+        assert all(
+            path.is_file()
+            for frame_number in (1, 2)
+            for path in (
+                render_paths.frame(frame_number).beauty,
+                render_paths.frame(frame_number).vector,
+                render_paths.frame(frame_number).matte,
+            )
+        )
         assert scene.frame_current == original_frame
         assert progress.events == [
             ("begin", 2),
@@ -537,6 +552,29 @@ def main() -> None:
         else:
             raise AssertionError("Raw rendering overwrote existing outputs without permission")
 
+        negative_paths = SequencePaths(temp_root / "negative")
+        negative_result = render_raw_passes(
+            scene,
+            view_layer,
+            negative_paths,
+            frame_start=-1,
+            frame_end=-1,
+        )
+        assert tuple(frame.frame for frame in negative_result.frames) == (-1,)
+        assert negative_result.frames[0].beauty.name == "ODM_beauty_-0001.exr"
+        try:
+            render_raw_passes(
+                scene,
+                view_layer,
+                negative_paths,
+                frame_start=-1,
+                frame_end=-1,
+            )
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("Negative-frame output bypassed overwrite protection")
+
         cancelled_paths = SequencePaths(temp_root / "cancelled")
         cancel_progress = ProgressRecorder()
         try:
@@ -550,7 +588,15 @@ def main() -> None:
                 should_cancel=lambda: ("update", 1) in cancel_progress.events,
             )
         except RawRenderCancelled as error:
-            assert error.completed_frames == (cancelled_paths.frame(1),)
+            assert tuple(frame.frame for frame in error.completed_frames) == (1,)
+            assert all(
+                path.is_file()
+                for path in (
+                    error.completed_frames[0].beauty,
+                    error.completed_frames[0].vector,
+                    error.completed_frames[0].matte,
+                )
+            )
         else:
             raise AssertionError("Raw rendering ignored cancellation between frames")
         assert cancel_progress.events == [("begin", 2), ("update", 1), ("end", 0)]

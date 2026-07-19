@@ -279,5 +279,9 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
     assert result == {"CANCELLED"}
     assert runtime.phase == "FAILED"
     assert operator.reports == [
-        ({"ERROR"}, "Processed 1 frame(s); cleanup failed: timer removal failed")
+        (
+            {"ERROR"},
+            "Processed 1 frame(s); cleanup failed during finalization at frame 1: "
+            "timer removal failed",
+        )
     ]

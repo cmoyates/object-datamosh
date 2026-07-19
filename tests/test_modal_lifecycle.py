@@ -345,7 +345,9 @@ def test_timer_removal_failure_still_ends_progress_and_unlocks_runtime() -> None
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Complete; cleanup failed: timer already removed"
+    assert runtime.status == (
+        "Complete; cleanup failed during finalization at frame 1: timer already removed"
+    )
     assert window_manager.events[-1] == ("progress_end", None)
 
 
@@ -367,7 +369,9 @@ def test_cleanup_failure_still_releases_universal_resources_and_reports_failure(
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
-    assert runtime.status == "Complete; cleanup failed: session cleanup failed"
+    assert runtime.status == (
+        "Complete; cleanup failed during finalization at frame 1: session cleanup failed"
+    )
     assert window_manager.events[-2:] == [
         ("timer_remove", window_manager.timer),
         ("progress_end", None),
