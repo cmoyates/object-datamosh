@@ -10,7 +10,7 @@ Tested extension source tree: `fdf85c1a6ea159986a0e925759dedc5830b6616c` (the
 `src/object_datamosh` tree at base commit `77a14071b418950db1e06536889457d954395153`;
 this issue changes release documentation and its release probe only)
 
-Foreground UI probe and release-gate revision: `05d8449ac530e5b37031feff75096607ae797413`
+Foreground UI probe and release-gate revision: `70f5a3ee07baeb83e573b66f97e3fb42e0974172`
 
 Real macOS Escape probe revision: `e6628a8a595aaa53416fc205c15f82836c3819ae`
 
@@ -144,7 +144,7 @@ interactive at those boundaries. Raw rendering uses Blender 5.0's reliable synch
 modal operator in this release.
 
 The latest foreground probe scheduled a 10 ms application heartbeat and observed **zero heartbeats
-while an individual frame render was active** (732 heartbeats outside those intervals). Therefore an
+while an individual frame render was active** (747 heartbeats outside those intervals). Therefore an
 individual raw frame can temporarily block the UI and delay Escape or Cancel feedback until Blender
 returns from that frame. The active-render Escape observation also moved directly to terminal
 **Cancelled** without a visibly persistent pending state. The sidebar redraws at the next verified
@@ -180,8 +180,8 @@ Run from the repository root with
 | Retained real-Escape run through macOS System Events | Passed for the same extension source tree: raw active-render and processing Escape, bounded prefixes, cleanup, and Resume |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir <unique-temp>/build` | Passed; the newly built archive was published without replacing the existing `dist/` artifact |
 
-The installation archive is `dist/object_datamosh-0.1.0-d378acdb074d.zip` (53,328 bytes), SHA-256
-`d378acdb074d30bf18ac7936f015b5fea30a0e4b2cef58d3f84a05d34825a349`.
+The installation archive is `dist/object_datamosh-0.1.0-e2a6437ffe39.zip` (53,328 bytes), SHA-256
+`e2a6437ffe3973093967291727c996b65e66d804597f2673cafd8c148040d468`.
 The `dist/` directory is intentionally ignored by Git; the path above is relative to the repository
 root where the release gate ran.
 

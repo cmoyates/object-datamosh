@@ -10,8 +10,10 @@
     "output_tail": "",
     "output_total_bytes": 318,
     "output_truncated": false,
+    "timed_out": false,
+    "timeout_seconds": 600.0,
     "tracked_changes": ""
   },
-  "git_head": "05d8449ac530e5b37031feff75096607ae797413",
+  "git_head": "70f5a3ee07baeb83e573b66f97e3fb42e0974172",
   "source_tree": "fdf85c1a6ea159986a0e925759dedc5830b6616c"
 }
