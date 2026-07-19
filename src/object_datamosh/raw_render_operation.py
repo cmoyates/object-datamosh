@@ -7,6 +7,7 @@ from contextlib import suppress
 from enum import StrEnum
 from typing import Any, Protocol
 
+from .core.paths import FramePaths
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
 from .raw_render import RenderFrameRequest
 
@@ -41,14 +42,14 @@ class RenderSession(Protocol):
     current_frame: int
 
     @property
-    def completed_frames(self) -> tuple[object, ...]: ...
+    def completed_frames(self) -> tuple[FramePaths, ...]: ...
 
     @property
     def is_finished(self) -> bool: ...
 
     def prepare_next_frame(self) -> RenderFrameRequest: ...
 
-    def complete_frame(self, request: RenderFrameRequest) -> object: ...
+    def complete_frame(self, request: RenderFrameRequest) -> FramePaths: ...
 
     def close(self) -> None: ...
 
@@ -77,6 +78,7 @@ class RawRenderModalController:
         run_identity_factory: Callable[[], str] | None = None,
         lifecycle: ModalOperationLifecycle | None = None,
         on_complete: Callable[[RenderSession], set[Any]] | None = None,
+        on_frame_completed: Callable[[FramePaths], None] | None = None,
         on_cancelled: Callable[[int], set[Any]] | None = None,
         on_failed: Callable[[int, Exception], set[Any]] | None = None,
     ) -> None:
@@ -86,6 +88,7 @@ class RawRenderModalController:
         self._adapter = adapter
         self._on_cleanup = on_cleanup
         self._on_complete = on_complete
+        self._on_frame_completed = on_frame_completed
         self._on_cancelled = on_cancelled
         self._on_failed = on_failed
         self._session: RenderSession | None = None
@@ -166,7 +169,9 @@ class RawRenderModalController:
             return {"RUNNING_MODAL"}
         if adapter_event is RenderEvent.COMPLETED:
             try:
-                session.complete_frame(request)
+                completed_frame = session.complete_frame(request)
+                if self._on_frame_completed is not None:
+                    self._on_frame_completed(completed_frame)
                 self._adapter.remove()
                 self._active_request = None
                 current_frame = min(session.current_frame, session.frame_end)
@@ -282,20 +287,30 @@ class RawRenderModalController:
         except Exception:
             return fallback
 
-    def _cleanup(self) -> None:
+    def release_resources(self) -> None:
+        """Idempotently release raw-render resources for standalone or composed owners."""
         cleanup_errors: list[Exception] = []
         try:
             self._adapter.remove()
         except Exception as error:
             cleanup_errors.append(error)
-
         session, self._session = self._session, None
         if session is not None:
             try:
                 session.close()
             except Exception as error:
                 cleanup_errors.append(error)
+        if len(cleanup_errors) == 1:
+            raise cleanup_errors[0]
+        if cleanup_errors:
+            raise RuntimeError("; ".join(str(error) for error in cleanup_errors))
 
+    def _cleanup(self) -> None:
+        cleanup_errors: list[Exception] = []
+        try:
+            self.release_resources()
+        except Exception as error:
+            cleanup_errors.append(error)
         if self._on_cleanup is not None:
             try:
                 self._on_cleanup()

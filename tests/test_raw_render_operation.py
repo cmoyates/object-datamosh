@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
+from object_datamosh.core.paths import FramePaths
 from object_datamosh.raw_render_operation import (
     RawRenderModalController,
     RenderEvent,
@@ -65,7 +67,7 @@ class FakeRenderSession:
     frame_start = 3
     frame_end = 4
     current_frame = 3
-    completed_frames: tuple[object, ...] = ()
+    completed_frames: tuple[FramePaths, ...] = ()
     is_finished = False
 
     def __init__(self) -> None:
@@ -78,11 +80,19 @@ class FakeRenderSession:
             view_layer=SimpleNamespace(name="ViewLayer"),
         )
 
-    def complete_frame(self, request: RenderFrameRequest) -> None:
+    def complete_frame(self, request: RenderFrameRequest) -> FramePaths:
         self.completed_requests.append(request)
-        self.completed_frames += (request.frame,)
+        frame = FramePaths(
+            request.frame,
+            Path(f"beauty-{request.frame}"),
+            Path(f"vector-{request.frame}"),
+            Path(f"matte-{request.frame}"),
+            Path(f"processed-{request.frame}"),
+        )
+        self.completed_frames += (frame,)
         self.current_frame += 1
         self.is_finished = self.current_frame > self.frame_end
+        return frame
 
     def close(self) -> None:
         pass
@@ -361,7 +371,7 @@ def test_adapter_poll_failure_finalizes_the_active_frame() -> None:
 
 def test_output_verification_failure_reports_rendering_phase_and_frame() -> None:
     class FailingSession(FakeRenderSession):
-        def complete_frame(self, request: RenderFrameRequest) -> None:
+        def complete_frame(self, request: RenderFrameRequest) -> FramePaths:
             raise RuntimeError("missing vector output")
 
     runtime = RuntimeState()

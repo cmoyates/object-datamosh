@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from object_datamosh.core.paths import FramePaths
 from object_datamosh.raw_render import RenderFrameRequest
@@ -27,6 +28,29 @@ class RuntimeState:
     phase_total_work: int = 0
     progress: float = 0.0
     status: str = "Ready"
+
+
+@dataclass
+class InvalidatableRuntime(RuntimeState):
+    available: bool = True
+
+    def invalidate(self) -> None:
+        self.available = False
+
+    def __getattribute__(self, name: str) -> Any:
+        if name not in {"available", "invalidate", "__dict__", "__class__"}:
+            try:
+                available = object.__getattribute__(self, "available")
+            except AttributeError:
+                available = True
+            if not available:
+                raise ReferenceError("scene RNA was removed")
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name != "available" and not getattr(self, "available", True):
+            raise ReferenceError("scene RNA was removed")
+        object.__setattr__(self, name, value)
 
 
 class WindowManager:
@@ -95,9 +119,12 @@ class RenderSession:
 
 
 class RenderAdapter:
-    event = RenderEvent.NONE
+    def __init__(self) -> None:
+        self.event = RenderEvent.NONE
+        self.launches: list[int] = []
 
     def launch(self, request: RenderFrameRequest, run_identity: str) -> None:
+        self.launches.append(request.frame)
         self.event = RenderEvent.ACTIVE
 
     def poll(self) -> RenderEvent:
@@ -196,6 +223,31 @@ def test_processing_advances_to_successful_completion() -> None:
     assert workflow.rendered_count == 2
     assert workflow.processed_count == 2
     assert workflow.completed_work == 4
+    assert workflow.progress == 1.0
+
+
+def test_state_machine_rejects_work_beyond_the_configured_range() -> None:
+    workflow = RenderAndProcessStateMachine(frame_start=3, frame_end=3)
+    workflow.begin_rendering()
+    workflow.record_rendered_frame(3)
+
+    try:
+        workflow.record_rendered_frame(4)
+    except RuntimeError as error:
+        assert "no remaining frames" in str(error)
+    else:
+        raise AssertionError("rendering advanced beyond its configured range")
+
+    workflow.begin_processing()
+    workflow.record_processed_frame(3)
+    try:
+        workflow.record_processed_frame(4)
+    except RuntimeError as error:
+        assert "no remaining frames" in str(error)
+    else:
+        raise AssertionError("processing advanced beyond its configured range")
+
+    assert workflow.completed_work == workflow.total_work == 2
     assert workflow.progress == 1.0
 
 
@@ -494,6 +546,46 @@ def test_render_failure_reports_the_combined_phase_and_frame() -> None:
     assert operator.reports[-1] == ({"ERROR"}, runtime.status)
 
 
+def test_render_failure_retains_authoritative_completed_raw_work(tmp_path: Path) -> None:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = RuntimeState()
+    settings = SimpleNamespace(status="Ready")
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        settings,
+        adapter=adapter,
+        create_processing=lambda _frames, _should_cancel: ProcessingSession(
+            (tmp_path / "p3", tmp_path / "p4")
+        ),
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.FAILED
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert not runtime.active
+    assert runtime.phase == "FAILED"
+    assert runtime.completed_work == 1
+    assert runtime.phase_completed_work == 1
+    assert runtime.status == (
+        "Render and Process failed during rendering at frame 4: Blender render failed"
+    )
+
+
 def test_processing_failure_reports_the_combined_phase_and_frame(tmp_path: Path) -> None:
     raw_frames = (
         FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
@@ -531,6 +623,84 @@ def test_processing_failure_reports_the_combined_phase_and_frame(tmp_path: Path)
         "Render and Process failed during processing at frame 3: image write failed"
     )
     assert operator.reports[-1] == ({"ERROR"}, runtime.status)
+
+
+def test_cancel_with_removed_runtime_prevents_another_raw_launch(tmp_path: Path) -> None:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = InvalidatableRuntime()
+    settings = SimpleNamespace(status="Ready")
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        settings,
+        adapter=adapter,
+        create_processing=lambda _frames, _should_cancel: ProcessingSession(
+            (tmp_path / "p3", tmp_path / "p4")
+        ),
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    runtime.invalidate()
+
+    assert controller.request_cancel()
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert adapter.launches == [3]
+    assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
+    assert window_manager.events.count(("progress_end", None)) == 1
+
+
+def test_removed_scene_runtime_still_finalizes_modal_resources(tmp_path: Path) -> None:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = InvalidatableRuntime()
+    settings = SimpleNamespace(status="Ready")
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+    cleanup_events: list[str] = []
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        settings,
+        adapter=adapter,
+        create_processing=lambda _frames, _should_cancel: ProcessingSession(
+            (tmp_path / "p3", tmp_path / "p4")
+        ),
+        on_cleanup=lambda: cleanup_events.append("cleanup"),
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    runtime.invalidate()
+
+    assert controller.handle_event(timer) == {"CANCELLED"}
+    assert cleanup_events == ["cleanup"]
+    assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
+    assert window_manager.events.count(("progress_end", None)) == 1
+    assert operator.reports[-1][0] == {"ERROR"}
+    assert "failed during processing at frame 3" in operator.reports[-1][1]
 
 
 def test_external_cancel_during_rendering_retains_discovered_progress(tmp_path: Path) -> None:

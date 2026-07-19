@@ -71,6 +71,8 @@ class RenderAndProcessStateMachine:
             return
         if self.state is not RenderAndProcessState.RENDERING:
             raise RuntimeError("A rendered frame can only advance rendering")
+        if self.rendered_count >= self.frame_count:
+            raise RuntimeError("Rendering has no remaining frames to record")
         expected = self.frame_start + self.rendered_count
         if frame_number != expected:
             raise ValueError(f"Expected rendered frame {expected}, got {frame_number}")
@@ -90,6 +92,8 @@ class RenderAndProcessStateMachine:
             return
         if self.state is not RenderAndProcessState.PROCESSING:
             raise RuntimeError("A processed frame can only advance processing")
+        if self.processed_count >= self.frame_count:
+            raise RuntimeError("Processing has no remaining frames to record")
         expected = self.frame_start + self.processed_count
         if frame_number != expected:
             raise ValueError(f"Expected processed frame {expected}, got {frame_number}")
@@ -166,13 +170,6 @@ ProcessingFactory = Callable[
 ]
 
 
-class CombinedRenderSession(RenderSession, Protocol):
-    """Raw-render session whose discovered outputs are valid processing inputs."""
-
-    @property
-    def completed_frames(self) -> tuple[FramePaths, ...]: ...
-
-
 class RenderAndProcessModalController:
     """Coordinate rendering and processing through one modal lifecycle."""
 
@@ -193,7 +190,7 @@ class RenderAndProcessModalController:
         self._adapter = adapter
         self._create_processing = create_processing
         self._on_cleanup = on_cleanup
-        self._render_session: CombinedRenderSession | None = None
+        self._render_session: RenderSession | None = None
         self._processing_session: IncrementalProcessingSession | None = None
         self._state: RenderAndProcessStateMachine | None = None
         self._cancel_requested = False
@@ -210,11 +207,12 @@ class RenderAndProcessModalController:
             adapter=adapter,
             lifecycle=self._lifecycle,
             on_complete=self._begin_processing,
-            on_cancelled=self._finish_cancelled,
+            on_frame_completed=self._record_rendered_frame,
+            on_cancelled=lambda _completed: self._finish_cancelled(),
             on_failed=self._fail_rendering,
         )
 
-    def start(self, context: Any, render_session: CombinedRenderSession) -> None:
+    def start(self, context: Any, render_session: RenderSession) -> None:
         """Install the sole modal lifecycle and enter the rendering phase."""
         self._render_session = render_session
         self._render_controller.attach(render_session)
@@ -261,8 +259,11 @@ class RenderAndProcessModalController:
         if self.cancel_requested:
             return True
         self._cancel_requested = True
-        with suppress(Exception):
-            self._lifecycle.request_cancel()
+        if state.state is RenderAndProcessState.RENDERING:
+            self._render_controller.request_cancel()
+        else:
+            with suppress(Exception):
+                self._lifecycle.request_cancel()
         return True
 
     @property
@@ -280,17 +281,14 @@ class RenderAndProcessModalController:
         state = self._state
         if state is None or state.is_terminal:
             return
-        rendered_count = (
-            len(self._render_session.completed_frames)
-            if state.state is RenderAndProcessState.RENDERING
-            and self._render_session is not None
-            else None
-        )
-        self._finish_cancelled(rendered_count)
+        self._finish_cancelled()
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Route partial setup failure through the combined finalizer."""
         self._fail("initialization", frame_number, error)
+
+    def _record_rendered_frame(self, completed_frame: FramePaths) -> None:
+        self._require_state().record_rendered_frame(completed_frame.frame)
 
     def _begin_processing(self, completed_session: RenderSession) -> set[Any]:
         state = self._require_state()
@@ -299,8 +297,8 @@ class RenderAndProcessModalController:
             if session is None or completed_session is not session:
                 raise RuntimeError("raw rendering returned an unexpected session")
             frames = session.completed_frames
-            for frame in frames:
-                state.record_rendered_frame(frame.frame)
+            if len(frames) != state.rendered_count:
+                raise RuntimeError("raw rendering completed with inconsistent discovered outputs")
             processing = self._create_processing(frames, lambda: self.cancel_requested)
             self._processing_session = processing
             state.begin_processing()
@@ -325,19 +323,22 @@ class RenderAndProcessModalController:
                 "processing", state.current_frame, RuntimeError("processing session unavailable")
             )
         if self.cancel_requested:
-            return self._finish_cancelled(None)
+            return self._finish_cancelled()
         recovering_history = session.recovery_frame is not None
         frame_number = session.recovery_frame or session.current_frame
         completed_before = len(session.completed_frames)
+        completed_frame = False
         try:
             session.process_next_frame()
+            completed_frame = len(session.completed_frames) > completed_before
+            if completed_frame:
+                state.record_processed_frame(frame_number)
         except SequenceProcessingCancelled:
-            return self._finish_cancelled(None)
+            return self._finish_cancelled()
         except Exception as error:
             return self._fail("processing", frame_number, error)
         status: str | None = None
-        if len(session.completed_frames) > completed_before:
-            state.record_processed_frame(frame_number)
+        if completed_frame:
             status = f"Processed frame {frame_number} of {state.frame_end}"
         elif recovering_history:
             status = f"Restored resume history through frame {frame_number}"
@@ -363,11 +364,8 @@ class RenderAndProcessModalController:
         message = f"Render and Process complete: {len(result.frames)} frame(s)"
         return self._finalize(OperationPhase.COMPLETED, message, {"FINISHED"}, {"INFO"})
 
-    def _finish_cancelled(self, rendered_count: int | None) -> set[Any]:
+    def _finish_cancelled(self) -> set[Any]:
         state = self._require_state()
-        if state.state is RenderAndProcessState.RENDERING and rendered_count is not None:
-            while state.rendered_count < rendered_count:
-                state.record_rendered_frame(state.frame_start + state.rendered_count)
         state.cancel()
         message = (
             f"Render and Process cancelled after {state.completed_work} "
@@ -413,15 +411,10 @@ class RenderAndProcessModalController:
     def _cleanup(self) -> None:
         cleanup_errors: list[Exception] = []
         try:
-            self._adapter.remove()
+            self._render_controller.release_resources()
         except Exception as error:
             cleanup_errors.append(error)
-        session, self._render_session = self._render_session, None
-        if session is not None:
-            try:
-                session.close()
-            except Exception as error:
-                cleanup_errors.append(error)
+        self._render_session = None
         self._processing_session = None
         if self._on_cleanup is not None:
             try:

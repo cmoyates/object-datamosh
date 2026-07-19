@@ -618,20 +618,27 @@ class ODM_OT_render_and_process(Operator):
             and isinstance(context.window_manager, bpy.types.WindowManager)
         ):
             runtime = runtime_for_scene(scene)
+            frame_start = settings.frame_start
+            frame_end = settings.frame_end
+            overwrite_raw = settings.overwrite_raw
+            overwrite_processed = settings.overwrite_processed
+            reset_frames_text = settings.reset_frames
+            resolution_change_value = settings.resolution_change
+            missing_history_value = settings.missing_history
 
             def create_processing(input_frames, should_cancel):
                 return ProcessingSession.create(
                     paths,
-                    frame_start=settings.frame_start,
-                    frame_end=settings.frame_end,
-                    matte_provider=_matte_provider_for_settings(settings),
-                    settings=feedback_settings_for_scene(scene),
-                    image_io=BlenderImageIO(scene),
-                    overwrite=settings.overwrite_processed,
-                    reset_frames=parse_reset_frames(settings.reset_frames),
-                    resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    matte_provider=matte_provider,
+                    settings=feedback_settings,
+                    image_io=image_io,
+                    overwrite=overwrite_processed,
+                    reset_frames=reset_frames,
+                    resolution_change=resolution_change,
                     run_mode=SequenceRunMode.REPROCESS,
-                    missing_history=MissingHistoryPolicy(settings.missing_history),
+                    missing_history=missing_history,
                     should_cancel=should_cancel,
                     input_frames=input_frames,
                 )
@@ -648,17 +655,23 @@ class ODM_OT_render_and_process(Operator):
             _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
             settings.status = "Initializing Render and Process..."
             try:
+                matte_provider = _matte_provider_for_settings(settings)
+                feedback_settings = feedback_settings_for_scene(scene)
+                image_io = BlenderImageIO(scene)
+                reset_frames = parse_reset_frames(reset_frames_text)
+                resolution_change = ResolutionChangePolicy(resolution_change_value)
+                missing_history = MissingHistoryPolicy(missing_history_value)
                 render_session = RawRenderSession.create(
                     scene,
                     view_layer,
                     paths,
-                    frame_start=settings.frame_start,
-                    frame_end=settings.frame_end,
-                    overwrite=settings.overwrite_raw,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    overwrite=overwrite_raw,
                 )
                 controller.start(context, render_session)
             except Exception as error:
-                controller.fail_initialization(settings.frame_start, error)
+                controller.fail_initialization(frame_start, error)
                 return {"CANCELLED"}
             return {"RUNNING_MODAL"}
 

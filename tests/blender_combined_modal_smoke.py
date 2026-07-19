@@ -67,7 +67,12 @@ def run_combined_modal_scenario(
     assert operator.modal(context, timer) == {"RUNNING_MODAL"}
     assert runtime.phase == "RENDERING"
     assert runtime.completed_work == 1
+    # Scripted RNA changes cannot alter the configuration snapshotted at modal invocation.
+    settings.frame_start = 8
+    settings.frame_end = 9
     assert operator.modal(context, timer) == {"RUNNING_MODAL"}
+    settings.frame_start = 1
+    settings.frame_end = 2
     assert runtime.phase == "PROCESSING"
     assert runtime.completed_work == 2
     assert runtime.progress == 0.5
