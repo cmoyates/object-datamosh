@@ -30,8 +30,8 @@ Blender application through System
 Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
 The retained
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json)
-atomically bundles the assertion summary and exact JSONL event trace; the recorded SHA-256 verifies
-the embedded trace.
+atomically bundles the assertion summary and complete JSONL event trace, including the terminal
+`probe_complete` event; the recorded SHA-256 verifies the embedded trace.
 
 ## Foreground Blender 5.0.0 observations
 
@@ -150,11 +150,14 @@ through an undocumented API. See
 
 The tracked `scripts/issue26_release_gates.py` executes the non-foreground gates, captures each exit
 code, output digest/tail, Git/source identity, and ZIP metadata, and writes the successful
-machine-readable receipt at `docs/evidence/issue-26-release-gates.json` only with explicit
-`--update-evidence`. The receipt validates the foreground result, trace digest, tested revision,
-source tree, and probe/runner hashes before running. Each command entry atomically embeds its full
-stdout/stderr plus a content hash. Receipt-publication commits change evidence/documentation only;
-the recorded revisions identify the executable trees that were actually run.
+machine-readable aggregate at `docs/evidence/issue-26-release-gates.json` only with explicit
+`--update-evidence`. It validates the foreground result, trace digest, tested revision, source tree,
+and probe/runner hashes, then executes each gate from an isolated detached worktree. Each command
+atomically writes a fixed-name receipt with exit status, full output and digest (bounded at 64 KiB
+with explicit truncation metadata); failures are receipted before stopping. The package builds in a
+unique temporary directory and is published to `dist/` only if it does not conflict with an existing
+archive. Receipt-publication commits change evidence/documentation only; the recorded revisions
+identify the executable trees that were actually run.
 
 Run from the repository root with
 `BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender`:
@@ -162,7 +165,7 @@ Run from the repository root with
 | Command | Result |
 |---|---|
 | `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 202 tests; 1 Blender-runtime test skipped outside Blender |
+| `uv run pytest -q` | Passed: 203 tests; 1 Blender-runtime test skipped outside Blender |
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
@@ -188,7 +191,9 @@ root where the release gate ran.
   validation, and package-build gates.
 - `docs/evidence/issue-26-foreground-result.json` — atomically retains the successful foreground
   assertions and exact monotonic event trace for the tested source tree and probe revision.
-- `docs/evidence/issue-26-release-gates.json` — atomically retains the tested-revision commands,
-  complete outputs, output digests, foreground-receipt identity, and ZIP metadata.
-- `tests/test_issue26_release_gates.py` — verifies that mid-run source-identity drift blocks receipt
-  publication.
+- `docs/evidence/issue-26-gate-<name>.json` — atomically retains each gate's tested revision, exit
+  status, bounded output, digest, byte counts, and truncation state, including failures.
+- `docs/evidence/issue-26-release-gates.json` — atomically references the successful per-gate
+  receipts and retains foreground-receipt identity plus ZIP metadata.
+- `tests/test_issue26_release_gates.py` — verifies identity comparison and detects a real mid-run
+  project-file edit in a temporary Git repository.

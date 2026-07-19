@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -393,6 +393,12 @@ def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
     assert result == {"RUNNING_MODAL"}
 
 
+def write_result(payload: Mapping[str, object]) -> None:
+    temporary = RESULT.with_suffix(f"{RESULT.suffix}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(RESULT)
+
+
 def finish_success() -> None:
     evidence = state.evidence
     assert isinstance(evidence, dict)
@@ -402,6 +408,7 @@ def finish_success() -> None:
     assert not git_output(
         "status", "--porcelain", "--untracked-files=all", "--", "src/object_datamosh"
     )
+    emit("probe_complete", success=True)
     event_log_jsonl = LOG.read_text(encoding="utf-8")
     trace_sha256 = hashlib.sha256(event_log_jsonl.encode("utf-8")).hexdigest()
     result = {
@@ -421,15 +428,15 @@ def finish_success() -> None:
         "scene_frame": _context.scene.frame_current,
         "success": True,
     }
-    RESULT.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
-    emit("probe_complete", success=True)
+    write_result(result)
     _wm_ops.quit_blender()
 
 
 def fail(error: BaseException) -> None:
     details = {"success": False, "error": repr(error), "traceback": traceback.format_exc()}
-    RESULT.write_text(json.dumps(details, indent=2), encoding="utf-8")
     emit("probe_complete", **details)
+    details["event_log_jsonl"] = LOG.read_text(encoding="utf-8")
+    write_result(details)
     _wm_ops.quit_blender()
 
 

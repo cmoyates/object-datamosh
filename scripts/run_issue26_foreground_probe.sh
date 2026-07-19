@@ -41,7 +41,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-source_scope=(src/object_datamosh scripts)
+source_scope=(src/object_datamosh scripts pyproject.toml uv.lock)
 if [[ -n "$(git status --porcelain --untracked-files=all -- "${source_scope[@]}")" ]]; then
   fail_message="Extension/probe source is dirty; commit or restore it before recording release evidence"
   echo "$fail_message" >&2
