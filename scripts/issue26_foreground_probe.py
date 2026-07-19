@@ -83,11 +83,15 @@ class WindowDimensions(Protocol):
     height: int
 
 
+class EventWindow(WindowDimensions, Protocol):
+    def event_simulate(self, *, type: str, value: str, x: int = 0, y: int = 0) -> None: ...
+
+
 class ContextFacade(Protocol):
     scene: Scene
     active_object: Object | None
     screen: Screen
-    window: WindowDimensions
+    window: EventWindow
 
 
 class ObjectDatamoshOperations(Protocol):
@@ -185,8 +189,8 @@ class ProbeState:
     last_click_coordinate: tuple[int, int] | None = None
     cancel_button_coordinate: tuple[int, int] | None = None
     processing_click_injected: bool = False
-    click_request_sequence: int = 0
-    pending_click_id: str | None = None
+    raw_escape_simulated: bool = False
+    processing_escape_simulated: bool = False
 
     def transition(self, next_stage: ProbeStage) -> None:
         expected = _ALLOWED_TRANSITIONS.get(self.stage)
@@ -217,31 +221,15 @@ def visible_sidebar_region() -> SidebarRegion:
     raise RuntimeError("No visible 3D View sidebar region is available")
 
 
-def request_left_click(x: int, y: int, purpose: str) -> None:
-    if state.pending_click_id is not None:
-        raise RuntimeError(f"UI click already pending: {state.pending_click_id}")
-    state.click_request_sequence += 1
-    request_id = f"{purpose}-{state.click_request_sequence}"
-    state.pending_click_id = request_id
-    emit(
-        "ui_click_requested",
-        marker=request_id,
-        purpose=purpose,
-        window_height=_context.window.height,
-        window_width=_context.window.width,
-        x=x,
-        y=y,
-    )
+def simulate_left_click(x: int, y: int) -> None:
+    _context.window.event_simulate(type="MOUSEMOVE", value="NOTHING", x=x, y=y)
+    _context.window.event_simulate(type="LEFTMOUSE", value="PRESS", x=x, y=y)
+    _context.window.event_simulate(type="LEFTMOUSE", value="RELEASE", x=x, y=y)
 
 
-def consume_click_acknowledgement() -> bool:
-    request_id = state.pending_click_id
-    if request_id is None:
-        return False
-    if not event_recorded("external_ui_click_sent", request_id):
-        return False
-    state.pending_click_id = None
-    return True
+def simulate_escape() -> None:
+    _context.window.event_simulate(type="ESC", value="PRESS")
+    _context.window.event_simulate(type="ESC", value="RELEASE")
 
 
 def verified_cancel_button_coordinate() -> tuple[int, int]:
@@ -525,9 +513,6 @@ def _handle_initialize(item: Snapshot, active: bool) -> None:
 
     region = visible_sidebar_region()
     if region.active_panel_category != "Object Datamosh":
-        if state.pending_click_id is not None:
-            consume_click_acknowledgement()
-            return
         if state.category_click_offset >= region.height:
             raise RuntimeError("Could not activate the Object Datamosh sidebar category")
         coordinate = (
@@ -535,7 +520,8 @@ def _handle_initialize(item: Snapshot, active: bool) -> None:
             region.y + region.height - state.category_click_offset,
         )
         state.category_click_offset += 10
-        request_left_click(*coordinate, purpose="sidebar-category")
+        simulate_left_click(*coordinate)
+        emit("sidebar_category_click", x=coordinate[0], y=coordinate[1])
         return
     if not any(entry[0] == ProbeStage.INITIALIZE.value for entry in state.sidebar_draws):
         return
@@ -626,12 +612,10 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
             region.x + region.width // 2,
             region.y + region.height - state.cancel_click_offset,
         )
-        if state.pending_click_id is not None:
-            consume_click_acknowledgement()
-            return
         state.cancel_click_offset += 6
         state.last_click_coordinate = coordinate
-        request_left_click(*coordinate, purpose="raw-cancel-button")
+        simulate_left_click(*coordinate)
+        emit("cancel_button_click_attempt", x=coordinate[0], y=coordinate[1])
     elif not active and state.cancel_sent:
         assert item["phase"] == "CANCELLED", item
         assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in state.sidebar_draws)
@@ -680,9 +664,13 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
             raise RuntimeError(f"Raw Escape entered unexpected phase: {item!r}")
         if (
             event_recorded("external_escape_sent", "raw_render_active")
-            and int(item["completed_work"]) >= 10
+            and not state.raw_escape_simulated
         ):
-            raise RuntimeError("Blender did not dispatch the raw Escape within 10 frames")
+            simulate_escape()
+            state.raw_escape_simulated = True
+            emit("blender_escape_simulated", stage=stage)
+        if state.raw_escape_simulated and item["completed_work"] >= 10:
+            raise RuntimeError("Blender did not dispatch the simulated raw Escape within 10 frames")
     elif item["phase"] == "CANCELLED":
         draws = state.sidebar_draws
         assert isinstance(draws, list)
@@ -706,10 +694,11 @@ def _handle_raw_escape_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["raw_escape_cancel"] = {
+            "blender_escape_event_simulated": True,
             "completed_frames": completed,
             "controller_cleared": True,
-            "handler_counts_restored": True,
             "escape_sent_during_render": True,
+            "handler_counts_restored": True,
             "pending_state_visible": pending_visible,
         }
         emit("escape_verified", completed_frames=completed)
@@ -736,8 +725,9 @@ def _handle_processing_cancel(item: Snapshot, active: bool) -> None:
     elif active and (not state.processing_click_injected) and (item["completed_work"] >= 2):
         coordinate = state.cancel_button_coordinate
         assert coordinate is not None
-        request_left_click(*coordinate, purpose="processing-cancel-button")
+        simulate_left_click(*coordinate)
         state.processing_click_injected = True
+        emit("processing_cancel_button_clicked", x=coordinate[0], y=coordinate[1])
     elif not active and state.processing_cancel_sent:
         assert item["phase"] == "CANCELLED", item
         draws = state.sidebar_draws
@@ -794,9 +784,15 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
             raise RuntimeError(f"Processing Escape entered unexpected phase: {item!r}")
         if (
             event_recorded("external_escape_sent", "processing_escape_ready")
-            and int(item["completed_work"]) >= 5
+            and not state.processing_escape_simulated
         ):
-            raise RuntimeError("Blender did not dispatch the processing Escape within five frames")
+            simulate_escape()
+            state.processing_escape_simulated = True
+            emit("blender_escape_simulated", stage=stage)
+        if state.processing_escape_simulated and item["completed_work"] >= 5:
+            raise RuntimeError(
+                "Blender did not dispatch the simulated processing Escape within five frames"
+            )
     elif item["phase"] == "CANCELLED":
         assert state.processing_escape_seen
         draws = state.sidebar_draws
@@ -815,6 +811,7 @@ def _handle_processing_escape_cancel(item: Snapshot, active: bool) -> None:
         evidence = state.evidence
         assert isinstance(evidence, dict)
         evidence["processing_escape_cancel"] = {
+            "blender_escape_event_simulated": True,
             "completed_frames": completed,
             "controller_cleared": True,
             "pending_state_visible": True,

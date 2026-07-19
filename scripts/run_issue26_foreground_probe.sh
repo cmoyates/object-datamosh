@@ -32,12 +32,8 @@ event_log="$work_root/events.jsonl"
 run_result="$work_root/result.json"
 evidence_tmp="$evidence_result.tmp.$$"
 blender_pid=""
-click_watcher_pid=""
 
 cleanup() {
-  if [[ -n "$click_watcher_pid" ]] && kill -0 "$click_watcher_pid" 2>/dev/null; then
-    kill "$click_watcher_pid" 2>/dev/null || true
-  fi
   if [[ -n "$blender_pid" ]] && kill -0 "$blender_pid" 2>/dev/null; then
     kill "$blender_pid" 2>/dev/null || true
   fi
@@ -58,76 +54,8 @@ start_runner_sha="$(shasum -a 256 "$0" | awk '{print $1}')"
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
-  "$BLENDER_BIN" --factory-startup --python "$probe" &
+  "$BLENDER_BIN" --enable-event-simulate --factory-startup --python "$probe" &
 blender_pid=$!
-
-uv run python - "$event_log" "$blender_pid" <<'PY' &
-import json
-import os
-import subprocess
-import sys
-import time
-from pathlib import Path
-
-log = Path(sys.argv[1])
-blender_pid = int(sys.argv[2])
-seen: set[str] = set()
-script = """
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set localX to (item 2 of argv) as integer
-  set localY to (item 3 of argv) as integer
-  set blenderWidth to (item 4 of argv) as integer
-  set blenderHeight to (item 5 of argv) as integer
-  tell application "System Events"
-    set targetProcess to first process whose unix id is targetPid
-    set frontmost of targetProcess to true
-    tell window 1 of targetProcess
-      set windowPosition to position
-      set windowSize to size
-    end tell
-    set screenX to (item 1 of windowPosition) + (localX * (item 1 of windowSize) / blenderWidth)
-    set screenY to (item 2 of windowPosition) + ((blenderHeight - localY) * (item 2 of windowSize) / blenderHeight)
-    click at {screenX, screenY}
-  end tell
-end run
-"""
-while True:
-    try:
-        os.kill(blender_pid, 0)
-    except OSError:
-        break
-    if log.exists():
-        for line in log.read_text(encoding="utf-8").splitlines():
-            event = json.loads(line)
-            marker = event.get("marker")
-            if event.get("event") != "ui_click_requested" or marker in seen:
-                continue
-            subprocess.run(
-                [
-                    "osascript",
-                    "-",
-                    str(blender_pid),
-                    str(event["x"]),
-                    str(event["y"]),
-                    str(event["window_width"]),
-                    str(event["window_height"]),
-                ],
-                input=script,
-                text=True,
-                check=True,
-            )
-            seen.add(marker)
-            acknowledgement = {
-                "time": round(time.monotonic(), 6),
-                "event": "external_ui_click_sent",
-                "marker": marker,
-            }
-            with log.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(acknowledgement, sort_keys=True) + "\n")
-    time.sleep(0.01)
-PY
-click_watcher_pid=$!
 
 fail_with_log() {
   local message=$1
