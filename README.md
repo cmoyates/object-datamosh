@@ -28,6 +28,7 @@ The sidebar currently provides:
 
 - a target-object picker, **Use Active Object**, **Setup Object Index**, and
   **Restore Object Index Setup** actions;
+- a **Create Vector Calibration Scene** action for a separate manual-calibration scene;
 - the active view-layer name;
 - sequence start/end frames, an optional output-directory override, a conservative raw-output
   overwrite toggle, **Render Raw Passes**, a separate processed-output overwrite toggle, and
@@ -188,7 +189,7 @@ the current frame. For a current pixel `(x, y)`, the processor therefore samples
 `(x - displacement_x, y - displacement_y)`. RG maps R to X and G to Y; BA maps B to X and A to Y.
 **Reverse Motion** negates both components, while **Flip X** and **Flip Y** negate individual axes.
 These overrides are intentionally exposed because pass conventions must be checked with the
-manual calibration workflow planned for a later ticket.
+manual calibration workflow below.
 
 The processor applies motion gain, direction/axis overrides, and a direction-preserving magnitude
 clamp. It computes a current-matte-weighted mean vector for each block, including partial blocks at
@@ -210,6 +211,48 @@ All inputs are finite NumPy `float32` arrays. Beauty and motion are `(height, wi
 `(height, width)` coverage in `[0, 1]`. Processing is sequential: pass the returned state to the
 next frame, or request a reset when history must be discarded.
 
+## Manual vector calibration
+
+Click **Create Vector Calibration Scene** to add a separate, owned `ODM_Vector_Calibration` scene.
+The operator does not switch, overwrite, or mutate the current scene; choose the new scene from
+Blender's scene selector when ready. It contains a white emissive 2-by-1 rectangle, a transparent
+black world, and an orthographic camera. The rectangle moves linearly along world X from
+`(-2, 0, 0)` on frame 1 to `(2, 0, 0)` on frame 8. Resolution is 256 by 256, the orthographic
+scale is 7, Cycles is selected, motion blur is off, and Vector plus Object Index outputs are
+already configured. The setup writes through the normal raw-output path contract.
+
+To calibrate a Blender version, render frames 1-8 with **Render Raw Passes**, then inspect the
+rectangle in the Vector pass using the Compositor, Image Editor, or another float-EXR viewer:
+
+1. Compare RG and BA. At an endpoint, the pair that still contains horizontal motion identifies
+   the direction toward the existing neighboring frame. For temporal feedback from the preceding
+   frame, select the pair that is populated on frame 8; on tested Blender 5.0.0 this is **RG**.
+2. The rectangle moves right. If the chosen X value is negative, enable **Reverse Motion** (or
+   **Flip X** when only X needs correction). Tested Blender 5.0.0 produced approximately
+   `R = -20.898`, `G = 0` on interior rectangle pixels, so the documented starting point is RG,
+   Reverse Motion enabled, and Motion Gain 1.0.
+3. Check scale against the worked value: `(4 world units / 7 frame intervals) / 7 ortho units ×
+   256 pixels = 20.898 pixels/frame`. Adjust **Motion Gain** only if the measured magnitude differs.
+4. To check vertical convention, temporarily move both location keyframes from X to Y while
+   preserving their values, rerender, and inspect the chosen Y channel. A screen-up movement must
+   become positive under the processor's pixel convention; toggle **Flip Y** if it does not.
+5. Confirm reversal by rendering the same motion in the opposite direction. The chosen X channel
+   must change sign. Restore the deterministic X keyframes or create a fresh calibration scene
+   afterward.
+
+Both RG/BA selection, whole-vector reversal, per-axis flips, and gain remain explicit sidebar
+overrides because engines and Blender releases may emit different conventions. The measured 5.0.0
+result is a starting point, not automatic inference. The last frame has no next-frame BA vector
+and the first frame has no previous-frame RG vector; use interior frames for magnitude checks.
+
+The background-compatible creation check is:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup --python tests/create_calibration_scene.py
+```
+
+Visual channel interpretation and the temporary Y/reversed-motion checks remain interactive.
+
 ## Architecture
 
 ```text
@@ -218,6 +261,7 @@ Blender sidebar / operators
         ├── Object Index setup/restore ───────────────── owned compositor nodes
         ├── Render Raw Passes ────────────────────────── sequential Blender render service
         ├── Process Existing Passes ─────────────────── sequential feedback + EXR output
+        ├── Create Vector Calibration Scene ─────────── separate owned Blender scene
         ├── SequencePaths + matte-provider contracts ── render/process boundaries
         │
         ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
@@ -268,9 +312,11 @@ third-party runtime dependency.
   is not implemented. Object Index availability remains render-engine dependent.
 - The background smoke test verifies registration, the complete emitted sidebar control surface,
   target assignment and status, path derivation, setup idempotency, cleanup/restoration, unrelated
-  node survival, the raw-render operator, collision refusal, bounded cancellation, a two-frame
+  node survival, separate vector-calibration scene creation and ownership, the raw-render
+  operator, collision refusal, bounded cancellation, a two-frame
   Cycles beauty/vector/matte render, emitted filename discovery, full-float EXR contracts, temporary
   image cleanup, render-setting restoration, processing fixture-generated two-frame pass
   sequences, processed EXR contracts, hard-localized output, and processed-output collision
-  refusal. Visual node layout, sidebar polish, interactive cancellation, and control behavior
-  still require a manual foreground Blender check.
+  refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass
+  interpretation (especially the Y-axis and reversed-motion checks), and control behavior still
+  require a manual foreground Blender check.

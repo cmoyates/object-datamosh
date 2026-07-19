@@ -26,6 +26,7 @@ from bpy.types import (
 )
 
 from .blender_image_io import BlenderImageIO
+from .calibration import create_vector_calibration_scene
 from .compositor_setup import (
     has_object_index_setup,
     restore_object_index_passes,
@@ -375,6 +376,42 @@ class ODM_OT_process_sequence(Operator):
         return {"FINISHED"}
 
 
+class ODM_OT_create_vector_calibration(Operator):
+    """Create a separate deterministic scene for manual vector calibration."""
+
+    bl_idname = "object_datamosh.create_vector_calibration"
+    bl_label = "Create Vector Calibration Scene"
+    bl_description = "Create a separate animated ODM_ scene for interpreting vector passes"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return context.scene is not None
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            self.report({"ERROR"}, "An active scene is required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        try:
+            calibration = create_vector_calibration_scene(sequence_paths_for_scene(scene))
+        except (RuntimeError, TypeError, ValueError) as error:
+            message = str(error)
+            settings.status = message
+            self.report({"ERROR"}, message)
+            return {"CANCELLED"}
+        calibration_settings = settings_for_scene(calibration.scene)
+        calibration_settings.target_object = calibration.target
+        calibration_settings.frame_start = calibration.scene.frame_start
+        calibration_settings.frame_end = calibration.scene.frame_end
+        calibration_settings.output_directory = settings.output_directory
+        message = f"Created {calibration.scene.name} (frames 1-8)"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_OT_restore_object_index(Operator):
     """Remove owned compositor setup and restore changed pass settings."""
 
@@ -461,6 +498,10 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
         row.operator(ODM_OT_setup_object_index.bl_idname)
         row.operator(ODM_OT_restore_object_index.bl_idname)
 
+    calibration = layout.box()
+    calibration.label(text="Vector Calibration")
+    calibration.operator(ODM_OT_create_vector_calibration.bl_idname)
+
     feedback = layout.box()
     feedback.label(text="Feedback")
     feedback.prop(settings, "persistence")
@@ -486,6 +527,7 @@ _CLASSES = (
     ODM_OT_setup_object_index,
     ODM_OT_render_raw_passes,
     ODM_OT_process_sequence,
+    ODM_OT_create_vector_calibration,
     ODM_OT_restore_object_index,
     ODM_PT_sidebar,
 )

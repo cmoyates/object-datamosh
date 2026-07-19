@@ -190,6 +190,8 @@ def setup_object_index_passes(
         target_object.pass_index = pass_index
         view_layer.use_pass_vector = True
         view_layer.use_pass_object_index = True
+        if hasattr(render_layers, "scene"):
+            render_layers.scene = scene
         render_layers.layer = view_layer.name
         _socket(id_mask.inputs, "Index").default_value = pass_index
 
