@@ -28,6 +28,7 @@ for import_root in (SOURCE_ROOT, TEST_ROOT):
 
 from blender_modal_test_support import LayoutRecorder  # noqa: E402
 from blender_processing_modal_smoke import run_processing_modal_scenarios  # noqa: E402
+from blender_raw_render_modal_smoke import run_raw_render_modal_scenarios  # noqa: E402
 
 import object_datamosh  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
@@ -412,9 +413,14 @@ def main() -> None:
         render.resolution_y = 12
         render.resolution_percentage = 100
         assert object_datamosh_ops.setup_object_index() == {"FINISHED"}
-        assert object_datamosh_ops.render_raw_passes() == {"FINISHED"}
-        assert settings.status == "Rendered 1 raw frame(s)"
-        assert SequencePaths(operator_root).frame(1).beauty.is_file()
+        run_raw_render_modal_scenarios(
+            scene,
+            settings,
+            runtime,
+            object_datamosh_ops,
+            operator_root,
+        )
+        assert settings.status == "Cancelled after 1 frame(s)"
         assert object_datamosh_ops.restore_object_index() == {"FINISHED"}
 
         combined_root = temp_root / "combined"

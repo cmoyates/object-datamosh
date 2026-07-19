@@ -125,8 +125,11 @@ Click **Render and Process**. The extension will:
 3. process those frames sequentially through temporal feedback; and
 4. write `processed/ODM_processed_<frame>.exr` plus a recovery manifest.
 
-Watch the panel's **Status** value and Blender's progress display. Cancellation is observed between
-frames. Completed raw and processed files are retained rather than deleted.
+Watch the panel's **Status** value and Blender's progress display. Raw rendering and existing-pass
+processing yield to Blender between frames. An individual Blender frame render can still temporarily
+block the UI; see [the Blender 5 modal render investigation](docs/blender-5-modal-render-investigation.md).
+Press **Escape** or use **Cancel** to stop at the next safe frame boundary. Completed raw and
+processed files are retained rather than deleted.
 
 For more control, click **Render Raw Passes** first, inspect the raw EXRs, and then click **Process
 Existing Passes**. This is also the appropriate path when adjusting feedback settings without
@@ -291,10 +294,19 @@ It does not invoke feedback processing.
 Existing files in the configured range stop the action before rendering unless **Overwrite Raw
 Passes** is explicitly enabled. Rendering temporarily retargets only the extension-owned File
 Output nodes. Their prior directories and filename patterns, along with the scene's current frame,
-are restored after success, failure, or cancellation. Progress always closes. Cancellation is
-observed between frames, so already completed files form a bounded recovery point; the extension
-does not delete them. Resolve the cause and rerun with overwrite enabled only when replacing those
-raw files is intended.
+are restored after success, failure, or cancellation. Progress always closes.
+
+**Render Raw Passes** is a modal operation with one timer and at most one active frame render. The
+sidebar publishes the current frame only after Blender reports completion and all three emitted
+files pass discovery, requests a redraw, and then yields before launching the next frame. Blender
+5.0.0 does not reliably preserve a parent modal operator around a nested asynchronous render, so
+the extension uses a modal frame-boundary fallback: Blender remains available between frames, but
+an individual frame render can temporarily block the UI.
+
+Press **Escape** or click **Cancel** to publish pending-cancel feedback. No later frame starts. If
+Blender cannot interrupt the active frame safely, cancellation completes after that frame and its
+outputs are verified. Already completed files form a bounded recovery point and are never deleted.
+Resolve the cause and rerun with overwrite enabled only when replacing those raw files is intended.
 
 Object Index remains render-engine dependent. Use Cycles for the documented Blender 5.0.0 path,
 or verify that the chosen engine exposes and emits Image, Vector, and Object Index before a
@@ -482,9 +494,10 @@ object_datamosh.core: NumPy + Python only; never imports bpy
 ```
 
 No background thread calls Blender APIs. Runtime state belongs to Blender scenes, tagged Blender
-data, or returned immutable values; there is no mutable module-level runtime state. The focused
-`ExistingPassModalController` owns the existing-pass event state machine, while the reusable
-`ModalOperationLifecycle` owns one modal timer, Blender progress, safe sidebar redraws, operation
+data, or returned immutable values; there is no mutable module-level runtime state. The focused `ExistingPassModalController` and `RawRenderModalController` own their incremental
+event state machines. `BlenderRenderAdapter` isolates frame launch and scene/run-identity-checked
+render observation, while the reusable `ModalOperationLifecycle` owns one modal timer, Blender
+progress, safe sidebar redraws, operation
 locking, cancellation requests, and idempotent universal cleanup with a separate workflow cleanup
 hook. Blender properties contain only transient, `SKIP_SAVE` run metadata—never either runtime
 service—so reopening a blend cannot resurrect an active lock without its controller or timer. The

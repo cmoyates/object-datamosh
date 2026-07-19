@@ -26,6 +26,7 @@ from bpy.types import (
 )
 
 from .blender_image_io import BlenderImageIO
+from .blender_render_adapter import BlenderRenderAdapter
 from .calibration import create_vector_calibration_scene
 from .compositor_setup import (
     has_object_index_setup,
@@ -42,7 +43,8 @@ from .core.paths import SequencePaths
 from .existing_pass_operation import ExistingPassModalController
 from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
-from .raw_render import RawRenderCancelled, render_raw_passes
+from .raw_render import RawRenderCancelled, RawRenderSession, render_raw_passes
+from .raw_render_operation import RawRenderModalController
 from .sequence_processing import (
     MissingHistoryPolicy,
     ProcessingSession,
@@ -62,9 +64,13 @@ def _driver_namespace() -> dict[str, object]:
     return cast(dict[str, object], cast(Any, bpy.app).driver_namespace)
 
 
-def _active_modal_controller() -> ExistingPassModalController | None:
+def _active_modal_controller() -> ExistingPassModalController | RawRenderModalController | None:
     controller = _driver_namespace().get(_ACTIVE_CONTROLLER_KEY)
-    return controller if isinstance(controller, ExistingPassModalController) else None
+    return (
+        controller
+        if isinstance(controller, (ExistingPassModalController, RawRenderModalController))
+        else None
+    )
 
 
 def _clear_active_modal_controller() -> None:
@@ -445,11 +451,13 @@ class _WindowManagerProgress:
 
 
 class ODM_OT_render_raw_passes(Operator):
-    """Render the configured frame range to separate raw EXR pass sequences."""
+    """Render the configured frame range through one modal frame boundary at a time."""
 
     bl_idname = "object_datamosh.render_raw_passes"
     bl_label = "Render Raw Passes"
     bl_description = "Render beauty, vector, and Object Index matte EXR sequences"
+
+    _controller: RawRenderModalController | None
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -463,6 +471,10 @@ class ODM_OT_render_raw_passes(Operator):
             and has_object_index_setup(context.scene)
         )
 
+    def invoke(self, context: Context, event: Any) -> set[Any]:
+        del event
+        return self.execute(context)
+
     def execute(self, context: Context) -> set[Any]:
         scene = context.scene
         view_layer = context.view_layer
@@ -470,31 +482,42 @@ class ODM_OT_render_raw_passes(Operator):
             self.report({"ERROR"}, "An active scene and view layer are required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
+        runtime = runtime_for_scene(scene)
+        controller = RawRenderModalController(
+            self,
+            runtime,
+            settings,
+            adapter=BlenderRenderAdapter(runtime),
+            on_cleanup=_clear_active_modal_controller,
+        )
+        self._controller = controller
+        _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
         settings.status = "Rendering raw passes..."
         try:
-            result = render_raw_passes(
+            session = RawRenderSession.create(
                 scene,
                 view_layer,
                 sequence_paths_for_scene(scene),
                 frame_start=settings.frame_start,
                 frame_end=settings.frame_end,
                 overwrite=settings.overwrite_raw,
-                progress=_WindowManagerProgress(context.window_manager),
             )
-        except RawRenderCancelled as error:
-            message = str(error)
-            settings.status = message
-            self.report({"WARNING"}, message)
+            controller.start(context, session)
+        except Exception as error:
+            controller.fail_initialization(settings.frame_start, error)
             return {"CANCELLED"}
-        except (FileExistsError, RuntimeError, TypeError, ValueError) as error:
-            message = str(error)
-            settings.status = message
-            self.report({"ERROR"}, message)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context: Context, event: Any) -> set[Any]:
+        controller = self._controller
+        if controller is None:
+            self.report({"ERROR"}, "Raw rendering failed: the modal controller is unavailable")
             return {"CANCELLED"}
-        message = f"Rendered {len(result.frames)} raw frame(s)"
-        settings.status = message
-        self.report({"INFO"}, message)
-        return {"FINISHED"}
+        return controller.handle_event(event)
+
+    def cancel(self, context: Context) -> None:
+        if self._controller is not None:
+            self._controller.cancel()
 
 
 def _matte_provider_for_settings(settings: ODM_Settings):
