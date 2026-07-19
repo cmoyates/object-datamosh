@@ -1,48 +1,49 @@
 export const meta = {
   name: "resolve-ready-github-issues",
   description:
-    "Sequentially implements every eligible unblocked GitHub issue, iterates review/fix until clean, closes it, then follows the newly unlocked dependency frontier.",
+    "Implements the unblocked issue frontier, reviews in fresh bounded contexts, hands off between rounds, and extracts genuinely out-of-scope findings into follow-up tickets.",
   phases: [
     {
       title: "Select, implement, and open PR",
-      detail: "Choose the next unblocked eligible issue, create its deterministic feature branch, implement it, and open its PR.",
+      detail: "Choose the next unblocked issue, implement it, open its PR, and write a handoff.",
     },
     {
-      title: "Review, fix, and close",
-      detail: "Review against both the issue and repository standards, fix and re-review until clean, verify, then close the issue.",
+      title: "Review and fix",
+      detail: "Run bounded review/fix rounds in fresh contexts, handing off between each round.",
+    },
+    {
+      title: "Verify, merge, and close",
+      detail: "Run the complete verification gate, merge the clean PR, and close its issue.",
     },
   ],
 };
 
 // Workflow-tool script. Run this file's contents with the `workflow` tool from
-// the repository root. Optional args: { "maxIssues": 15 }.
+// the repository root. Optional args: { "maxIssues": 6, "maxReviewRounds": 3 }.
 //
-// The workflow extension permits at most 32 agent calls. This workflow uses two
-// calls per completed issue plus one final frontier check, so maxIssues is
-// capped at 15. Re-running is safe: closed issues are no longer selected.
+// Each issue uses at most five calls: implementation, three bounded review/fix
+// rounds, and final verification. Six issues plus one frontier check fit within
+// the workflow tool's 32-call limit. Re-running is safe because closed issues
+// are no longer selected.
 
 const MODEL = "openai-codex/gpt-5.6-sol";
 const EFFORT = "low";
+const HARD_MAX_ISSUES = 6;
+const HARD_MAX_REVIEW_ROUNDS = 3;
 
-// Prompt customization hooks. Fill these in before the first run. The shared
-// templates apply to every issue; per-issue entries can add issue-specific
-// context or instructions without replacing the workflow's safety gates.
-const IMPLEMENTATION_PROMPT_TEMPLATE = `$tdd \${issue_url}`;
-const REVIEW_PROMPT_TEMPLATE = `$thermo-nuclear-code-quality-review $code-review`;
-const ISSUE_PROMPT_TEMPLATES = {
-  // "123": {
-  //   common: "Context that both agents should receive.",
-  //   implementation: "Issue-specific implementation instructions.",
-  //   review: "Issue-specific review instructions and acceptance checks.",
-  // },
-};
-const ISSUE_PROMPTS_JSON = JSON.stringify(ISSUE_PROMPT_TEMPLATES);
-
-const requestedMax =
+const requestedMaxIssues =
   args && typeof args === "object" && Number.isInteger(args.maxIssues)
     ? args.maxIssues
-    : 15;
-const maxIssues = Math.max(1, Math.min(15, requestedMax));
+    : HARD_MAX_ISSUES;
+const maxIssues = Math.max(1, Math.min(HARD_MAX_ISSUES, requestedMaxIssues));
+const requestedReviewRounds =
+  args && typeof args === "object" && Number.isInteger(args.maxReviewRounds)
+    ? args.maxReviewRounds
+    : HARD_MAX_REVIEW_ROUNDS;
+const maxReviewRounds = Math.max(
+  1,
+  Math.min(HARD_MAX_REVIEW_ROUNDS, requestedReviewRounds),
+);
 
 const IMPLEMENTATION_RESULT = {
   type: "object",
@@ -54,6 +55,7 @@ const IMPLEMENTATION_RESULT = {
     implementationSha: { type: "string" },
     branchName: { type: "string" },
     pullRequestUrl: { type: "string" },
+    handoffPath: { type: "string" },
     summary: { type: "string" },
     error: { type: "string" },
   },
@@ -63,17 +65,36 @@ const IMPLEMENTATION_RESULT = {
 const REVIEW_RESULT = {
   type: "object",
   properties: {
-    status: { type: "string", enum: ["closed", "failed"] },
+    status: {
+      type: "string",
+      enum: ["clean", "fixed", "blocked", "failed"],
+    },
     issueNumber: { type: "integer" },
-    reviewRounds: { type: "integer" },
-    findingsFixed: { type: "array", items: { type: "string" } },
-    verification: { type: "array", items: { type: "string" } },
+    reviewedSha: { type: "string" },
     finalSha: { type: "string" },
-    pullRequestUrl: { type: "string" },
+    findingsFixed: { type: "array", items: { type: "string" } },
+    followUpIssues: { type: "array", items: { type: "string" } },
+    remainingBlockers: { type: "array", items: { type: "string" } },
+    handoffPath: { type: "string" },
     summary: { type: "string" },
     error: { type: "string" },
   },
-  required: ["status", "issueNumber", "reviewRounds", "summary"],
+  required: ["status", "issueNumber", "summary"],
+};
+
+const FINAL_RESULT = {
+  type: "object",
+  properties: {
+    status: { type: "string", enum: ["closed", "blocked", "failed"] },
+    issueNumber: { type: "integer" },
+    verification: { type: "array", items: { type: "string" } },
+    finalSha: { type: "string" },
+    pullRequestUrl: { type: "string" },
+    handoffPath: { type: "string" },
+    summary: { type: "string" },
+    error: { type: "string" },
+  },
+  required: ["status", "issueNumber", "summary"],
 };
 
 const completed = [];
@@ -85,29 +106,22 @@ for (let index = 0; index < maxIssues; index += 1) {
 
   const implementation = await agent(
     `You are the implementation agent in an autonomous GitHub-issue workflow.
-Work in the current repository only. Read and obey AGENTS.md and all relevant repository documentation before editing.
+Work only in the current repository. Read and obey AGENTS.md and all relevant repository documentation.
 
-Shared implementation prompt template:
-${IMPLEMENTATION_PROMPT_TEMPLATE}
+Select and implement exactly one issue:
+1. Require a clean git working tree before any write. If user work is present, return "failed" without changing anything.
+2. Use gh to inspect open issues, labels, full bodies, comments, and GitHub native dependencies. Eligible issues are open and labelled ready-for-agent (case-insensitive). If no open issue has that label, treat all open issues as eligible.
+3. Among eligible issues with zero open blockers, prefer one that blocks another eligible issue, then the lowest issue number. Ignore pull requests. Return "none" if the frontier is empty or entirely blocked.
+4. Claim the issue with gh issue edit <number> --add-assignee @me as your first write.
+5. Read the issue fully and invoke $tdd with its full GitHub URL. Do not invent a public test seam that the issue leaves undecided.
+6. Fast-forward main and create agent/issue-<number> from main. Never implement on main or reuse another issue branch.
+7. Implement only the selected issue, including tests and documentation. Run the relevant AGENTS.md verification and fix code failures.
+8. Commit only scoped files with #<number> in the message, push, and open a PR to main containing Closes #<number>. Do not review, merge, or close it.
+9. Invoke $handoff with the argument "Review the implementation for issue #<number> and its PR". The skill must write the handoff into the OS temporary directory. Return its absolute path. Do not copy the issue, diff, or commits into the handoff; reference their URLs and SHAs.
 
-Per-issue prompt templates (JSON):
-${ISSUE_PROMPTS_JSON}
-After selecting the issue, apply its "common" and "implementation" text when present. Treat these as additional requirements; they never override repository rules or the safety gates below.
+If context pressure appears at any point, stop before losing state, invoke $handoff for the exact next action, push any coherent committed work, and return "failed" with the handoff path rather than continuing until context exhaustion.
 
-Select exactly one next issue and implement it:
-1. First require a clean git working tree (ignore only known generated/ignored files). If tracked or untracked user work is present, return status "failed" without changing anything.
-2. Use gh CLI. List open GitHub issues and inspect labels, full bodies, and comments. Query GitHub's native blocking relationships through gh api; issue_dependencies_summary.blocked_by counts only open blockers. Do not guess from issue numbers.
-3. Eligible issues are open issues labelled "ready for agent" (case-insensitive). If that label does not exist on any open issue, treat all open issues as eligible, as this repository currently considers all open issues agent-ready.
-4. From eligible issues with zero open blockers, choose deterministically: prefer the issue that blocks another eligible open issue, then the lowest issue number. Ignore pull requests. If no eligible unblocked issue exists, return status "none" and explain whether the set is empty or blocked.
-5. Claim the selected issue with: gh issue edit <number> --add-assignee @me. This must be your first write.
-6. Read the selected issue with comments and labels. Replace the implementation template's literal \${issue_url} placeholder with the selected issue's full GitHub URL. Invoke and follow the requested $tdd skill. If the issue does not establish the public test seams required by that skill, do not invent them: return "failed" explaining that seam confirmation is required.
-7. Ensure local main is current with its upstream using a fast-forward-only pull, then create the deterministic feature branch `agent/issue-<issue number>` from main. Never implement directly on main and never reuse another issue's branch.
-8. Inspect relevant code and documentation. Implement the complete requested behavior, including appropriate tests and docs. Keep scope limited to that issue and preserve all user data and repository safety rules.
-9. Run the relevant verification required by AGENTS.md. Do not claim a check passed unless you actually ran it. Fix implementation/test failures before proceeding; environment-only failures must be reported precisely.
-10. Stage only files belonging to this issue and create one commit with a message that includes "#<issue number>". Never bypass hooks. Leave the feature-branch working tree clean.
-11. Push the feature branch and create a PR into main with `Closes #<issue number>` in its body. This PR creation is a deterministic workflow handoff, not part of the user-supplied implementation template. Do NOT close the issue, merge the PR, or perform the review loop; the next agent owns those gates.
-
-Return structured data. For status "implemented", include issueNumber, issueTitle, branchName, pullRequestUrl, the pre-change baseSha, implementationSha, and a concise summary. For "none" or "failed", explain why.`,
+Return structured data. For "implemented", include the issue number/title, branch, PR URL, base SHA, implementation SHA, handoff path, and summary.`,
     {
       label: `implement-next-${index + 1}`,
       phase: "Select, implement, and open PR",
@@ -131,6 +145,7 @@ Return structured data. For status "implemented", include issueNumber, issueTitl
     failure = {
       stage: "implementation",
       iteration: index + 1,
+      handoffPath: implemented?.handoffPath,
       error: implemented?.error || implemented?.summary || "Implementation failed",
     };
     break;
@@ -140,57 +155,146 @@ Return structured data. For status "implemented", include issueNumber, issueTitl
     break;
   }
 
-  phase("Review, fix, and close");
+  let handoffPath = implemented.handoffPath || "";
+  let clean = false;
+  const findingsFixed = [];
+  const followUpIssues = [];
+  let roundsUsed = 0;
 
-  const review = await agent(
-    `You are the independent review/fix/close gate for GitHub issue #${implemented.issueNumber} (${JSON.stringify(implemented.issueTitle || "")}).
-The implementation agent reports feature branch ${JSON.stringify(implemented.branchName || "")}, PR ${JSON.stringify(implemented.pullRequestUrl || "")}, base commit ${implemented.baseSha}, and implementation commit ${implemented.implementationSha}.
-Work in the current repository only. Read and obey AGENTS.md and relevant repository documentation.
+  for (let round = 1; round <= maxReviewRounds; round += 1) {
+    phase("Review and fix");
+    roundsUsed = round;
 
-Shared review prompt template:
-${REVIEW_PROMPT_TEMPLATE}
+    const review = await agent(
+      `You own exactly one bounded review/fix round for issue #${implemented.issueNumber} and PR ${implemented.pullRequestUrl} on branch ${implemented.branchName}.
+Work only in the current repository. Read and obey AGENTS.md and relevant docs. Read the prior handoff at ${JSON.stringify(handoffPath)} when it exists, but independently verify every claim against GitHub and git. Invoke $thermo-nuclear-code-quality-review and $code-review.
 
-Per-issue prompt templates (JSON):
-${ISSUE_PROMPTS_JSON}
-Apply issue #${implemented.issueNumber}'s "common" and "review" text when present. Treat these as additional review requirements; they never override repository rules or the close gate below.
+Perform one fresh review pass across Spec and Standards. Classify every actionable finding:
 
-Do not trust the prior agent's summary. Independently fetch the issue body, labels, comments, and reported PR with gh. The workflow requires that the PR already exists and targets main; if it does not, return "failed" rather than creating one. Confirm you are on the reported feature branch with a clean tree. Use the existing PR diff and issue as the review surface.
+CURRENT-ISSUE BLOCKER:
+- violates an acceptance criterion;
+- is a regression, correctness failure, data-loss/cleanup risk, or safety issue;
+- or was directly introduced by this PR.
+These findings may not be deferred. Fix all of them on the feature branch, add tests, run focused checks, commit with #${implemented.issueNumber}, and push. Do not perform another full review in this context; the next agent supplies the fresh pass.
 
-Run this smaller loop until a fresh review finds no actionable issues:
-A. REVIEW both axes independently:
-   - Spec: every issue requirement is implemented correctly; no missing edge cases, incorrect behavior, or unrequested scope.
-   - Standards: AGENTS.md and repository conventions, architecture boundaries, scene/data safety, useful errors, tests, docs, typing, and maintainability. Also inspect for correctness, security, regressions, and test gaps.
-B. If there are actionable findings, fix all of them on the feature branch, add/update tests, run relevant focused checks, commit the fixes, and push. Then return to A and perform a genuinely fresh review of the updated PR. Do not stop merely because the fixes compile.
-C. When a fresh round has zero actionable findings, run the complete verification sequence required by AGENTS.md: ty, pure Python tests, Blender background smoke test, extension validation, and installation ZIP build. Use BLENDER_BIN. Fix any code-caused failure and return to A. Clearly distinguish unavailable-environment failures; do not fabricate success.
-D. Require that the feature-branch working tree is clean, the PR contains only this issue's changes, and the issue remains open. If a code-caused failure cannot be resolved, return "failed" and do not merge or close the issue.
-E. Only after the review is clean and required checks pass (or a check is demonstrably impossible solely because the required external environment/tool is unavailable), merge the PR with gh. Confirm the merge succeeded. Confirm issue #${implemented.issueNumber} closed; if GitHub did not auto-close it, post a concise comment with the PR and exact verification results and close it explicitly. Then check out main, pull fast-forward-only, and require a clean working tree before returning.
+FOLLOW-UP CANDIDATE:
+- exposes a broader pre-existing architectural weakness;
+- requires redesign outside the promised behavior;
+- is maintainability work rather than required correctness;
+- or expands substantially into another subsystem.
+Do not implement it in this PR. Invoke $to-tickets to formulate and publish the smallest tracer-bullet follow-up issue or issue set. The maintainer has pre-approved publication of genuinely out-of-scope review findings through this workflow, so the skill's approval checkpoint is satisfied for this narrow case. Link the source issue and PR, apply ready-for-agent, and use native dependencies only when a real blocking relationship exists. Do not modify or close the source issue.
 
-Never work on another issue. Never weaken tests or repository rules to force a pass. Never close an issue with known actionable findings.
-Return structured data with status, issueNumber, number of review rounds, findingsFixed, exact verification command/results, finalSha, and summary.`,
+Return "clean" only when this fresh pass found no current-issue blocker. Return "fixed" after fixing one or more blockers; a fresh context must re-review. Return "blocked" without merging when an in-scope blocker cannot fit safely in this bounded round or requires a maintainer decision.
+
+At the end, invoke $handoff with the argument "Continue review of issue #${implemented.issueNumber}, PR ${implemented.pullRequestUrl}, after review round ${round}". Save it in the OS temporary directory and return its absolute path. Keep it compact and reference the issue, PR, commits, tests, and follow-up issues rather than duplicating them. If context pressure appears, create this handoff early and stop safely.
+
+Never merge or close the source issue in this round.`,
+      {
+        label: `review-fix-${implemented.issueNumber}-round-${round}`,
+        phase: "Review and fix",
+        schema: REVIEW_RESULT,
+        model: MODEL,
+        effort: EFFORT,
+      },
+    );
+
+    if (!review.ok) {
+      failure = {
+        stage: "review-agent",
+        issueNumber: implemented.issueNumber,
+        round,
+        handoffPath,
+        error: review.error || "Review agent failed",
+      };
+      break;
+    }
+
+    const reviewed = review.structured;
+    if (!reviewed || reviewed.status === "failed") {
+      failure = {
+        stage: "review",
+        issueNumber: implemented.issueNumber,
+        round,
+        handoffPath: reviewed?.handoffPath || handoffPath,
+        error: reviewed?.error || reviewed?.summary || "Review failed",
+      };
+      break;
+    }
+
+    handoffPath = reviewed.handoffPath || handoffPath;
+    findingsFixed.push(...(reviewed.findingsFixed || []));
+    followUpIssues.push(...(reviewed.followUpIssues || []));
+
+    if (reviewed.status === "blocked") {
+      failure = {
+        stage: "review-blocked",
+        issueNumber: implemented.issueNumber,
+        round,
+        handoffPath,
+        remainingBlockers: reviewed.remainingBlockers || [],
+        error: reviewed.summary,
+      };
+      break;
+    }
+    if (reviewed.status === "clean") {
+      clean = true;
+      break;
+    }
+  }
+
+  if (failure) break;
+
+  if (!clean) {
+    failure = {
+      stage: "review-budget-exhausted",
+      issueNumber: implemented.issueNumber,
+      roundsUsed,
+      handoffPath,
+      error:
+        "The bounded review budget ended after a fix round. The PR remains open and requires a fresh review context; no finding was waived.",
+    };
+    break;
+  }
+
+  phase("Verify, merge, and close");
+
+  const finalization = await agent(
+    `You are the final verification and close gate for issue #${implemented.issueNumber} and PR ${implemented.pullRequestUrl} on branch ${implemented.branchName}.
+Read and obey AGENTS.md. Read the latest handoff at ${JSON.stringify(handoffPath)} when it exists, but independently verify GitHub and git state.
+
+Do not conduct an open-ended refactor or review loop. Confirm the latest fresh review was clean, the issue remains open, the PR targets main, the branch is clean, and the diff is issue-scoped. Run the complete verification required by AGENTS.md: ty, pure Python tests, Blender background smoke using BLENDER_BIN, extension validation, and installation ZIP build, plus any issue-specific checks. Do not fabricate unavailable checks.
+
+If verification reveals a code defect or unmet acceptance criterion, do not fix, merge, or close in this context. Invoke $handoff with "Fix the final verification blocker for issue #${implemented.issueNumber} and PR ${implemented.pullRequestUrl}", return "blocked", and leave the exact failing command and next action in the handoff. A fresh workflow run must fix and re-review it.
+
+Only when all gates pass (or a check is demonstrably impossible solely because its external environment is unavailable and the issue permits that limitation), merge the PR with gh. Confirm the issue closed; if GitHub did not auto-close it, post exact verification results and close it. Check out main, pull fast-forward-only, and require a clean working tree.
+
+Invoke $handoff only on blocked or failed exit; successful closure needs no handoff. Return exact verification results, final SHA, PR URL, and summary.`,
     {
-      label: `review-fix-close-${implemented.issueNumber}`,
-      phase: "Review, fix, and close",
-      schema: REVIEW_RESULT,
+      label: `verify-merge-close-${implemented.issueNumber}`,
+      phase: "Verify, merge, and close",
+      schema: FINAL_RESULT,
       model: MODEL,
       effort: EFFORT,
     },
   );
 
-  if (!review.ok) {
+  if (!finalization.ok) {
     failure = {
-      stage: "review-agent",
+      stage: "finalization-agent",
       issueNumber: implemented.issueNumber,
-      error: review.error || "Review agent failed",
+      handoffPath,
+      error: finalization.error || "Finalization agent failed",
     };
     break;
   }
 
-  const reviewed = review.structured;
-  if (!reviewed || reviewed.status !== "closed") {
+  const finalized = finalization.structured;
+  if (!finalized || finalized.status !== "closed") {
     failure = {
-      stage: "review",
+      stage: "finalization",
       issueNumber: implemented.issueNumber,
-      error: reviewed?.error || reviewed?.summary || "Issue was not closed",
+      handoffPath: finalized?.handoffPath || handoffPath,
+      error: finalized?.error || finalized?.summary || "Issue was not closed",
     };
     break;
   }
@@ -200,26 +304,31 @@ Return structured data with status, issueNumber, number of review rounds, findin
     title: implemented.issueTitle,
     branchName: implemented.branchName,
     implementationSha: implemented.implementationSha,
-    openedPullRequestUrl: implemented.pullRequestUrl,
-    finalSha: reviewed.finalSha,
-    pullRequestUrl: reviewed.pullRequestUrl,
-    reviewRounds: reviewed.reviewRounds,
-    findingsFixed: reviewed.findingsFixed || [],
-    verification: reviewed.verification || [],
-    summary: reviewed.summary,
+    pullRequestUrl: finalized.pullRequestUrl || implemented.pullRequestUrl,
+    finalSha: finalized.finalSha,
+    reviewRounds: roundsUsed,
+    findingsFixed,
+    followUpIssues,
+    verification: finalized.verification || [],
+    summary: finalized.summary,
   });
 }
 
 return {
-  status: failure ? "stopped-on-failure" : exhausted ? "all-done" : "batch-limit-reached",
+  status: failure
+    ? "stopped-on-failure"
+    : exhausted
+      ? "all-done"
+      : "batch-limit-reached",
   model: MODEL,
   effort: EFFORT,
   maxIssues,
+  maxReviewRounds,
   completedCount: completed.length,
   completed,
   failure,
   note:
     !failure && !exhausted
-      ? "Reached the per-run issue limit. Re-run the workflow to continue from the remaining open dependency frontier."
+      ? "Reached the per-run issue limit. Re-run to continue from the remaining dependency frontier."
       : undefined,
 };
