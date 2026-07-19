@@ -22,9 +22,10 @@ The foreground checks used an actual Blender window and window-manager event loo
 `--background`. The tracked `scripts/issue26_foreground_probe.py` fixture rendered a 32×24 Cycles
 scene at one sample so ten complete frames could be checked quickly. It observed scene-owned
 runtime values while an instrumented visible panel called the production `ODM_PT_sidebar.draw`
-layout at every redraw. The tracked shell runner sent real macOS Escape key events to the foreground
+layout at every redraw. This verifies the production layout and redraw data, not Blender's sidebar-
+category selection itself. The tracked shell runner sent real macOS Escape key events to the foreground
 Blender application through System
-Events; the Cancel-button checks invoked the registered public operator used by the sidebar button.
+Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
 The retained assertion output is
 [`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json).
 
@@ -75,10 +76,10 @@ Two separate runs covered both user inputs:
   contiguous prefix `[1, 2]`.
 - With the same range and settings, **Resume** started immediately, completed frames 3–10, and
   retained a complete ten-frame processed sequence. Scene frame 7 remained restored.
-- In a separate run, a real **Escape** key event produced visible pending and terminal states after
-  one completed frame. The manifest and files retained exactly `[1]`; frame 2 did not start. Scene
-  frame 7 was unchanged, runtime and controller lock were inactive, **Resume** completed frames
-  2–10, and another processing operation started immediately.
+- In a separate run, a real **Escape** key event produced visible pending and terminal states. The
+  manifest and files retained the same exact contiguous prefix recorded in the receipt, with no
+  next output. Scene frame 7 was unchanged, runtime and controller lock were inactive, **Resume**
+  completed the remaining frames, and another processing operation started immediately.
 - A further processing operation started immediately after Resume completed and could itself be
   cancelled before frame 1, confirming restart and cleanup after recovery.
 
@@ -92,13 +93,14 @@ BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
 ```
 
 The runner starts non-background Blender with factory settings, waits for explicit raw-active and
-processing Escape checkpoints, sends each real key event, has bounded waits, and fails unless the
-result JSON says `"success": true`. By default it leaves a unique run directory outside the checkout;
+processing Escape checkpoints, sends each real key event, has bounded waits, serializes macOS key delivery, targets the launched Blender PID, and fails unless
+its Blender-side state checkpoints and result JSON say `"success": true`. By default it leaves a
+unique run directory outside the checkout;
 `--update-evidence` explicitly promotes a successful result atomically to the tracked receipt. Its
 assertions implement this checklist:
 
-1. Load the extension source tree identified above, start Blender 5.0.0 with factory settings, and
-   create a saved 32×24 Cycles scene with one sample and frames 1–10. Set the scene
+1. Load the clean extension source tree identified above, start Blender 5.0.0 with factory settings,
+   and configure the temporary 32×24 Cycles scene with one sample and frames 1–10. Set the scene
    frame to 7, configure Object Index, and keep the Object Datamosh sidebar visible.
 2. Run **Render and Process**. At every redraw, record phase, current frame, phase work, overall
    work, and progress. Require rendering boundaries 0–9, processing boundaries 10–19, terminal
@@ -149,7 +151,7 @@ Run from the repository root with
 | `uv run ruff check .` | Passed: `All checks passed!` |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed` |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: manifest TOML parsed successfully |
-| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/button/Escape cancellation, Resume, restart, production-sidebar redraw, and cleanup assertions; retained JSON reports `success: true` |
+| `scripts/run_issue26_foreground_probe.sh --update-evidence` | Passed in foreground Blender 5.0.0: active-render/Cancel-operator/Escape cancellation, Resume, restart, production-layout redraw, and cleanup assertions; retained JSON reports `success: true` and binds the Blender build, Git HEAD, source tree, probe, runner, and event-log digest |
 | `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: `dist/object_datamosh-0.1.0.zip` |
 
 The installation archive is `dist/object_datamosh-0.1.0.zip` (53,328 bytes), SHA-256

@@ -17,6 +17,18 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 probe="$repo_root/scripts/issue26_foreground_probe.py"
 evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
+lock_dir="${TMPDIR:-/tmp}/object-datamosh-issue26.lock"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  owner_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+  if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    echo "Another issue #26 foreground probe is running as PID $owner_pid" >&2
+    exit 1
+  fi
+  rm -r "$lock_dir"
+  mkdir "$lock_dir"
+fi
+echo "$$" > "$lock_dir/pid"
+
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
 run_result="$work_root/result.json"
@@ -28,8 +40,15 @@ cleanup() {
     kill "$blender_pid" 2>/dev/null || true
   fi
   rm -f "$evidence_tmp"
+  rm -r "$lock_dir"
 }
 trap cleanup EXIT
+
+if [[ -n "$(git status --porcelain --untracked-files=all -- src/object_datamosh)" ]]; then
+  fail_message="Extension source is dirty; commit or restore it before recording release evidence"
+  echo "$fail_message" >&2
+  exit 1
+fi
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
@@ -80,9 +99,21 @@ send_escape_after() {
     sleep 0.01
   done
   record_escape_event external_escape_send_started "$marker"
-  osascript \
-    -e 'tell application "Blender" to activate' \
-    -e 'tell application "System Events" to key code 53'
+  osascript - "$blender_pid" <<'APPLESCRIPT'
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    set targetProcess to first process whose unix id is targetPid
+    set frontmost of targetProcess to true
+    repeat 100 times
+      if frontmost of targetProcess then exit repeat
+      delay 0.01
+    end repeat
+    if not frontmost of targetProcess then error "Launched Blender did not become frontmost"
+    key code 53
+  end tell
+end run
+APPLESCRIPT
   record_escape_event external_escape_sent "$marker"
 }
 

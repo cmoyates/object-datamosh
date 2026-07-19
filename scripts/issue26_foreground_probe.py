@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import time
 import traceback
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -51,18 +53,27 @@ def emit(event: str, **values: object) -> None:
         stream.flush()
 
 
-state: dict[str, Any] = {
-    "stage": "initialize",
-    "snapshots": [],
-    "seen": set(),
-    "original_frame": 7,
-    "render_active": False,
-    "heartbeat_count": 0,
-    "heartbeats_during_render": 0,
-    "render_cancel_requested": False,
-    "sidebar_draws": [],
-    "evidence": {},
-}
+@dataclass
+class ProbeState:
+    stage: str = "initialize"
+    snapshots: list[dict[str, Any]] = field(default_factory=list)
+    seen: set[tuple[Any, ...]] = field(default_factory=set)
+    original_frame: int = 7
+    render_active: bool = False
+    heartbeat_count: int = 0
+    heartbeats_during_render: int = 0
+    sidebar_draws: list[tuple[Any, ...]] = field(default_factory=list)
+    evidence: dict[str, Any] = field(default_factory=dict)
+    baseline_complete_handlers: int = 0
+    baseline_cancel_handlers: int = 0
+    cancel_sent: bool = False
+    escape_seen: bool = False
+    processing_cancel_sent: bool = False
+    processing_escape_seen: bool = False
+    restart_cancel_sent: bool = False
+
+
+state = ProbeState()
 
 
 class ODM_PT_issue26_observer(_bpy.types.Panel):
@@ -79,7 +90,7 @@ class ODM_PT_issue26_observer(_bpy.types.Panel):
         scene = context.scene
         runtime = runtime_for_scene(scene)
         observation = (
-            str(state["stage"]),
+            str(state.stage),
             runtime.phase,
             runtime.current_frame,
             runtime.completed_work,
@@ -88,7 +99,7 @@ class ODM_PT_issue26_observer(_bpy.types.Panel):
             runtime.phase_total_work,
             round(float(runtime.progress), 6),
         )
-        draws = state["sidebar_draws"]
+        draws = state.sidebar_draws
         assert isinstance(draws, list)
         if not draws or draws[-1] != observation:
             draws.append(observation)
@@ -130,14 +141,14 @@ def snapshot(stage: str) -> dict[str, Any]:
 
 
 def record_snapshot() -> dict[str, Any]:
-    stage = str(state["stage"])
+    stage = str(state.stage)
     item = snapshot(stage)
     key = tuple(item.values())
-    seen = state["seen"]
+    seen = state.seen
     assert isinstance(seen, set)
     if key not in seen:
         seen.add(key)
-        snapshots = state["snapshots"]
+        snapshots = state.snapshots
         assert isinstance(snapshots, list)
         snapshots.append(item)
         emit("runtime", **item)
@@ -145,8 +156,8 @@ def record_snapshot() -> dict[str, Any]:
 
 
 def render_pre(*_args: object) -> None:
-    state["render_active"] = True
-    stage = str(state["stage"])
+    state.render_active = True
+    stage = str(state.stage)
     frame = _bpy.context.scene.frame_current
     emit("render_pre", stage=stage, frame=frame)
     if stage == "raw_escape_cancel":
@@ -154,19 +165,19 @@ def render_pre(*_args: object) -> None:
 
 
 def render_complete(*_args: object) -> None:
-    state["render_active"] = False
-    emit("render_complete", stage=state["stage"], frame=_bpy.context.scene.frame_current)
+    state.render_active = False
+    emit("render_complete", stage=state.stage, frame=_bpy.context.scene.frame_current)
 
 
 def render_cancel(*_args: object) -> None:
-    state["render_active"] = False
-    emit("render_cancel", stage=state["stage"], frame=_bpy.context.scene.frame_current)
+    state.render_active = False
+    emit("render_cancel", stage=state.stage, frame=_bpy.context.scene.frame_current)
 
 
 def heartbeat() -> float:
-    state["heartbeat_count"] = int(state["heartbeat_count"]) + 1
-    if state["render_active"]:
-        state["heartbeats_during_render"] = int(state["heartbeats_during_render"]) + 1
+    state.heartbeat_count = int(state.heartbeat_count) + 1
+    if state.render_active:
+        state.heartbeats_during_render = int(state.heartbeats_during_render) + 1
     return 0.01
 
 
@@ -194,6 +205,29 @@ def all_frame_files(root: Path, *, processed: bool) -> bool:
 
 def assert_controller_cleared() -> None:
     assert "ODM_active_modal_controller" not in _bpy.app.driver_namespace
+
+
+def event_recorded(event_name: str, marker: str) -> bool:
+    if not LOG.exists():
+        return False
+    return any(
+        event.get("event") == event_name and event.get("marker") == marker
+        for event in (json.loads(line) for line in LOG.read_text(encoding="utf-8").splitlines())
+    )
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def git_output(*arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def assert_raw_escape_sent_during_render() -> None:
@@ -225,7 +259,7 @@ def start_combined(name: str, *, end: int = 10) -> None:
     result = _bpy.ops.object_datamosh.render_and_process("INVOKE_DEFAULT")
     emit(
         "operator_invoked",
-        stage=state["stage"],
+        stage=state.stage,
         operator="render_and_process",
         result=sorted(result),
     )
@@ -238,7 +272,7 @@ def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
     result = _bpy.ops.object_datamosh.process_sequence("INVOKE_DEFAULT")
     emit(
         "operator_invoked",
-        stage=state["stage"],
+        stage=state.stage,
         operator="process_sequence",
         result=sorted(result),
         mode=mode,
@@ -247,25 +281,25 @@ def start_existing(name: str, *, mode: str = "REPROCESS") -> None:
 
 
 def finish_success() -> None:
-    evidence = state["evidence"]
+    evidence = state.evidence
     assert isinstance(evidence, dict)
     build_hash = _bpy.app.build_hash
     if isinstance(build_hash, bytes):
         build_hash = build_hash.decode("ascii")
-    source_tree = subprocess.run(
-        ["git", "rev-parse", "HEAD:src/object_datamosh"],
-        cwd=REPO,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    assert not git_output(
+        "status", "--porcelain", "--untracked-files=all", "--", "src/object_datamosh"
+    )
     result = {
         "blender_build_hash": build_hash,
         "blender_version": _bpy.app.version_string,
-        "extension_source_tree": source_tree,
+        "event_log_sha256_before_completion": file_sha256(LOG),
+        "extension_source_tree": git_output("rev-parse", "HEAD:src/object_datamosh"),
+        "git_head": git_output("rev-parse", "HEAD"),
+        "probe_sha256": file_sha256(Path(__file__)),
+        "runner_sha256": file_sha256(REPO / "scripts" / "run_issue26_foreground_probe.sh"),
         "evidence": evidence,
-        "heartbeat_count": state["heartbeat_count"],
-        "heartbeats_during_render": state["heartbeats_during_render"],
+        "heartbeat_count": state.heartbeat_count,
+        "heartbeats_during_render": state.heartbeats_during_render,
         "render_complete_handlers": len(_bpy.app.handlers.render_complete),
         "render_cancel_handlers": len(_bpy.app.handlers.render_cancel),
         "scene_frame": _bpy.context.scene.frame_current,
@@ -285,14 +319,14 @@ def fail(error: BaseException) -> None:
 
 def tick() -> float | None:
     try:
-        stage = str(state["stage"])
+        stage = str(state.stage)
         item = record_snapshot()
         active = bool(item["active"])
 
         if stage == "initialize":
             object_datamosh.register()
             scene = _bpy.context.scene
-            scene.frame_set(int(state["original_frame"]))
+            scene.frame_set(int(state.original_frame))
             render = scene.render
             render.engine = "CYCLES"
             scene.cycles.samples = 1
@@ -310,16 +344,16 @@ def tick() -> float | None:
                     continue
                 area.spaces.active.show_region_ui = True
                 area.tag_redraw()
-            state["baseline_complete_handlers"] = len(_bpy.app.handlers.render_complete)
-            state["baseline_cancel_handlers"] = len(_bpy.app.handlers.render_cancel)
-            state["stage"] = "combined_success"
+            state.baseline_complete_handlers = len(_bpy.app.handlers.render_complete)
+            state.baseline_cancel_handlers = len(_bpy.app.handlers.render_cancel)
+            state.stage = "combined_success"
             start_combined("combined-success")
 
         elif stage == "combined_success" and not active:
             assert item["phase"] == "COMPLETED", item
             assert all_frame_files(ROOT / "combined-success", processed=True)
-            assert item["scene_frame"] == state["original_frame"]
-            snapshots = state["snapshots"]
+            assert item["scene_frame"] == state.original_frame
+            snapshots = state.snapshots
             assert isinstance(snapshots, list)
             combined = [entry for entry in snapshots if entry["stage"] == stage]
             assert {entry["phase"] for entry in combined} >= {
@@ -335,7 +369,7 @@ def tick() -> float | None:
             }
             assert set(range(0, 10)).issubset(rendered_counts), rendered_counts
             assert set(range(10, 20)).issubset(processed_counts), processed_counts
-            draws = state["sidebar_draws"]
+            draws = state.sidebar_draws
             assert isinstance(draws, list)
             combined_draws = [entry for entry in draws if entry[0] == stage]
             render_draws = [entry for entry in combined_draws if entry[1] == "RENDERING"]
@@ -350,7 +384,7 @@ def tick() -> float | None:
             assert set(range(0, 10)).issubset(draw_render_phase_counts), draw_render_phase_counts
             assert set(range(0, 10)).issubset(draw_process_phase_counts), draw_process_phase_counts
             assert {step / 20 for step in range(20)}.issubset(draw_progress), draw_progress
-            evidence = state["evidence"]
+            evidence = state.evidence
             assert isinstance(evidence, dict)
             evidence["combined_success"] = {
                 "render_counts": sorted(rendered_counts),
@@ -364,19 +398,19 @@ def tick() -> float | None:
                 "progress": item["progress"],
             }
             emit("combined_success_verified", **evidence["combined_success"])
-            state["stage"] = "raw_button_cancel"
-            state["cancel_sent"] = False
+            state.stage = "raw_button_cancel"
+            state.cancel_sent = False
             start_combined("raw-button-cancel")
 
         elif stage == "raw_button_cancel":
             if (
                 active
-                and not state.get("cancel_sent")
+                and not state.cancel_sent
                 and item["phase"] == "RENDERING"
                 and int(item["completed_work"]) >= 1
             ):
                 result = _bpy.ops.object_datamosh.cancel_operation()
-                state["cancel_sent"] = True
+                state.cancel_sent = True
                 pending = snapshot(stage)
                 emit("cancel_button", result=sorted(result), pending=pending)
                 assert result == {"FINISHED"}
@@ -385,7 +419,7 @@ def tick() -> float | None:
                 assert (
                     pending["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
                 )
-            elif not active and state.get("cancel_sent"):
+            elif not active and state.cancel_sent:
                 assert item["phase"] == "CANCELLED", item
                 paths = SequencePaths(ROOT / "raw-button-cancel")
                 first = paths.frame(1)
@@ -395,19 +429,19 @@ def tick() -> float | None:
                     assert not any(
                         path.exists() for path in (frame.beauty, frame.vector, frame.matte)
                     )
-                assert item["scene_frame"] == state["original_frame"]
+                assert item["scene_frame"] == state.original_frame
                 assert_controller_cleared()
-                assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
-                assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
-                evidence = state["evidence"]
+                assert len(_bpy.app.handlers.render_complete) == state.baseline_complete_handlers
+                assert len(_bpy.app.handlers.render_cancel) == state.baseline_cancel_handlers
+                evidence = state.evidence
                 assert isinstance(evidence, dict)
                 evidence["raw_button_cancel"] = {
                     "completed_frames": [1],
                     "controller_cleared": True,
                     "handler_counts_restored": True,
                 }
-                state["stage"] = "raw_escape_cancel"
-                state["escape_seen"] = False
+                state.stage = "raw_escape_cancel"
+                state.escape_seen = False
                 scene = _bpy.context.scene
                 scene.cycles.samples = 16
                 scene.render.resolution_x = 512
@@ -416,9 +450,17 @@ def tick() -> float | None:
 
         elif stage == "raw_escape_cancel":
             if active and bool(item["cancel_requested"]):
-                state["escape_seen"] = True
-            elif not active and item["phase"] == "CANCELLED":
-                draws = state["sidebar_draws"]
+                state.escape_seen = True
+            elif active:
+                if item["phase"] != "RENDERING":
+                    raise RuntimeError(f"Raw Escape entered unexpected phase: {item!r}")
+                if (
+                    event_recorded("external_escape_sent", "raw_render_active")
+                    and int(item["completed_work"]) >= 10
+                ):
+                    raise RuntimeError("Blender did not dispatch the raw Escape within 10 frames")
+            elif item["phase"] == "CANCELLED":
+                draws = state.sidebar_draws
                 assert isinstance(draws, list)
                 pending_visible = any(
                     entry[0] == stage and entry[1] == "CANCELLING" for entry in draws
@@ -435,12 +477,12 @@ def tick() -> float | None:
                     path.exists()
                     for path in (next_frame.beauty, next_frame.vector, next_frame.matte)
                 )
-                assert item["scene_frame"] == state["original_frame"]
+                assert item["scene_frame"] == state.original_frame
                 assert_raw_escape_sent_during_render()
                 assert_controller_cleared()
-                assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
-                assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
-                evidence = state["evidence"]
+                assert len(_bpy.app.handlers.render_complete) == state.baseline_complete_handlers
+                assert len(_bpy.app.handlers.render_cancel) == state.baseline_cancel_handlers
+                evidence = state.evidence
                 assert isinstance(evidence, dict)
                 evidence["raw_escape_cancel"] = {
                     "completed_frames": completed,
@@ -456,24 +498,27 @@ def tick() -> float | None:
                 scene.render.resolution_y = 24
                 process_root = ROOT / "processing-cancel"
                 shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
-                state["stage"] = "processing_cancel"
-                state["processing_cancel_sent"] = False
+                state.stage = "processing_cancel"
+                state.processing_cancel_sent = False
                 start_existing("processing-cancel")
+            else:
+                raise RuntimeError(f"Raw Escape ended unexpectedly: {item!r}")
 
         elif stage == "processing_cancel":
-            if (
-                active
-                and not state.get("processing_cancel_sent")
-                and int(item["completed_work"]) >= 2
-            ):
+            if active and not state.processing_cancel_sent and int(item["completed_work"]) >= 2:
                 result = _bpy.ops.object_datamosh.cancel_operation()
-                state["processing_cancel_sent"] = True
+                state.processing_cancel_sent = True
                 pending = snapshot(stage)
                 emit("processing_cancel_button", result=sorted(result), pending=pending)
                 assert pending["phase"] == "CANCELLING"
                 assert pending["cancel_requested"]
-            elif not active and state.get("processing_cancel_sent"):
+                assert (
+                    pending["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+                )
+            elif not active and state.processing_cancel_sent:
                 assert item["phase"] == "CANCELLED", item
+                draws = state.sidebar_draws
+                assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
                 paths = SequencePaths(ROOT / "processing-cancel")
                 completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
                 assert completed == [1, 2], completed
@@ -481,83 +526,118 @@ def tick() -> float | None:
                 manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 assert payload["completed_frames"] == completed
-                assert item["scene_frame"] == state["original_frame"]
+                assert item["scene_frame"] == state.original_frame
                 assert_controller_cleared()
-                evidence = state["evidence"]
+                evidence = state.evidence
                 assert isinstance(evidence, dict)
                 evidence["processing_button_cancel"] = {
                     "completed_frames": completed,
                     "controller_cleared": True,
+                    "pending_state_visible": True,
+                    "pending_status_verified": True,
                 }
-                state["stage"] = "processing_resume"
+                state.stage = "processing_resume"
                 start_existing("processing-cancel", mode="RESUME")
 
         elif stage == "processing_resume" and not active:
             assert item["phase"] == "COMPLETED", item
             assert all_frame_files(ROOT / "processing-cancel", processed=True)
-            assert item["scene_frame"] == state["original_frame"]
+            assert item["scene_frame"] == state.original_frame
             assert_controller_cleared()
-            assert len(_bpy.app.handlers.render_complete) == state["baseline_complete_handlers"]
-            assert len(_bpy.app.handlers.render_cancel) == state["baseline_cancel_handlers"]
+            assert len(_bpy.app.handlers.render_complete) == state.baseline_complete_handlers
+            assert len(_bpy.app.handlers.render_cancel) == state.baseline_cancel_handlers
             process_root = ROOT / "processing-escape"
             shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
-            state["stage"] = "processing_escape_cancel"
+            state.stage = "processing_escape_cancel"
             start_existing("processing-escape")
             emit("processing_escape_ready")
 
         elif stage == "processing_escape_cancel":
             if active and bool(item["cancel_requested"]):
-                state["processing_escape_seen"] = True
-            elif not active and item["phase"] == "CANCELLED":
-                assert state.get("processing_escape_seen")
+                assert item["phase"] == "CANCELLING"
+                assert item["runtime_status"] == "Cancel requested; waiting for a safe boundary..."
+                state.processing_escape_seen = True
+            elif active:
+                if item["phase"] != "PROCESSING":
+                    raise RuntimeError(f"Processing Escape entered unexpected phase: {item!r}")
+                if (
+                    event_recorded("external_escape_sent", "processing_escape_ready")
+                    and int(item["completed_work"]) >= 5
+                ):
+                    raise RuntimeError(
+                        "Blender did not dispatch the processing Escape within five frames"
+                    )
+            elif item["phase"] == "CANCELLED":
+                assert state.processing_escape_seen
+                draws = state.sidebar_draws
+                assert any(entry[0] == stage and entry[1] == "CANCELLING" for entry in draws)
                 paths = SequencePaths(ROOT / "processing-escape")
                 completed = [n for n in range(1, 11) if paths.frame(n).processed.is_file()]
-                assert completed == [1], completed
-                assert not paths.frame(2).processed.exists()
+                assert completed
+                assert completed == list(range(1, len(completed) + 1)), completed
+                assert len(completed) < 10, completed
+                assert not paths.frame(len(completed) + 1).processed.exists()
                 manifest = paths.root / "processed" / "ODM_sequence_manifest.json"
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 assert payload["completed_frames"] == completed
-                assert item["scene_frame"] == state["original_frame"]
+                assert item["scene_frame"] == state.original_frame
                 assert_controller_cleared()
-                evidence = state["evidence"]
+                evidence = state.evidence
                 assert isinstance(evidence, dict)
                 evidence["processing_escape_cancel"] = {
                     "completed_frames": completed,
                     "controller_cleared": True,
+                    "pending_state_visible": True,
+                    "pending_status_verified": True,
                 }
                 emit("processing_escape_verified", completed_frames=completed)
-                state["stage"] = "processing_escape_resume"
+                state.stage = "processing_escape_resume"
                 start_existing("processing-escape", mode="RESUME")
+            else:
+                raise RuntimeError(f"Processing Escape ended unexpectedly: {item!r}")
 
         elif stage == "processing_escape_resume" and not active:
             assert item["phase"] == "COMPLETED", item
             assert all_frame_files(ROOT / "processing-escape", processed=True)
-            assert item["scene_frame"] == state["original_frame"]
+            assert item["scene_frame"] == state.original_frame
             assert_controller_cleared()
-            evidence = state["evidence"]
+            evidence = state.evidence
             assert isinstance(evidence, dict)
             evidence["processing_resumes_completed"] = True
             # A completed Resume can immediately be followed by another operation.
             process_root = ROOT / "restart-after-resume"
             shutil.copytree(ROOT / "combined-success" / "raw", process_root / "raw")
-            state["stage"] = "restart_after_resume"
-            state["restart_cancel_sent"] = False
+            state.stage = "restart_after_resume"
+            state.restart_cancel_sent = False
             start_existing("restart-after-resume")
 
         elif stage == "restart_after_resume":
-            if active and not state.get("restart_cancel_sent"):
+            if active and not state.restart_cancel_sent:
                 result = _bpy.ops.object_datamosh.cancel_operation()
                 assert result == {"FINISHED"}
-                state["restart_cancel_sent"] = True
-            elif not active and state.get("restart_cancel_sent"):
+                state.restart_cancel_sent = True
+            elif not active and state.restart_cancel_sent:
                 assert item["phase"] == "CANCELLED"
                 assert_controller_cleared()
-                evidence = state["evidence"]
+                evidence = state.evidence
                 assert isinstance(evidence, dict)
                 evidence["immediate_restart_completed"] = True
                 finish_success()
                 return None
 
+        known_stages = {
+            "initialize",
+            "combined_success",
+            "raw_button_cancel",
+            "raw_escape_cancel",
+            "processing_cancel",
+            "processing_resume",
+            "processing_escape_cancel",
+            "processing_escape_resume",
+            "restart_after_resume",
+        }
+        if stage not in known_stages:
+            raise RuntimeError(f"Unknown foreground-probe stage: {stage}")
         return 0.02
     except BaseException as error:
         fail(error)
