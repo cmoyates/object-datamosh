@@ -32,7 +32,7 @@ from .compositor_setup import (
     restore_object_index_passes,
     setup_object_index_passes,
 )
-from .core.contracts import FeedbackSettings, MatteSource, MotionChannels
+from .core.contracts import FeedbackMode, FeedbackSettings, MatteSource, MotionChannels
 from .core.mattes import (
     CryptomatteMatteProvider,
     ExternalMatteProvider,
@@ -61,6 +61,8 @@ def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
     """Copy Blender scene properties into the pure processing contract."""
     settings = settings_for_scene(scene)
     return FeedbackSettings(
+        mode=FeedbackMode(settings.feedback_mode),
+        trail_decay=settings.trail_decay,
         persistence=settings.persistence,
         block_size=settings.block_size,
         motion_channels=MotionChannels(settings.motion_channels),
@@ -162,6 +164,29 @@ class ODM_Settings(PropertyGroup):
     )
     external_matte_directory: StringProperty(  # ty: ignore[invalid-type-form]
         name="Matte Directory", subtype="DIR_PATH", default=""
+    )
+    feedback_mode: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Mode",
+        items=(
+            (
+                "HARD_LOCALIZED",
+                "Hard Localized",
+                "Keep feedback inside the selected object's current silhouette",
+            ),
+            (
+                "TRAIL",
+                "Trail",
+                "Retain decayed feedback where selected-object history remains reachable",
+            ),
+        ),
+        default="HARD_LOCALIZED",
+    )
+    trail_decay: FloatProperty(  # ty: ignore[invalid-type-form]
+        name="Trail Decay",
+        description="Selected-object trail coverage retained per frame",
+        default=0.85,
+        min=0.0,
+        max=1.0,
     )
     persistence: FloatProperty(  # ty: ignore[invalid-type-form]
         name="Persistence", default=0.85, min=0.0, max=1.0
@@ -345,7 +370,7 @@ class ODM_OT_render_raw_passes(Operator):
 
 
 class ODM_OT_process_sequence(Operator):
-    """Process existing pass files through hard-localized feedback."""
+    """Process existing pass files through localized temporal feedback."""
 
     bl_idname = "object_datamosh.process_sequence"
     bl_label = "Process Existing Passes"
@@ -550,6 +575,8 @@ def _draw_sidebar(layout: Any, context: Context, scene: Scene) -> None:
 
     feedback = layout.box()
     feedback.label(text="Feedback")
+    feedback.prop(settings, "feedback_mode")
+    feedback.prop(settings, "trail_decay")
     feedback.prop(settings, "persistence")
     feedback.prop(settings, "block_size")
     feedback.prop(settings, "motion_channels")

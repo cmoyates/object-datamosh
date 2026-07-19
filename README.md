@@ -2,8 +2,8 @@
 
 Object Datamosh is a modern Blender extension for building object-localized temporal feedback
 workflows. The current MVP targets and has been tested with **Blender 5.0.0**. It provides the
-user interface, shared contracts, pure NumPy hard-localized feedback core, a non-destructive
-Object Index compositor setup, sequential raw-pass rendering, and processing of existing pass
+user interface, shared contracts, a pure NumPy localized feedback core with hard and trail modes,
+a non-destructive Object Index compositor setup, sequential raw-pass rendering, and processing of existing pass
 sequences into scene-linear full-float OpenEXR output.
 
 The installable extension source is `src/object_datamosh` and uses
@@ -33,8 +33,9 @@ The sidebar currently provides:
 - sequence start/end frames, an optional output-directory override, a conservative raw-output
   overwrite toggle, **Render Raw Passes**, reset/recovery policy, and **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
-- persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
-  refresh-probability, and deterministic-seed controls; and
+- Hard Localized / Trail mode, trail decay, persistence, block size,
+  motion-channel/direction/axis/gain/clamp/quantization, diffusion, refresh-probability, and
+  deterministic-seed controls; and
 - a status field and an explicit warning when the blend file has not been saved.
 
 The target assignment operator has a useful poll: it is available only when an active object
@@ -199,7 +200,7 @@ success, failure, or cancellation. A cancellation therefore leaves an exact safe
 Completed files are retained and are never deleted automatically. Use Resume for the same range
 and settings, or choose Reprocess with overwrite when deliberately replacing the full sequence.
 
-## Hard-localized feedback semantics
+## Localized feedback semantics
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
 the current frame. For a current pixel `(x, y)`, the processor therefore samples history at
@@ -218,11 +219,25 @@ block coordinates and do not touch NumPy's global random state.
 
 A missing prior state or **Force Reset** initializes history from clean beauty. Otherwise, warped
 history color is sampled premultiplied by its selected-object matte and is accepted only where the
-sample coordinate and warped history matte are valid. Persistence is multiplied by current and
-warped matte coverage; refresh makes that weight zero. Consequently pixels outside the current
-matte equal clean beauty exactly, and unselected background color cannot enter history at a matte
-edge. This is hard localization only: selected-object trails beyond the current silhouette are not
-implemented yet.
+sample coordinate, warped history matte, and contributing history pixels are valid. Unselected
+background color therefore cannot enter history at a matte edge.
+
+**Hard Localized** multiplies persistence by current and warped matte coverage; refresh makes that
+weight zero. Pixels outside the current matte consequently equal clean beauty exactly. This is the
+conservative default and preserves the original outside-mask invariant.
+
+**Trail** advects selected-object history with the same motion field, multiplies the warped history
+coverage by **Trail Decay**, and combines that coverage with the current matte for the next frame.
+Output can extend beyond the current silhouette only where that advected selected-object coverage
+remains nonzero. Coverage never comes from background color. A decay of `0` removes old trail
+coverage after one frame; `1` retains reachable coverage without decay. The default `0.85` fades
+trails conservatively. Persistence still controls the history-color blend. Invalid or out-of-bounds
+warped history is rejected, and premultiplied sampling limits edge contamination.
+
+Explicit reset frames, the first frame, configured resolution-change resets, and missing-history
+recovery resets clear both color and trail history. Resume reconstructs trail coverage across the
+contiguous completed prefix before continuing, so a resumed trail sequence matches its sequential
+state rather than falling back to the last frame's raw matte.
 
 All inputs are finite NumPy `float32` arrays. Beauty and motion are `(height, width, 4)`; matte is
 `(height, width)` coverage in `[0, 1]`. Processing is sequential: pass the returned state to the
@@ -281,7 +296,7 @@ Blender sidebar / operators
         ├── Create Vector Calibration Scene ─────────── separate owned Blender scene
         ├── SequencePaths + matte-provider contracts ── render/process boundaries
         │
-        ├── FeedbackSettings / FeedbackState ────────── NumPy feedback core
+        ├── FeedbackSettings / FeedbackState ────────── hard/trail NumPy feedback core
         │
         └── ImageSequenceIO ─────────────────────────── BlenderImageIO (bpy)
 
@@ -323,8 +338,9 @@ third-party runtime dependency.
 - Resume is deliberately range-based and sequential. It does not splice arbitrary processed
   fragments, migrate old manifest schemas, or delete stale files; incompatible or discontinuous
   runs require explicit full-range reprocessing.
-- Hard-localized mode cannot leave history outside the current selected-object silhouette. Trail
-  mode is deferred to a later ticket.
+- Trail mode follows only the available selected-object matte and vector information. Occlusions,
+  disocclusions, inaccurate vectors, and low-resolution mattes can shorten or distort trails; it
+  does not infer hidden geometry or admit unrelated-object/background history.
 - Object Index is the MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
   is not implemented. Object Index availability remains render-engine dependent.
@@ -334,7 +350,7 @@ third-party runtime dependency.
   operator, collision refusal, bounded cancellation, a two-frame
   Cycles beauty/vector/matte render, emitted filename discovery, full-float EXR contracts, temporary
   image cleanup, render-setting restoration, processing fixture-generated two-frame pass
-  sequences, processed EXR contracts, hard-localized output, and processed-output collision
-  refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass
+  sequences, processed EXR contracts, hard-localized output, trail controls, and processed-output
+  collision refusal. Visual node layout, sidebar polish, interactive cancellation, calibration pass
   interpretation (especially the Y-axis and reversed-motion checks), and control behavior still
   require a manual foreground Blender check.

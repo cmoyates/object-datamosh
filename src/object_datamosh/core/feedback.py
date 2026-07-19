@@ -1,11 +1,18 @@
-"""Pure NumPy hard-localized temporal feedback processing."""
+"""Pure NumPy hard-localized and selected-object trail feedback processing."""
 
 from numbers import Integral
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .contracts import FeedbackSettings, FeedbackState, FloatImage, FloatMask, MotionChannels
+from .contracts import (
+    FeedbackMode,
+    FeedbackSettings,
+    FeedbackState,
+    FloatImage,
+    FloatMask,
+    MotionChannels,
+)
 from .sampling import bilinear_sample
 
 
@@ -213,7 +220,16 @@ def process_frame(
         covered = valid & (warped_matte > 0.0) & (warped_invalid == 0.0)
         safe_matte = np.where(covered, warped_matte, 1.0)
         warped_history = warped_premultiplied / safe_matte[..., None]
-        blend = (settings.persistence * matte * warped_matte * covered * ~refreshed)[..., None]
+        if settings.mode is FeedbackMode.TRAIL:
+            decayed_history_matte = settings.trail_decay * warped_matte * covered
+            next_matte = np.maximum(matte, decayed_history_matte).astype(np.float32, copy=False)
+            localized_history = matte * warped_matte + (1.0 - matte) * decayed_history_matte
+        else:
+            next_matte = matte
+            localized_history = matte * warped_matte
+        blend = (settings.persistence * localized_history * covered * ~refreshed)[..., None]
         output = (beauty * (1.0 - blend) + warped_history * blend).astype(np.float32, copy=False)
-    state = FeedbackState(output.copy(), matte.copy(), frame_number)
+    if previous_state is None or force_reset:
+        next_matte = matte
+    state = FeedbackState(output.copy(), next_matte.copy(), frame_number)
     return output, state
