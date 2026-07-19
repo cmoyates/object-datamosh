@@ -8,11 +8,9 @@ from typing import Any
 class ModalWindowManagerRecorder:
     """Record timer/progress ownership without depending on Blender's live event loop."""
 
-    shared_timer = object()
-
     def __init__(self, *, fail_progress_update_at: int | None = None) -> None:
         self.events: list[tuple[str, object]] = []
-        self.timer = self.shared_timer
+        self.timer = object()
         self.windows: tuple[object, ...] = ()
         self._fail_progress_update_at = fail_progress_update_at
         self._progress_update_count = 0

@@ -12,6 +12,7 @@ import bpy
 import numpy as np
 from blender_modal_test_support import ModalWindowManagerRecorder, ProcessOperatorHarness
 
+import object_datamosh
 from object_datamosh.blender_image_io import BlenderImageIO
 from object_datamosh.core.paths import SequencePaths
 from object_datamosh.ui import ODM_OT_process_sequence
@@ -144,13 +145,21 @@ def run_processing_modal_scenarios(
         )()
         cancelled_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert cancelled_operator.execute(cancelled_context) == {"RUNNING_MODAL"}
-        assert cancelled_operator.modal(cancelled_context, timer_event) == {"RUNNING_MODAL"}
+        assert cancelled_operator.modal(cancelled_context, timer_event) == {"PASS_THROUGH"}
+        cancelled_timer_event = type(
+            "CancelledTimerEvent",
+            (),
+            {"type": "TIMER", "timer": cancelled_window_manager.timer},
+        )()
+        assert cancelled_operator.modal(cancelled_context, cancelled_timer_event) == {
+            "RUNNING_MODAL"
+        }
         assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
         assert runtime.active
         assert runtime.cancel_requested
         assert runtime.phase == "CANCELLING"
         assert runtime.status == "Cancel requested; waiting for a safe boundary..."
-        assert cancelled_operator.modal(cancelled_context, timer_event) == {"CANCELLED"}
+        assert cancelled_operator.modal(cancelled_context, cancelled_timer_event) == {"CANCELLED"}
         assert not runtime.active
         assert not runtime.cancel_requested
         assert runtime.phase == "CANCELLED"
@@ -186,7 +195,12 @@ def run_processing_modal_scenarios(
         assert runtime.current_frame == 2
         assert runtime.completed_work == 1
         assert runtime.progress == 0.5
-        assert resumed_operator.modal(resumed_context, timer_event) == {"FINISHED"}
+        resumed_timer_event = type(
+            "ResumedTimerEvent",
+            (),
+            {"type": "TIMER", "timer": resumed_window_manager.timer},
+        )()
+        assert resumed_operator.modal(resumed_context, resumed_timer_event) == {"FINISHED"}
         assert cancelled_processing_paths.frame(2).processed.is_file()
         assert not runtime.active
         assert runtime.phase == "COMPLETED"
@@ -218,7 +232,12 @@ def run_processing_modal_scenarios(
         assert runtime.active
         assert runtime.cancel_requested
         assert runtime.phase == "CANCELLING"
-        assert escape_operator.modal(escape_context, timer_event) == {"CANCELLED"}
+        escape_timer_event = type(
+            "EscapeTimerEvent",
+            (),
+            {"type": "TIMER", "timer": escape_window_manager.timer},
+        )()
+        assert escape_operator.modal(escape_context, escape_timer_event) == {"CANCELLED"}
         assert not runtime.active
         assert runtime.phase == "CANCELLED"
         assert not escape_frame.processed.exists()
@@ -242,8 +261,13 @@ def run_processing_modal_scenarios(
         )()
         failed_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert failed_operator.execute(failed_context) == {"RUNNING_MODAL"}
-        assert failed_operator.modal(failed_context, timer_event) == {"RUNNING_MODAL"}
-        assert failed_operator.modal(failed_context, timer_event) == {"CANCELLED"}
+        failed_timer_event = type(
+            "FailedTimerEvent",
+            (),
+            {"type": "TIMER", "timer": failed_window_manager.timer},
+        )()
+        assert failed_operator.modal(failed_context, failed_timer_event) == {"RUNNING_MODAL"}
+        assert failed_operator.modal(failed_context, failed_timer_event) == {"CANCELLED"}
         assert failed_first.processed.is_file()
         assert not runtime.active
         assert runtime.phase == "FAILED"
@@ -274,6 +298,12 @@ def run_processing_modal_scenarios(
         )()
         callback_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert callback_operator.execute(callback_context) == {"RUNNING_MODAL"}
+        try:
+            object_datamosh.unregister()
+        except RuntimeError as error:
+            assert "while an operation is active" in str(error)
+        else:
+            raise AssertionError("unregister removed an active modal operation")
         other_scene = bpy.data.scenes.new("ODM_Other_Scene")
         try:
             other_context = type("OtherSceneContext", (), {"scene": other_scene})()
@@ -306,9 +336,14 @@ def run_processing_modal_scenarios(
         )()
         progress_failure_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
         assert progress_failure_operator.execute(progress_failure_context) == {"RUNNING_MODAL"}
-        assert progress_failure_operator.modal(progress_failure_context, timer_event) == {
-            "CANCELLED"
-        }
+        progress_failure_timer_event = type(
+            "ProgressFailureTimerEvent",
+            (),
+            {"type": "TIMER", "timer": progress_failure_window_manager.timer},
+        )()
+        assert progress_failure_operator.modal(
+            progress_failure_context, progress_failure_timer_event
+        ) == {"CANCELLED"}
         assert not runtime.active
         assert runtime.phase == "FAILED"
         assert "progress publication failed" in runtime.status

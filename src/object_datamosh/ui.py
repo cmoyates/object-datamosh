@@ -833,6 +833,8 @@ def register() -> None:
 
 def unregister() -> None:
     """Remove only data registered by this extension, idempotently."""
+    if _active_operation_runtime() is not None:
+        raise RuntimeError("Cannot unregister Object Datamosh while an operation is active")
     scene_type = cast(Any, Scene)
     scene_properties = (
         (_SCENE_SETTINGS_ATTRIBUTE, ODM_Settings),

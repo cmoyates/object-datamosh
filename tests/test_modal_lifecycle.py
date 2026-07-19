@@ -259,6 +259,7 @@ def test_partial_initialization_failure_cleans_up_and_unlocks_the_runtime() -> N
 
     assert not runtime.active
     assert runtime.phase == "FAILED"
+    assert runtime.status == "Initialization failed at frame 1: timer unavailable"
     assert window_manager.events == [
         ("progress_begin", (0, 1)),
         ("progress_end", None),

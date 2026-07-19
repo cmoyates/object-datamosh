@@ -365,7 +365,8 @@ same complete-output-frame boundaries. Blender 5.0 does not expose timer identit
 so the lifecycle gates unidentified timer events against its owned monotonic cadence and ignores
 early events from unrelated timers. The initiating scene and configured range remain the run's
 canonical context; configuration controls and Object Datamosh actions in every scene remain locked
-until this operation finishes cleanup.
+until this operation finishes cleanup. Extension unload is rejected while a run is active so its
+RNA state and modal resources cannot be torn down out of order.
 
 Press **Escape** or click the sidebar's **Cancel** button to request cancellation. The sidebar
 immediately shows **Cancel requested** while the current frame, if any, reaches its safe boundary;

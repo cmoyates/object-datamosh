@@ -56,11 +56,13 @@ class ExistingPassModalController:
         )
         recovery_frame = session.recovery_frame
         current_frame = session.current_frame if recovery_frame is None else recovery_frame
-        status = (
-            f"Restoring resume history at frame {recovery_frame}"
-            if recovery_frame is not None
-            else f"Processing frame {current_frame} of {session.frame_end}"
-        )
+        if session.is_finished:
+            current_frame = session.frame_end
+            status = "No pending frames; finalizing..."
+        elif recovery_frame is not None:
+            status = f"Restoring resume history at frame {recovery_frame}"
+        else:
+            status = f"Processing frame {current_frame} of {session.frame_end}"
         self._settings.status = status
         self._lifecycle.update(
             phase=OperationPhase.PROCESSING,

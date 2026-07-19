@@ -117,9 +117,12 @@ class ModalOperationLifecycle:
             )
             self._next_step_deadline = self._clock() + self._timer_interval
             window_manager.modal_handler_add(self._operator)
-        except Exception:
+        except Exception as error:
             with suppress(Exception):
-                self.finalize(OperationPhase.FAILED, "Initialization failed")
+                self.finalize(
+                    OperationPhase.FAILED,
+                    f"Initialization failed at frame {frame_start}: {error}",
+                )
             raise
 
     def update(

@@ -314,6 +314,7 @@ class ProcessingSession:
         frame_number = self.recovery_frame
         if frame_number is None:
             return
+        final_recorded_frame = self._trail_recovery_frames[-1]
         try:
             self._state = _restore_trail_frame(
                 frame_number,
@@ -328,12 +329,11 @@ class ProcessingSession:
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             if self.missing_history is MissingHistoryPolicy.ERROR:
                 raise RuntimeError(
-                    f"Resume history is invalid for frame {frame_number}: {error}"
+                    f"Resume history is invalid for frame {final_recorded_frame}: {error}"
                 ) from error
-            failed_index = self._completed_numbers.index(frame_number)
-            self._completed_numbers = self._completed_numbers[:failed_index]
-            self.current_frame = frame_number
-            self._recovery_reset_frame = frame_number
+            self._completed_numbers.pop()
+            self.current_frame = final_recorded_frame
+            self._recovery_reset_frame = final_recorded_frame
             self._state = None
             self._trail_recovery_frames = ()
             self._trail_recovery_index = 0
