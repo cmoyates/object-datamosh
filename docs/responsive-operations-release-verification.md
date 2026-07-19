@@ -28,8 +28,9 @@ layout at every redraw. This verifies the production layout and redraw data, not
 category selection itself. The tracked shell runner sent real macOS Escape key events to the foreground
 Blender application through System
 Events; the Cancel-button checks invoked the registered public operator wired to the sidebar button; it does not synthesize a mouse click on the control.
-The retained assertion output is
-[`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json).
+The retained assertion receipt is
+[`docs/evidence/issue-26-foreground-result.json`](evidence/issue-26-foreground-result.json); its
+`event_log_file` names the immutable retained JSONL whose SHA-256 the receipt records.
 
 ## Foreground Blender 5.0.0 observations
 
@@ -95,8 +96,10 @@ BLENDER_BIN=/Applications/Blender.app/Contents/MacOS/Blender \
 ```
 
 The runner starts non-background Blender with factory settings, waits for explicit raw-active and
-processing Escape checkpoints, sends each real key event, has bounded waits, serializes macOS key delivery, targets the launched Blender PID, and fails unless
-its Blender-side state checkpoints and result JSON say `"success": true`. By default it leaves a
+processing Escape checkpoints, sends each real key event, and has bounded waits. A stable per-user
+lock serializes this runner, and System Events confirms the launched Blender PID is frontmost
+immediately before each key event. The run fails unless its Blender-side state checkpoints and
+result JSON say `"success": true`. By default it leaves a
 unique run directory outside the checkout;
 `--update-evidence` explicitly promotes a successful result atomically to the tracked receipt. Its
 assertions implement this checklist:
@@ -172,4 +175,6 @@ root where the release gate ran.
 - `scripts/run_issue26_foreground_probe.sh` — launches the probe and sends real raw/processing
   Escape events through macOS System Events.
 - `docs/evidence/issue-26-foreground-result.json` — retains the successful foreground assertion
-  output for the tested source tree.
+  receipt for the tested source tree and probe revision.
+- `docs/evidence/issue-26-foreground-events-<sha256>.jsonl` — retains the receipt-bound monotonic
+  event trace used to verify active-render Escape timing.

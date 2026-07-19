@@ -17,22 +17,32 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 probe="$repo_root/scripts/issue26_foreground_probe.py"
 evidence_result="$repo_root/docs/evidence/issue-26-foreground-result.json"
-lock_dir="${TMPDIR:-/tmp}/object-datamosh-issue26.lock"
-if ! mkdir "$lock_dir" 2>/dev/null; then
+lock_dir="/tmp/object-datamosh-issue26-$(id -u).lock"
+lock_token="$$.$RANDOM.$(date +%s)"
+while ! mkdir "$lock_dir" 2>/dev/null; do
   owner_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
-  if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+  if [[ -z "$owner_pid" ]]; then
+    echo "Issue #26 foreground-probe lock is being initialized: $lock_dir" >&2
+    exit 1
+  fi
+  if kill -0 "$owner_pid" 2>/dev/null; then
     echo "Another issue #26 foreground probe is running as PID $owner_pid" >&2
     exit 1
   fi
-  rm -r "$lock_dir"
-  mkdir "$lock_dir"
-fi
-echo "$$" > "$lock_dir/pid"
+  stale_lock="$lock_dir.stale.$lock_token"
+  if mv "$lock_dir" "$stale_lock" 2>/dev/null; then
+    rm -r "$stale_lock"
+  fi
+done
+printf '%s\n' "$lock_token" > "$lock_dir/token"
+printf '%s\n' "$$" > "$lock_dir/pid"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/object-datamosh-issue26.XXXXXX")"
 event_log="$work_root/events.jsonl"
+run_trace="$work_root/events-for-receipt.jsonl"
 run_result="$work_root/result.json"
 evidence_tmp="$evidence_result.tmp.$$"
+evidence_trace_tmp=""
 blender_pid=""
 
 cleanup() {
@@ -40,18 +50,24 @@ cleanup() {
     kill "$blender_pid" 2>/dev/null || true
   fi
   rm -f "$evidence_tmp"
-  rm -r "$lock_dir"
+  if [[ -n "$evidence_trace_tmp" ]]; then
+    rm -f "$evidence_trace_tmp"
+  fi
+  if [[ "$(cat "$lock_dir/token" 2>/dev/null || true)" == "$lock_token" ]]; then
+    rm -r "$lock_dir"
+  fi
 }
 trap cleanup EXIT
 
-if [[ -n "$(git status --porcelain --untracked-files=all -- src/object_datamosh)" ]]; then
-  fail_message="Extension source is dirty; commit or restore it before recording release evidence"
+if [[ -n "$(git status --porcelain --untracked-files=all -- src/object_datamosh scripts)" ]]; then
+  fail_message="Extension/probe source is dirty; commit or restore it before recording release evidence"
   echo "$fail_message" >&2
   exit 1
 fi
 
 ODM_ISSUE26_WORK_ROOT="$work_root" \
 ODM_ISSUE26_RESULT="$run_result" \
+ODM_ISSUE26_TRACE="$run_trace" \
   "$BLENDER_BIN" --factory-startup --python "$probe" &
 blender_pid=$!
 
@@ -142,10 +158,25 @@ print(json.dumps(payload, indent=2, sort_keys=True))
 PY
 
 if $update_evidence; then
+  trace_sha="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_log_sha256_before_completion"])' "$run_result")"
+  trace_name="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_log_file"])' "$run_result")"
+  actual_trace_sha="$(shasum -a 256 "$run_trace" | awk '{print $1}')"
+  if [[ "$actual_trace_sha" != "$trace_sha" ]]; then
+    fail_with_log "Receipt trace digest does not match the retained event log"
+  fi
+  evidence_trace="$repo_root/docs/evidence/$trace_name"
+  evidence_trace_tmp="$evidence_trace.tmp.$$"
+  if [[ -f "$evidence_trace" ]]; then
+    cmp "$run_trace" "$evidence_trace"
+  else
+    cp "$run_trace" "$evidence_trace_tmp"
+    mv "$evidence_trace_tmp" "$evidence_trace"
+    evidence_trace_tmp=""
+  fi
   cp "$run_result" "$evidence_tmp"
   mv "$evidence_tmp" "$evidence_result"
   rm -r "$work_root"
-  echo "Updated $evidence_result"
+  echo "Updated $evidence_result and $evidence_trace"
 else
   echo "Run artifacts retained at $work_root"
 fi
