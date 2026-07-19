@@ -508,8 +508,8 @@ def _handle_raw_button_cancel(item: Snapshot, active: bool) -> None:
         state.escape_seen = False
         scene = _bpy.context.scene
         scene.cycles.samples = 64
-        scene.render.resolution_x = 512
-        scene.render.resolution_y = 512
+        scene.render.resolution_x = 1024
+        scene.render.resolution_y = 1024
         start_combined("raw-escape-cancel", end=100)
 
 
