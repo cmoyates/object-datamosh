@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
-README = Path(__file__).parents[1] / "README.md"
+from object_datamosh.core.presets import extreme_full_frame_feedback_settings
+
+ROOT = Path(__file__).parents[1]
+README = ROOT / "README.md"
+MIGRATION_GUIDE = ROOT / "docs" / "extreme-workflow-migration.md"
+RELEASE_NOTES = ROOT / "docs" / "release-notes-0.2.0.md"
+EXTENSION_MANIFEST = ROOT / "src" / "object_datamosh" / "blender_manifest.toml"
 
 
 def read_readme() -> str:
@@ -46,3 +53,66 @@ def test_readme_links_the_full_frame_release_validation_record() -> None:
     readme = read_readme()
 
     assert "[Full Frame release verification](docs/full-frame-release-verification.md)" in readme
+
+
+def test_readme_documents_preflight_and_post_run_evidence() -> None:
+    readme = read_readme()
+
+    assert "Active: Full Frame / Trail" in readme
+    assert "Full-frame history is OFF" in readme
+    assert "effective_settings" in readme
+    assert "ODM_processing_report.json" in readme
+    assert "schema-v2 manifest" in readme
+    assert "top-level `TARGET_ONLY`" in readme
+
+
+def test_readme_has_the_required_extreme_troubleshooting_rows() -> None:
+    readme = README.read_text(encoding="utf-8")
+
+    for symptom in (
+        "Output upside down",
+        "Object looks almost clean",
+        "Manifest says `TARGET_ONLY`",
+        "Most primary history samples are out of bounds",
+        "Trail follows object rather than remaining behind",
+        "Output is unchanged outside Hard matte",
+    ):
+        row = next(line for line in readme.splitlines() if line.startswith(f"| {symptom} |"))
+        assert row.count("|") == 4
+
+
+def test_schema_v2_migration_guide_requires_explicit_safe_reprocessing() -> None:
+    guide = " ".join(MIGRATION_GUIDE.read_text(encoding="utf-8").split())
+
+    assert "never guesses missing schema-v2 settings" in guide
+    assert "Resume" in guide
+    assert "Reprocess" in guide
+    assert "Overwrite Processed Frames" in guide
+    assert "raw beauty, Vector, and matte" in guide
+    assert "does not rerender the 3D scene" in guide
+    assert "Target Only remains the global default" in guide
+
+
+def test_release_notes_match_the_public_extreme_preset() -> None:
+    notes = " ".join(RELEASE_NOTES.read_text(encoding="utf-8").split())
+    preset = extreme_full_frame_feedback_settings()
+    with EXTENSION_MANIFEST.open("rb") as manifest_file:
+        extension_version = tomllib.load(manifest_file)["version"]
+
+    assert RELEASE_NOTES.name == f"release-notes-{extension_version}.md"
+    assert f"Object Datamosh {extension_version} release notes" in notes
+    assert "display_top_left_v1" in notes
+    assert "effective_settings" in notes
+    assert "Same Screen Position" in notes
+    assert "screen-space/mixed Trail" in notes
+    assert "processing diagnostics" in notes
+    for value in (
+        preset.persistence,
+        preset.trail_decay,
+        preset.trail_motion_mix,
+        preset.refresh_probability,
+        preset.block_size,
+        preset.motion_quantization,
+        preset.diffusion,
+    ):
+        assert f"`{value}`" in notes

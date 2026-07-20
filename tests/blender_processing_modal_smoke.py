@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -17,6 +18,10 @@ from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import SequencePaths
 from object_datamosh.sequence_processing import process_sequence
 from object_datamosh.ui import ODM_OT_process_sequence, feedback_settings_for_scene
+
+EXTENSION_MANIFEST = (
+    Path(__file__).parents[1] / "src" / "object_datamosh" / "blender_manifest.toml"
+)
 
 
 def run_processing_modal_scenarios(
@@ -142,7 +147,9 @@ def run_processing_modal_scenarios(
         assert manifest["effective_settings"]["history_source"] == "FULL_FRAME"
         assert manifest["effective_settings"]["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"
         assert manifest["effective_settings"]["mode"] == "TRAIL"
-        assert manifest["effective_settings"]["extension_version"] == "0.1.0"
+        with EXTENSION_MANIFEST.open("rb") as manifest_file:
+            expected_extension_version = tomllib.load(manifest_file)["version"]
+        assert manifest["effective_settings"]["extension_version"] == expected_extension_version
         assert manifest["effective_settings"]["blender_version"] == bpy.app.version_string
         assert modal_window_manager.events[-2:] == [
             ("timer_remove", modal_window_manager.timer),
