@@ -143,6 +143,8 @@ class ProcessingSession:
     frame_start = 3
     frame_end = 4
     recovery_frame = None
+    configuration_name = "Full Frame / Trail"
+    manifest_path = Path("/output/processed/ODM_sequence_manifest.json")
 
     def __init__(self, outputs: tuple[Path, ...]) -> None:
         self.outputs = outputs
@@ -380,7 +382,7 @@ def test_rendering_transition_passes_exact_discovered_frames_to_processing(
     assert runtime.phase_completed_work == 0
     assert runtime.phase_total_work == 2
     assert runtime.progress == 0.5
-    assert runtime.status == "Processing frame 3 of 4"
+    assert runtime.status == "Processing: Full Frame / Trail (frame 3 of 4)"
 
 
 def test_processing_advances_one_frame_per_timer_and_finalizes_the_shared_lifecycle(
@@ -428,7 +430,10 @@ def test_processing_advances_one_frame_per_timer_and_finalizes_the_shared_lifecy
     assert runtime.phase_completed_work == 2
     assert runtime.phase_total_work == 2
     assert runtime.progress == 1.0
-    assert runtime.status == "Render and Process complete: 2 frame(s)"
+    assert runtime.status == (
+        "Render and Process complete: 2 frame(s) with Full Frame / Trail; report: "
+        "/output/processed/ODM_sequence_manifest.json"
+    )
     assert settings.status == runtime.status
     assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
     assert window_manager.events.count(("progress_end", None)) == 1

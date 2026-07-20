@@ -74,6 +74,7 @@ def test_zero_frame_trail_recovery_is_published_without_falsy_fallback() -> None
         recovery_frame=0,
         retained_frames=(0,),
         is_finished=False,
+        configuration_name="Full Frame / Trail",
     )
     window_manager = WindowManagerRecorder()
     context = SimpleNamespace(window_manager=window_manager, window=object())
@@ -86,7 +87,7 @@ def test_zero_frame_trail_recovery_is_published_without_falsy_fallback() -> None
     controller.start(context, cast(Any, session))
 
     assert runtime.current_frame == 0
-    assert runtime.status == "Restoring resume history at frame 0"
+    assert runtime.status == "Restoring Full Frame / Trail resume history at frame 0"
     controller.cancel()
     assert not runtime.active
 
@@ -113,6 +114,7 @@ def test_timer_setup_failure_reports_initialization_frame_and_cause() -> None:
         recovery_frame=None,
         retained_frames=(),
         is_finished=False,
+        configuration_name="Target Only / Hard Localized",
     )
     operator = ReportingOperator()
     window_manager = WindowManagerRecorder(fail_timer_add=True)
@@ -159,6 +161,7 @@ def test_initial_progress_failure_does_not_add_a_modal_handler() -> None:
         recovery_frame=None,
         retained_frames=(),
         is_finished=False,
+        configuration_name="Target Only / Hard Localized",
     )
     operator = ReportingOperator()
     window_manager = WindowManagerRecorder(fail_progress_update=True)
@@ -208,6 +211,7 @@ def test_completed_resume_publishes_the_configured_end_frame() -> None:
         retained_frames=(1, 2, 3),
         completed_frames=(),
         is_finished=True,
+        configuration_name="Target Only / Hard Localized",
     )
     window_manager = WindowManagerRecorder()
     controller = ExistingPassModalController(
@@ -254,6 +258,8 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
         retained_frames: tuple[int, ...] = ()
         completed_frames: tuple[str, ...] = ()
         is_finished = False
+        configuration_name = "Full Frame / Trail"
+        manifest_path = "/output/processed/ODM_sequence_manifest.json"
 
         def process_next_frame(self) -> None:
             self.completed_frames = ("frame.exr",)
@@ -281,7 +287,8 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
     assert operator.reports == [
         (
             {"ERROR"},
-            "Processed 1 frame(s); cleanup failed during finalization at frame 1: "
-            "timer removal failed",
+            "Processed 1 frame(s) with Full Frame / Trail; report: "
+            "/output/processed/ODM_sequence_manifest.json; cleanup failed during finalization "
+            "at frame 1: timer removal failed",
         )
     ]

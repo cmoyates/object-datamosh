@@ -241,6 +241,8 @@ def main() -> None:
         "phase_total_work",
         "progress",
         "status",
+        "configuration_summary",
+        "manifest_path",
     ):
         assert runtime_type.bl_rna.properties[property_name].is_skip_save
 
@@ -336,9 +338,9 @@ def main() -> None:
         "object_datamosh.extreme_full_frame_feedback",
     }
     for guidance in (
-        "Target Only preserves more object identity.",
-        "Full Frame samples the entire prior frame.",
-        "The effect mask controls where it appears.",
+        "Full-frame history is OFF.",
+        "Background and unrelated screen content",
+        "cannot become history color inside the target.",
         "First/reset frame:",
         "Visible object seeds its clean image.",
         "Background-only pre-roll:",
@@ -346,6 +348,7 @@ def main() -> None:
     ):
         assert guidance in layout.labels
     assert any("starting point" in label and "vary by scene" in label for label in layout.labels)
+    assert any(label.startswith("Active: Target Only / Hard Localized") for label in layout.labels)
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
     assert any(label.startswith("Status: ") for label in layout.labels)
@@ -427,6 +430,11 @@ def main() -> None:
     assert abs(settings.motion_quantization - 8.0) < 1e-6
     assert abs(settings.diffusion - 2.0) < 1e-6
     assert settings.status == "Applied Extreme Full-Frame Feedback starting configuration"
+    full_frame_layout = LayoutRecorder()
+    _draw_sidebar(full_frame_layout, bpy.context, scene)
+    assert "Complete previous processed frame is available" in full_frame_layout.labels
+    assert "as history color." in full_frame_layout.labels
+    assert any(label.startswith("Active: Full Frame / Trail") for label in full_frame_layout.labels)
     assert unrelated_before_extreme_setup == (
         settings.target_object,
         settings.frame_start,

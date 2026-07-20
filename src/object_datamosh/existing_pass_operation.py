@@ -66,9 +66,14 @@ class ExistingPassModalController:
             current_frame = session.frame_end
             status = "No pending frames; finalizing..."
         elif recovery_frame is not None:
-            status = f"Restoring resume history at frame {recovery_frame}"
+            status = (
+                f"Restoring {session.configuration_name} resume history at frame {recovery_frame}"
+            )
         else:
-            status = f"Processing frame {current_frame} of {session.frame_end}"
+            status = (
+                f"Processing: {session.configuration_name} (frame {current_frame} of "
+                f"{session.frame_end})"
+            )
         self._lifecycle.update(
             phase=OperationPhase.PROCESSING,
             current_frame=current_frame,
@@ -155,7 +160,8 @@ class ExistingPassModalController:
             if completed > completed_before:
                 self._publish_step(
                     frame_number,
-                    f"Processed frame {frame_number} of {session.frame_end}",
+                    f"Processing: {session.configuration_name} (processed frame {frame_number} "
+                    f"of {session.frame_end})",
                 )
             elif recovering_history:
                 status = (
@@ -175,7 +181,10 @@ class ExistingPassModalController:
             result = session.result
         except Exception as error:
             return self._fail_step(frame_number, error)
-        message = f"Processed {len(result.frames)} frame(s)"
+        message = (
+            f"Processed {len(result.frames)} frame(s) with {session.configuration_name}; "
+            f"report: {session.manifest_path}"
+        )
         if not self.finalize(OperationPhase.COMPLETED, message):
             self._operator.report({"ERROR"}, self._visible_status(message))
             return {"CANCELLED"}

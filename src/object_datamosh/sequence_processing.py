@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, cast
@@ -55,7 +55,7 @@ class ProcessingProgress(Protocol):
     def end(self) -> None: ...
 
 
-_MANIFEST_VERSION = 3
+_MANIFEST_VERSION = 4
 _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 
@@ -63,6 +63,22 @@ _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 def sequence_manifest_path(paths: SequencePaths) -> Path:
     """Return the recovery-manifest path for a processed sequence."""
     return paths.root / "processed" / _MANIFEST_FILENAME
+
+
+def processing_configuration_name(settings: FeedbackSettings) -> str:
+    """Return the concise identity shared by logs and visible run status."""
+    history = "Full Frame" if settings.history_source is HistorySource.FULL_FRAME else "Target Only"
+    mode = "Trail" if settings.mode is FeedbackMode.TRAIL else "Hard Localized"
+    return f"{history} / {mode}"
+
+
+def processing_configuration_summary(settings: FeedbackSettings) -> str:
+    """Return the preflight summary of the most consequential feedback controls."""
+    return (
+        f"{processing_configuration_name(settings)} | Persistence {settings.persistence:g} | "
+        f"Block {settings.block_size} | Diffusion {settings.diffusion:g} | "
+        f"Refresh {settings.refresh_probability:g}"
+    )
 
 
 class SequenceProcessingCancelled(RuntimeError):
@@ -106,6 +122,7 @@ class ProcessingSession:
     should_cancel: Callable[[], bool] | None
     resolved_inputs: dict[int, FramePaths]
     settings_fingerprint: str
+    effective_settings: dict[str, object]
     manifest_path: Path
     current_frame: int
     completed_frames: tuple[Path, ...]
@@ -134,6 +151,8 @@ class ProcessingSession:
         missing_history: MissingHistoryPolicy = MissingHistoryPolicy.ERROR,
         should_cancel: Callable[[], bool] | None = None,
         input_frames: tuple[FramePaths, ...] | None = None,
+        extension_version: str | None = None,
+        blender_version: str | None = None,
     ) -> "ProcessingSession":
         """Initialize one sequence run without processing a frame."""
         if frame_start > frame_end:
@@ -153,6 +172,19 @@ class ProcessingSession:
         )
         manifest_path = sequence_manifest_path(paths)
         fingerprint = _settings_fingerprint(settings, matte_provider)
+        effective_settings = _effective_settings_snapshot(
+            settings,
+            matte_provider,
+            reset_frames=reset_frames,
+            resolution_change=resolution_change,
+            extension_version=extension_version,
+            blender_version=blender_version,
+        )
+        logging.getLogger(__name__).info(
+            "Initialized processing configuration: %s; manifest=%s",
+            processing_configuration_summary(settings),
+            manifest_path,
+        )
         state: FeedbackState | None = None
         first_frame = frame_start
         recovery_reset_frame: int | None = None
@@ -168,7 +200,9 @@ class ProcessingSession:
                 history_source=settings.history_source,
                 reset_frames=reset_frames,
                 resolution_change=resolution_change,
+                semantic_settings=_semantic_settings_snapshot(settings, matte_provider),
             )
+            effective_settings = cast(dict[str, object], manifest["effective_settings"])
             completed = _completed_frames(manifest)
             recorded_completion_count = len(completed)
             missing_index = next(
@@ -226,6 +260,7 @@ class ProcessingSession:
                         reset_frames,
                         resolution_change,
                         completed,
+                        effective_settings,
                     ),
                 )
         else:
@@ -250,6 +285,7 @@ class ProcessingSession:
                     reset_frames,
                     resolution_change,
                     completed,
+                    effective_settings,
                 ),
             )
         return cls(
@@ -267,6 +303,7 @@ class ProcessingSession:
             should_cancel=should_cancel,
             resolved_inputs=resolved_inputs,
             settings_fingerprint=fingerprint,
+            effective_settings=effective_settings,
             manifest_path=manifest_path,
             current_frame=first_frame,
             completed_frames=(),
@@ -276,6 +313,11 @@ class ProcessingSession:
             _trail_recovery_frames=trail_recovery_frames,
             _is_finished=first_frame > frame_end and not trail_recovery_frames,
         )
+
+    @property
+    def configuration_name(self) -> str:
+        """Concise immutable configuration identity for this session."""
+        return processing_configuration_name(self.settings)
 
     @property
     def is_finished(self) -> bool:
@@ -360,6 +402,7 @@ class ProcessingSession:
                     self.reset_frames,
                     self.resolution_change,
                     self._completed_numbers,
+                    self.effective_settings,
                 ),
             )
             return
@@ -437,6 +480,7 @@ class ProcessingSession:
                 self.reset_frames,
                 self.resolution_change,
                 committed_numbers,
+                self.effective_settings,
             ),
         )
         # Publish completion only after the recovery manifest atomically commits the frame.
@@ -465,6 +509,8 @@ def process_sequence(
     should_cancel: Callable[[], bool] | None = None,
     input_frames: tuple[FramePaths, ...] | None = None,
     frame_error_factory: Callable[[int, Exception], Exception] | None = None,
+    extension_version: str | None = None,
+    blender_version: str | None = None,
 ) -> SequenceProcessingResult:
     """Process a sequence synchronously, optionally attributing failures to their frame."""
     try:
@@ -482,6 +528,8 @@ def process_sequence(
             missing_history=missing_history,
             should_cancel=should_cancel,
             input_frames=input_frames,
+            extension_version=extension_version,
+            blender_version=blender_version,
         )
     except Exception as error:
         if frame_error_factory is None:
@@ -598,26 +646,71 @@ def _validate_history_state(state: FeedbackState) -> None:
         raise ValueError("history_matte coverage must be finite and between 0 and 1")
 
 
-def _settings_fingerprint(settings: FeedbackSettings, matte_provider: MatteProvider) -> str:
-    payload = {
-        field.name: (
-            getattr(settings, field.name).value
-            if isinstance(getattr(settings, field.name), StrEnum)
-            else getattr(settings, field.name)
-        )
-        for field in fields(settings)
-    }
+def _stable_value(value: object) -> object:
+    """Convert a processing value to deterministic, human-readable JSON data."""
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (tuple, list, frozenset, set)):
+        converted = [_stable_value(item) for item in value]
+        return sorted(converted) if isinstance(value, (frozenset, set)) else converted
+    if isinstance(value, dict):
+        return {str(key): _stable_value(item) for key, item in sorted(value.items())}
+    raise TypeError(f"Unsupported processing setting value: {type(value).__name__}")
+
+
+def _matte_provider_snapshot(matte_provider: MatteProvider) -> dict[str, object]:
     provider_settings: dict[str, object] = {}
-    for name in ("directory", "prefix", "extension", "padding"):
-        if hasattr(matte_provider, name):
-            value = getattr(matte_provider, name)
-            provider_settings[name] = str(value) if isinstance(value, Path) else value
-    payload["matte_provider"] = {
-        "type": type(matte_provider).__name__,
-        "settings": provider_settings,
+    if is_dataclass(matte_provider):
+        provider_settings = {
+            field.name: _stable_value(getattr(matte_provider, field.name))
+            for field in fields(matte_provider)
+        }
+    return {"type": type(matte_provider).__name__, "settings": provider_settings}
+
+
+def _semantic_settings_snapshot(
+    settings: FeedbackSettings, matte_provider: MatteProvider
+) -> dict[str, object]:
+    """Serialize every feedback field and matte-provider setting without a field list."""
+    payload = {
+        field.name: _stable_value(getattr(settings, field.name)) for field in fields(settings)
     }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    payload["matte_provider"] = _matte_provider_snapshot(matte_provider)
+    return payload
+
+
+def _effective_settings_snapshot(
+    settings: FeedbackSettings,
+    matte_provider: MatteProvider,
+    *,
+    reset_frames: frozenset[int],
+    resolution_change: ResolutionChangePolicy,
+    extension_version: str | None,
+    blender_version: str | None,
+) -> dict[str, object]:
+    snapshot = _semantic_settings_snapshot(settings, matte_provider)
+    snapshot.update(
+        {
+            "reset_frames": sorted(reset_frames),
+            "resolution_change": resolution_change.value,
+            "extension_version": extension_version or "unavailable",
+            "blender_version": blender_version or "unavailable",
+        }
+    )
+    return snapshot
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _settings_fingerprint(settings: FeedbackSettings, matte_provider: MatteProvider) -> str:
+    payload = _semantic_settings_snapshot(settings, matte_provider)
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def _new_manifest(
@@ -628,6 +721,7 @@ def _new_manifest(
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
     completed: list[int],
+    effective_settings: dict[str, object],
 ) -> dict[str, object]:
     return {
         "schema_version": _MANIFEST_VERSION,
@@ -636,6 +730,7 @@ def _new_manifest(
         "frame_end": frame_end,
         "history_source": history_source.value,
         "settings_fingerprint": fingerprint,
+        "effective_settings": effective_settings,
         "reset_frames": sorted(reset_frames),
         "resolution_change": resolution_change.value,
         "completed_frames": completed,
@@ -670,7 +765,14 @@ def _validate_manifest(
     history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
+    semantic_settings: dict[str, object],
 ) -> None:
+    schema_version = manifest.get("schema_version")
+    if schema_version == 2:
+        raise ValueError(
+            "Sequence recovery manifest schema 2 cannot prove the complete effective settings; "
+            "reprocess the sequence (retained raw passes remain reusable)"
+        )
     expected = {
         "schema_version": _MANIFEST_VERSION,
         "image_orientation": _IMAGE_ORIENTATION,
@@ -682,8 +784,52 @@ def _validate_manifest(
         "resolution_change": resolution_change.value,
     }
     for name, value in expected.items():
-        if manifest.get(name) != value:
+        if _canonical_json(manifest.get(name)) != _canonical_json(value):
             raise ValueError(f"Sequence recovery manifest is incompatible: {name} changed")
+    effective_settings = manifest.get("effective_settings")
+    if not isinstance(effective_settings, dict):
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: effective_settings is missing or invalid"
+        )
+    if effective_settings.get("history_source") != manifest.get("history_source"):
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: history_source disagrees with "
+            "effective_settings"
+        )
+    expected_effective_names = {
+        *semantic_settings,
+        "reset_frames",
+        "resolution_change",
+        "extension_version",
+        "blender_version",
+    }
+    if set(effective_settings) != expected_effective_names:
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: effective_settings fields changed"
+        )
+    for name, value in semantic_settings.items():
+        if _canonical_json(effective_settings.get(name)) != _canonical_json(value):
+            raise ValueError(
+                f"Sequence recovery manifest is incompatible: effective_settings.{name} changed"
+            )
+    if _canonical_json(effective_settings.get("reset_frames")) != _canonical_json(
+        sorted(reset_frames)
+    ):
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: effective_settings.reset_frames changed"
+        )
+    if effective_settings.get("resolution_change") != resolution_change.value:
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: "
+            "effective_settings.resolution_change changed"
+        )
+    for name in ("extension_version", "blender_version"):
+        provenance = effective_settings.get(name)
+        if not isinstance(provenance, str) or not provenance:
+            raise ValueError(
+                f"Sequence recovery manifest is incompatible: effective_settings.{name} "
+                "is missing or invalid"
+            )
     completed = _completed_frames(manifest)
     if completed != list(range(frame_start, frame_start + len(completed))):
         raise ValueError("Sequence recovery manifest has discontinuous completed frames")

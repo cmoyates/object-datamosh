@@ -49,6 +49,14 @@ def run_processing_modal_scenarios(
         settings.persistence = 1.0
         settings.block_size = 1
         settings.overwrite_processed = False
+        assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
+        assert settings.history_source == "FULL_FRAME"
+        assert settings.feedback_mode == "TRAIL"
+        # Keep the preset's identity while making this tiny image fixture pixel-local.
+        settings.block_size = 1
+        settings.refresh_probability = 0.0
+        settings.motion_quantization = 0.0
+        settings.diffusion = 0.0
         modal_window_manager = ModalWindowManagerRecorder()
         modal_window = object()
         modal_context = type(
@@ -68,8 +76,16 @@ def run_processing_modal_scenarios(
         assert runtime.completed_work == 0
         assert runtime.total_work == 2
         assert runtime.progress == 0.0
-        assert settings.status == "Processing existing passes..."
-        assert runtime.status == "Processing frame 1 of 2"
+        assert settings.status == "Starting: Full Frame / Trail"
+        assert runtime.status == "Processing: Full Frame / Trail (frame 1 of 2)"
+        assert process_operator.reports[-1] == ({"INFO"}, "Starting: Full Frame / Trail")
+        assert runtime.configuration_summary.startswith("Full Frame / Trail")
+        assert runtime.manifest_path == str(
+            processing_paths.root / "processed" / "ODM_sequence_manifest.json"
+        )
+        # Scene controls are mutable, but this active session must retain its invocation snapshot.
+        settings.history_source = "TARGET_ONLY"
+        settings.feedback_mode = "HARD_LOCALIZED"
         assert modal_window_manager.events[:4] == [
             ("progress_begin", (0, 2)),
             ("timer_add", (0.1, modal_window)),
@@ -95,8 +111,8 @@ def run_processing_modal_scenarios(
         assert runtime.current_frame == 1
         assert runtime.completed_work == 1
         assert runtime.progress == 0.5
-        assert runtime.status == "Processed frame 1 of 2"
-        assert settings.status == "Processing existing passes..."
+        assert runtime.status == ("Processing: Full Frame / Trail (processed frame 1 of 2)")
+        assert settings.status == "Starting: Full Frame / Trail"
         assert not object_datamosh_ops.process_sequence.poll()
 
         owned_timer_event = type(
@@ -111,7 +127,16 @@ def run_processing_modal_scenarios(
         assert runtime.current_frame == 2
         assert runtime.completed_work == 2
         assert runtime.progress == 1.0
-        assert runtime.status == "Processed 2 frame(s)"
+        assert runtime.status == (
+            f"Processed 2 frame(s) with Full Frame / Trail; report: {runtime.manifest_path}"
+        )
+        manifest = json.loads(Path(runtime.manifest_path).read_text(encoding="utf-8"))
+        assert manifest["schema_version"] == 4
+        assert manifest["history_source"] == "FULL_FRAME"
+        assert manifest["effective_settings"]["history_source"] == "FULL_FRAME"
+        assert manifest["effective_settings"]["mode"] == "TRAIL"
+        assert manifest["effective_settings"]["extension_version"] == "0.1.0"
+        assert manifest["effective_settings"]["blender_version"] == bpy.app.version_string
         assert modal_window_manager.events[-2:] == [
             ("timer_remove", modal_window_manager.timer),
             ("progress_end", None),
@@ -371,6 +396,36 @@ def run_processing_modal_scenarios(
         assert restart_operator.execute(restart_context) == {"RUNNING_MODAL"}
         restart_operator.cancel(restart_context)
         assert not runtime.active
+
+        schema_v2_paths = SequencePaths(Path(temp_directory) / "schema-v2")
+        schema_v2_manifest = schema_v2_paths.root / "processed" / "ODM_sequence_manifest.json"
+        schema_v2_manifest.parent.mkdir(parents=True)
+        schema_v2_manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "frame_start": 1,
+                    "frame_end": 1,
+                    "history_source": "TARGET_ONLY",
+                    "settings_fingerprint": "opaque-v2",
+                    "completed_frames": [1],
+                }
+            ),
+            encoding="utf-8",
+        )
+        settings.output_directory = str(schema_v2_paths.root)
+        settings.frame_start = 1
+        settings.frame_end = 1
+        settings.sequence_run_mode = "RESUME"
+        settings.history_source = "TARGET_ONLY"
+        settings.feedback_mode = "HARD_LOCALIZED"
+        schema_v2_operator = ProcessOperatorHarness(ODM_OT_process_sequence)
+        assert schema_v2_operator.execute(restart_context) == {"CANCELLED"}
+        assert schema_v2_operator.reports
+        schema_v2_report = schema_v2_operator.reports[-1][1]
+        assert "schema 2 cannot prove the complete effective settings" in schema_v2_report
+        assert "reprocess" in settings.status
+        settings.sequence_run_mode = "REPROCESS"
 
         print(
             "Sequence processing outputs:",

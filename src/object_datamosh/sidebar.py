@@ -44,6 +44,16 @@ def draw_sidebar(
     row.prop(settings, "frame_end")
     sequence.prop(settings, "output_directory")
     sequence.prop(settings, "overwrite_raw")
+    active_summary = getattr(runtime, "configuration_summary", "") if operation_active else ""
+    if not active_summary:
+        history = "Full Frame" if settings.history_source == "FULL_FRAME" else "Target Only"
+        mode = "Trail" if settings.feedback_mode == "TRAIL" else "Hard Localized"
+        active_summary = (
+            f"{history} / {mode} | Persistence {settings.persistence:g} | "
+            f"Block {settings.block_size} | Diffusion {settings.diffusion:g} | "
+            f"Refresh {settings.refresh_probability:g}"
+        )
+    sequence.label(text=f"Active: {active_summary}")
     sequence.operator("object_datamosh.render_raw_passes")
     sequence.operator("object_datamosh.render_and_process")
     sequence.prop(settings, "sequence_run_mode")
@@ -83,15 +93,25 @@ def draw_sidebar(
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
     feedback.prop(settings, "history_source")
-    feedback.label(text="Target Only preserves more object identity.")
-    feedback.label(text="Full Frame samples the entire prior frame.")
-    feedback.label(text="The effect mask controls where it appears.")
+    feedback.operator("object_datamosh.extreme_full_frame_feedback")
+    feedback.label(text="Artistic starting point; results vary by scene.")
+    if settings.history_source == "TARGET_ONLY":
+        warning = feedback.row()
+        warning.alert = True
+        warning.label(text="Full-frame history is OFF.", icon="INFO")
+        warning = feedback.row()
+        warning.alert = True
+        warning.label(text="Background and unrelated screen content")
+        warning = feedback.row()
+        warning.alert = True
+        warning.label(text="cannot become history color inside the target.")
+    else:
+        feedback.label(text="Complete previous processed frame is available", icon="INFO")
+        feedback.label(text="as history color.")
     feedback.label(text="First/reset frame:")
     feedback.label(text="Visible object seeds its clean image.")
     feedback.label(text="Background-only pre-roll:")
     feedback.label(text="Enables a more corrupted entrance.")
-    feedback.operator("object_datamosh.extreme_full_frame_feedback")
-    feedback.label(text="Artistic starting point; results vary by scene.")
     feedback.prop(settings, "trail_decay")
     feedback.prop(settings, "persistence")
     feedback.prop(settings, "block_size")

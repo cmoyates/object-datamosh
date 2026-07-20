@@ -1,4 +1,5 @@
 import json
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -6,7 +7,7 @@ import pytest
 
 import object_datamosh.sequence_processing as sequence_processing
 from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings, HistorySource
-from object_datamosh.core.mattes import ObjectIndexMatteProvider
+from object_datamosh.core.mattes import ExternalMatteProvider, ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
 from object_datamosh.sequence_processing import (
     MissingHistoryPolicy,
@@ -386,7 +387,7 @@ def test_process_sequence_applies_explicit_resets_and_always_resets_first_frame(
     np.testing.assert_array_equal(io.written[first.processed], _rgba(0.75))
     np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
     manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == 3
+    assert manifest["schema_version"] == 4
     assert manifest["image_orientation"] == "display_top_left_v1"
 
 
@@ -990,6 +991,190 @@ def test_resume_resets_when_blender_reports_unreadable_history(tmp_path: Path) -
     assert result.frames == (first.processed, second.processed)
     np.testing.assert_array_equal(resume_io.written[first.processed], _rgba(0.75))
     np.testing.assert_array_equal(resume_io.written[second.processed], _rgba(0.75))
+
+
+def test_manifest_records_complete_readable_effective_configuration(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            tmp_path / "mattes" / "mask_0001.exr": np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    settings = FeedbackSettings(
+        mode=FeedbackMode.TRAIL,
+        history_source=HistorySource.FULL_FRAME,
+        persistence=0.75,
+    )
+    provider = ExternalMatteProvider(tmp_path / "mattes", prefix="mask_")
+
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=provider,
+        settings=settings,
+        image_io=io,
+        reset_frames=frozenset({8, 4}),
+        resolution_change=ResolutionChangePolicy.RESET,
+        extension_version="1.2.3",
+        blender_version="5.0.1",
+    )
+
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    effective = manifest["effective_settings"]
+    assert manifest["schema_version"] == 4
+    assert manifest["history_source"] == effective["history_source"] == "FULL_FRAME"
+    assert effective["mode"] == "TRAIL"
+    assert {field.name for field in fields(FeedbackSettings)} <= effective.keys()
+    assert effective["matte_provider"] == {
+        "settings": {
+            "directory": str(tmp_path / "mattes"),
+            "extension": ".exr",
+            "padding": 4,
+            "prefix": "mask_",
+        },
+        "type": "ExternalMatteProvider",
+    }
+    assert effective["reset_frames"] == [4, 8]
+    assert effective["resolution_change"] == "RESET"
+    assert effective["extension_version"] == "1.2.3"
+    assert effective["blender_version"] == "5.0.1"
+
+
+def test_manifest_provenance_has_deterministic_unavailable_fallback(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=MemoryImageIO({}),
+    )
+
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["effective_settings"]["extension_version"] == "unavailable"
+    assert manifest["effective_settings"]["blender_version"] == "unavailable"
+
+
+def test_resume_rejects_schema_v2_without_guessing_and_retains_raw_passes(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    for raw_path in (frame.beauty, frame.vector, frame.matte):
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"retained")
+    manifest_path = sequence_manifest_path(paths)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "frame_start": 1,
+                "frame_end": 1,
+                "history_source": "TARGET_ONLY",
+                "settings_fingerprint": "opaque-v2",
+                "completed_frames": [1],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    diagnostic = r"schema 2.*cannot prove.*reprocess.*raw passes.*reusable"
+    with pytest.raises(ValueError, match=diagnostic):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO({}),
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+    assert frame.beauty.read_bytes() == b"retained"
+    assert frame.vector.read_bytes() == b"retained"
+    assert frame.matte.read_bytes() == b"retained"
+
+
+def test_resume_rejects_disagreement_between_top_level_and_readable_history_source(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=MemoryImageIO({}),
+    )
+    manifest_path = sequence_manifest_path(paths)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["effective_settings"]["history_source"] = "FULL_FRAME"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="history_source disagrees with effective_settings"):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO({}),
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "diagnostic"),
+    [
+        (("mode",), "TRAIL", "effective_settings.mode changed"),
+        (("reverse_motion",), 0, "effective_settings.reverse_motion changed"),
+        (
+            ("matte_provider", "type"),
+            "ExternalMatteProvider",
+            "effective_settings.matte_provider changed",
+        ),
+        (("reset_frames",), [9], "effective_settings.reset_frames changed"),
+    ],
+)
+def test_resume_rejects_tampered_readable_effective_settings(
+    tmp_path: Path,
+    path: tuple[str, ...],
+    value: object,
+    diagnostic: str,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=MemoryImageIO({}),
+    )
+    manifest_path = sequence_manifest_path(paths)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    target = manifest["effective_settings"]
+    for name in path[:-1]:
+        target = target[name]
+    target[path[-1]] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=diagnostic):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO({}),
+            run_mode=SequenceRunMode.RESUME,
+        )
 
 
 def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Path) -> None:

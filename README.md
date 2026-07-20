@@ -165,7 +165,10 @@ remove unwanted files yourself as a separate explicit action.
   independent of processed-output overwrite permission.
 
 Changing the frame range, matte source, or feedback settings makes an old resume manifest
-incompatible by design. Use a full reprocess in that case.
+incompatible by design. Use a full reprocess in that case. Schema-v2 manifests are read only far
+enough to report that they cannot prove the complete effective configuration; they are never
+migrated by guessing omitted settings. Reprocess while reusing the retained raw beauty, Vector,
+and matte passes.
 
 ### 8. Restore the temporary Object Index setup
 
@@ -373,9 +376,15 @@ default) or performs a documented clean reset, according to **Resolution Change*
 
 Each result is written to `processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed,
 full-float RGBA OpenEXR. Processing also atomically updates
-`processed/ODM_sequence_manifest.json`. This compact JSON manifest records the frame range,
-ordered completed-frame prefix, explicit resets, resolution policy, History Source, and a SHA-256
-fingerprint of feedback and matte-provider settings. It contains no image data. Output from different
+`processed/ODM_sequence_manifest.json`. Schema 4 records the frame range, ordered completed-frame
+prefix, explicit resets, resolution policy, top-level History Source, and a SHA-256 semantic
+fingerprint. Its readable `effective_settings` snapshot records every `FeedbackSettings` field,
+matte-provider type and configuration, reset/resolution controls, and extension/Blender version
+provenance. Enums use stable values; unavailable version provenance is written as `unavailable`.
+The snapshot is captured once when the run starts and remains unchanged if scene controls are edited
+mid-run. Top-level History Source must agree with the snapshot, and manifest replacement remains
+atomic. Operational progress and cancellation state do not enter the semantic fingerprint. The
+manifest contains no image data. Output from different
 settings, a changed range, or discontinuous completion metadata is rejected rather than silently reused.
 
 **Reprocess** starts from the configured first frame. Existing outputs stop it unless **Overwrite
@@ -477,10 +486,10 @@ history frame. Resolution-policy resets likewise clear both color and effect cov
 To try Full Frame or new effect settings without rerendering the 3D scene, keep the retained raw
 beauty, vector, and matte passes, select **Reprocess**, enable **Overwrite Processed Frames**, and
 run **Process Existing Passes**. Changing History Source invalidates the old recovery manifest, so
-start a full reprocess; the raw inputs remain reusable. The canonical-orientation correction also
-uses recovery manifest schema 3 (`image_orientation: display_top_left_v1`): processed history from
-older manifests is intentionally incompatible and must be reprocessed, while retained raw passes
-remain reusable. This workflow is supported only while the
+start a full reprocess; the raw inputs remain reusable. Recovery manifest schema 4 retains the
+canonical orientation marker (`image_orientation: display_top_left_v1`) and adds complete readable
+configuration provenance. Processed history from older manifests is intentionally incompatible and
+must be reprocessed, while retained raw passes remain reusable. This workflow is supported only while the
 retained passes still satisfy the documented paths, frame range, dimensions, and matte contract.
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
