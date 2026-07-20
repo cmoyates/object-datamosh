@@ -498,6 +498,23 @@ Refresh Probability `0`, Block Size `32`, Motion Quantization `8.0`, and Diffusi
 starting values match the sidebar action and a deterministic moving-target fixture; tune them
 for the scene rather than treating them as a physical or universal preset.
 
+Before a long run, read the sidebar's **Active** configuration summary. The preset should show a
+summary beginning `Active: Full Frame / Trail`; if the panel instead warns `Full-frame history is
+OFF`, the run will use Target Only regardless of its filename or artistic intent. Controls are
+snapshotted when processing starts, so this active summary remains the run configuration even if
+scene controls are edited while it runs.
+
+After processing, inspect `processed/ODM_sequence_manifest.json`. Its readable
+`effective_settings` is the authoritative configuration snapshot; compare its `history_source`,
+`mode`, `invalid_history_fallback`, Trail Motion Follow, and motion controls with the sidebar.
+Then inspect `processed/ODM_processing_report.json` for manifest-fingerprint agreement, completion,
+warnings, resets, primary/same-pixel/final-beauty sampling, refresh restoration, historical blend,
+and changed-output counters. In particular, the user's old schema-v2 manifest has a top-level
+`TARGET_ONLY`: that proves Target Only was active and Full Frame was never exercised. Its opaque
+fingerprint cannot prove the other omitted controls, so those settings must not be guessed. Follow
+the [corrected Extreme workflow migration guide](docs/extreme-workflow-migration.md) to reprocess
+retained raw passes safely.
+
 ### Full Frame resets, recovery, and reprocessing
 
 The configured first frame always seeds clean current beauty as color history and the current target
@@ -704,7 +721,10 @@ third-party runtime dependency. The current foreground observations, gate result
 and checksum are recorded in
 [Responsive operations release verification](docs/responsive-operations-release-verification.md).
 The integrated Full Frame commands, artifact, and remaining visual checks are recorded in
-[Full Frame release verification](docs/full-frame-release-verification.md).
+[Full Frame release verification](docs/full-frame-release-verification.md). Corrected workflow
+migration is documented in the [migration guide](docs/extreme-workflow-migration.md), and its
+orientation, provenance, fallback, Trail, preset, and diagnostics changes are summarized in the
+[0.2.0 release notes](docs/release-notes-0.2.0.md).
 
 ## Performance expectations
 
@@ -720,6 +740,19 @@ arrays coexist during processing. Motion reduction, quantization, diffusion, and
 remain compact block grids until `process_frame` expands them for pixel sampling and blending.
 
 ## Troubleshooting
+
+For an ineffective or unexpected Extreme result, preserve the manifest and processing report before
+reprocessing. Ratios describe this run's measured samples; they diagnose likely causes but do not
+promise a particular artistic result.
+
+| Symptom | Likely causes and evidence to inspect | Corrective action |
+| --- | --- | --- |
+| Output upside down | A pass was converted outside the supported boundary or a noncanonical reader was used. Check manifest `image_orientation` is `display_top_left_v1` and compare asymmetric corner markers in raw and processed EXRs. | Use the documented pass layout and Blender image I/O; remove extra vertical flips. Calibrate rather than negating Vector Y to compensate for an image flip. |
+| Object looks almost clean | Target Only, successful motion compensation, low historical blend, or refresh may preserve clean beauty. Check the **Active** summary, `effective_settings`, report warnings, `historical_blend_ratio`, `changed_output_ratio`, and refresh counters. | Select Full Frame or apply the Extreme preset before processing; calibrate motion, then tune quantization/diffusion. Reprocess retained raw passes with explicit processed overwrite. |
+| Manifest says `TARGET_ONLY` | Target Only was active; in a schema-v2 manifest the top-level value proves the run never exercised Full Frame, while its opaque fingerprint proves nothing about omitted controls. | Select Full Frame or apply the preset, verify `Active: Full Frame / Trail`, and perform a full Reprocess. Do not Resume or guess schema-v2 settings. |
+| Most primary history samples are out of bounds | Motion channels, sign, Y orientation, gain, or scale may be wrong, or motion may legitimately leave frame. Check `primary_history_invalid_samples`/ratio and same-pixel/final-beauty fallback counters. | Run vector calibration for the Blender version and engine; correct RG/BA, Reverse, Flip X/Y, or Gain. Same Screen Position can preserve history but does not repair vectors. |
+| Trail follows object rather than remaining behind | Trail Motion Follow is near `1`, the compatibility behavior. Check `effective_settings.trail_motion_mix` and confirm Full Frame + Trail. | Move Trail Motion Follow toward `0` for screen-space persistence, or choose an intermediate mix; reprocess to compare. |
+| Output is unchanged outside Hard matte | This is expected Hard Localized behavior, not evidence that Full Frame is off. Check `effective_settings.mode` and outside-matte change evidence. | Choose Trail if decaying effect coverage should extend outside the current matte; Full Frame changes available history color, not Hard's effect boundary. |
 
 - **No output or a missing pass:** run **Setup Object Index** for the current target and view layer,
   use an engine that emits Image, Vector, and Object Index (Cycles is the tested path), and inspect

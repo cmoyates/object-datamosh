@@ -1,72 +1,94 @@
-# Full Frame release verification
+# Corrected Extreme Full Frame release verification
 
 Date: 2026-07-20
 
-Issue: [#48 — Finalize Full Frame documentation and release validation](https://github.com/cmoyates/object-datamosh/issues/48)
+Issue: [#61 — Document, migrate, and release-validate the corrected Extreme workflow](https://github.com/cmoyates/object-datamosh/issues/61)
 
-Implementation base: `3ed7165e71006f29531653a3e89395bb3402f0d3`
+Implementation base: `fc803d173c02c91d80257836ea7e5f76ec3c64aa`
 
 Configured Blender: Blender 5.2.0 LTS (`fbe6228777e7`, built 2026-07-14)
 
 ## Result
 
-The combined Full Frame implementation passed the complete repository static, pure-Python,
-background-Blender, extension-validation, and packaging matrix available in the configured
-environment. The issue #48 change itself is limited to workflow documentation, documentation tests,
-and synchronization of the existing project version in `uv.lock`; it does not change extension
-runtime code.
+Every repository-prescribed automated release gate passed in the configured environment. The
+background Blender smoke included the actual Blender image-I/O path and complete synthetic Extreme
+A–D sequence: a 65×37 asymmetric four-frame raw beauty/Vector/matte fixture, eight processed EXRs
+across Trail and Hard companions, two schema-5 manifests, and two processing reports. It verified
+orientation markers, Full Frame provenance, Same Pixel History fallback, recursive frame history,
+screen-space Trail outside the current matte, Hard's clean outside-matte contract, diagnostics,
+temporary image cleanup, and scene-setting restoration.
 
-Both repository-documented background Blender checks were available and passed. No prescribed
-background check was skipped for an environment limitation. The pure-Python suite's single skip is
-intentional: collection outside Blender skips `tests/blender_smoke_test.py`, which was then run
-separately with Blender and passed.
+The pure suite's one skip is intentional: pytest outside Blender skips collection of
+`tests/blender_smoke_test.py`; that script was then run with Blender and passed. No prescribed check
+was unavailable. Full Blender background automation does not establish artistic quality or the
+interactive visual checks listed below.
 
-## Commands and results
+## Commands and compact results
 
-Commands were run from the repository root with `BLENDER_BIN` pointing to the configured Blender
-5.2.0 LTS executable.
+All commands ran from the repository root with `BLENDER_BIN` set to the configured Blender
+executable. Complete output is retained in the issue workflow's ignored `.git` log directory; this
+record contains stable command/result references only.
 
 | Command | Result |
 |---|---|
-| `uv run ty check` | Passed: `All checks passed!` |
-| `uv run pytest -q` | Passed: 262 tests; 1 Blender-runtime collection skip outside Blender |
-| `uv run ruff check .` | Passed: `All checks passed!` |
-| `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed`; includes the imported raw-render, processing, and combined modal scenarios plus isolated registered-operator dispatch |
-| `"$BLENDER_BIN" --background --factory-startup --python tests/create_calibration_scene.py` | Passed: created the owned calibration scene, rectangle, camera, and expected `(-2, 0, 0)` to `(2, 0, 0)` motion |
-| `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: `Success parsing TOML in "src/object_datamosh"` |
-| `mkdir -p dist` followed by `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: created `dist/object_datamosh-0.1.0.zip` |
-| `shasum -a 256 dist/object_datamosh-0.1.0.zip` | Passed: SHA-256 `86c5c0a40e402d55bbbb5390a2bd89ec3b52aa99708ef1d677eac5ed969e383e` |
-| `unzip -l dist/object_datamosh-0.1.0.zip` plus a forbidden-entry scan | Passed: 27 entries, 55,375 bytes; no tests, caches, build trees, virtual environments, compiled libraries, or compiled Python files |
+| `uv lock --check` | Passed; resolved 12 packages; tracked lockfile consistent. |
+| `uv sync` | Passed; resolved 12 and audited 10 packages; no tracked lockfile change. |
+| `uv run ty check` | Passed: `All checks passed!`. |
+| `uv run pytest -q` | Passed: 316 passed, 1 intentional Blender-runtime skip, 7.26 s. |
+| `uv run ruff check .` | Passed: `All checks passed!`. |
+| `"$BLENDER_BIN" --version` | Passed: Blender 5.2.0 LTS, hash `fbe6228777e7`. |
+| `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed`; Extreme fixture receipt reported 65×37, four raw frames, eight processed EXRs, two manifests, and two reports. |
+| `"$BLENDER_BIN" --background --factory-startup --python tests/create_calibration_scene.py` | Passed: owned calibration scene, rectangle, and camera created with expected `(-2, 0, 0)` → `(2, 0, 0)` motion. |
+| `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: `Success parsing TOML in "src/object_datamosh"`. |
+| `mkdir -p dist` then `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: created `dist/object_datamosh-0.1.0.zip`, 64,058 bytes. |
+| `shasum -a 256 dist/object_datamosh-0.1.0.zip` | Passed: `e25761376eb564d185a5b70f8210b492b2716baf0fa1137ec8fa3f7927c8bbbc`. |
+| `unzip -l dist/object_datamosh-0.1.0.zip` and a Python forbidden-entry audit | Passed: 29 entries, 245,131 uncompressed bytes; no tests, caches, virtual/build trees, compiled libraries, or compiled Python. |
+| `git diff --check` | Passed. |
 
-The installation artifact is therefore:
+The installation artifact is ignored build output and is not committed:
 
-- path: `dist/object_datamosh-0.1.0.zip` (ignored build output, relative to the repository root);
-- size: 55,375 bytes;
-- SHA-256: `86c5c0a40e402d55bbbb5390a2bd89ec3b52aa99708ef1d677eac5ed969e383e`.
+- path: `dist/object_datamosh-0.1.0.zip`;
+- package manifest version: `0.1.0` (unchanged by issue #61);
+- size: 64,058 bytes;
+- SHA-256: `e25761376eb564d185a5b70f8210b492b2716baf0fa1137ec8fa3f7927c8bbbc`.
 
-## Scope confirmation
+The repository project and lockfile both retain editable package version `0.2.0`; validation found
+no metadata/lock inconsistency requiring a version change. The Blender extension manifest's
+independent package version remains `0.1.0` under existing repository policy.
 
-The release retains the NumPy CPU processing architecture and Blender image-sequence workflow.
-Issue #48 introduces no GPU processing, shader work, backend abstraction, donor EXR history,
-compiled runtime dependency, render-pass redesign, or compositor feedback loop. The extension
-still has no required third-party runtime dependency; Blender's bundled Python and NumPy remain the
-runtime foundation.
+## Migration and compatibility cases verified
 
-## Remaining interactive judgment
+- Pure and Blender smoke coverage reject a schema-v2 manifest with top-level `TARGET_ONLY` rather
+  than guessing omitted settings or trusting its processed file; all raw beauty, Vector, and matte
+  files remain untouched and reusable.
+- Schema 5 requires canonical `display_top_left_v1` orientation and exact readable
+  `effective_settings`; top-level History Source must agree with that snapshot.
+- Added manifest and report fields retain strict semantic fingerprint, range, reset, provider,
+  resolution-policy, provenance, and contiguous-prefix checks.
+- Default and migrated scene controls remain Target Only / Hard Localized / Current Beauty, while
+  the Extreme action explicitly opts into Full Frame / Trail / Same Screen Position.
+- Reset frames and missing-history policy remain conservative; resume never skips a gap or invents
+  history, and explicit reprocessing is protected by **Overwrite Processed Frames**.
 
-The automated checks establish contracts, deterministic processing, registration, generated pass
-and processed files, background modal boundaries, extension validity, and packaging. They do not
-establish whether a particular Full Frame result is artistically desirable. The following still
-require interactive Blender judgment in representative production scenes:
+User-facing steps are in the [migration guide](extreme-workflow-migration.md). Orientation,
+provenance, fallback, Trail propagation, retuned preset values, and diagnostics are recorded in the
+[0.2.0 release notes](release-notes-0.2.0.md).
 
-- recognizable-form loss and the desired balance among persistence, quantization, diffusion,
-  refresh, and trail decay;
-- motion-vector channel, sign, scale, Y-axis, and reverse-motion calibration for the chosen engine
-  and Blender build;
+## Scope and remaining interactive limitations
+
+This batch added no GPU/backend work and no compiled runtime dependency. It adds no shader,
+CUDA/CuPy/PyTorch/OpenCV, codec corruption, donor history, render-pass redesign, or compositor
+feedback loop. The implementation remains Blender plus bundled NumPy on the CPU.
+
+Background tests cannot decide whether an Extreme sequence is artistically desirable. Interactive
+checks still required for each production scene are:
+
+- RG versus BA, sign, gain, Y-axis orientation, and reverse-motion interpretation for the exact
+  Blender build, engine, camera, and motion;
 - trail shape around real occlusions, disocclusions, fine mattes, and frame edges;
-- node layout, sidebar polish, color-management choices, and final compositor integration; and
-- foreground UI redraw and cancellation feel. Blender can still block the UI during an individual
-  raw frame render, as documented in the responsive-operations release report.
+- recognizable-form loss and tuning of persistence, quantization, diffusion, decay, and motion
+  follow;
+- sidebar/node layout, color-management choices, and compositor integration; and
+- foreground redraw, Escape/Cancel feel, and UI blocking during an individual raw frame render.
 
-Object Datamosh remains an artistic recursive temporal-feedback effect, not literal compressed-video
-bitstream corruption. Background validation cannot replace visual approval of that effect.
+No interactive visual production-scene review was performed or claimed by issue #61.
