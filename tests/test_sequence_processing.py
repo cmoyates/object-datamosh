@@ -1133,6 +1133,7 @@ def test_resume_rejects_disagreement_between_top_level_and_readable_history_sour
     ("path", "value", "diagnostic"),
     [
         (("mode",), "TRAIL", "effective_settings.mode changed"),
+        (("reverse_motion",), 0, "effective_settings.reverse_motion changed"),
         (
             ("matte_provider", "type"),
             "ExternalMatteProvider",

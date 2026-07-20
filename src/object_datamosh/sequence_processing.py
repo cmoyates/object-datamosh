@@ -704,10 +704,13 @@ def _effective_settings_snapshot(
     return snapshot
 
 
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def _settings_fingerprint(settings: FeedbackSettings, matte_provider: MatteProvider) -> str:
     payload = _semantic_settings_snapshot(settings, matte_provider)
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def _new_manifest(
@@ -781,7 +784,7 @@ def _validate_manifest(
         "resolution_change": resolution_change.value,
     }
     for name, value in expected.items():
-        if manifest.get(name) != value:
+        if _canonical_json(manifest.get(name)) != _canonical_json(value):
             raise ValueError(f"Sequence recovery manifest is incompatible: {name} changed")
     effective_settings = manifest.get("effective_settings")
     if not isinstance(effective_settings, dict):
@@ -805,11 +808,13 @@ def _validate_manifest(
             "Sequence recovery manifest is incompatible: effective_settings fields changed"
         )
     for name, value in semantic_settings.items():
-        if effective_settings.get(name) != value:
+        if _canonical_json(effective_settings.get(name)) != _canonical_json(value):
             raise ValueError(
                 f"Sequence recovery manifest is incompatible: effective_settings.{name} changed"
             )
-    if effective_settings.get("reset_frames") != sorted(reset_frames):
+    if _canonical_json(effective_settings.get("reset_frames")) != _canonical_json(
+        sorted(reset_frames)
+    ):
         raise ValueError(
             "Sequence recovery manifest is incompatible: effective_settings.reset_frames changed"
         )
