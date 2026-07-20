@@ -564,6 +564,304 @@ def test_hard_localization_preserves_nonzero_clean_beauty_outside_current_matte(
     np.testing.assert_array_equal(output[outside], beauty[outside])
 
 
+def test_full_frame_trail_uses_effect_mask_for_temporal_coverage_only() -> None:
+    beauty = _rgba(1, 2, 0.0)
+    history = _rgba(1, 2, 0.0)
+    history[0, 0] = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    history[0, 1] = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+    previous = FeedbackState(
+        history,
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        beauty=beauty,
+        motion=_motion(1, 2),
+        matte=np.array([[0.0, 1.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 0], np.array([0.5, 0.0, 0.0, 0.5], dtype=np.float32))
+    np.testing.assert_array_equal(output[0, 1], np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32))
+    np.testing.assert_array_equal(state.history_matte, np.array([[0.5, 1.0]], dtype=np.float32))
+    np.testing.assert_array_equal(state.history, output)
+
+
+@pytest.mark.parametrize(
+    ("current_coverage", "expected_coverage"),
+    [(0.4, 0.6), (0.9, 0.9)],
+)
+def test_full_frame_trail_uses_clamped_max_union_for_current_reinforcement(
+    current_coverage: float,
+    expected_coverage: float,
+) -> None:
+    previous = FeedbackState(
+        _rgba(1, 1, 1.0),
+        np.full((1, 1), 0.8, dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        _rgba(1, 1, 0.0),
+        _motion(1, 1),
+        np.full((1, 1), current_coverage, dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=0.75,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_allclose(output, _rgba(1, 1, expected_coverage), atol=1e-7)
+    np.testing.assert_allclose(
+        state.history_matte,
+        np.full((1, 1), expected_coverage, dtype=np.float32),
+        atol=1e-7,
+    )
+
+
+def test_full_frame_trail_recurses_and_decays_without_current_reinforcement() -> None:
+    settings = FeedbackSettings(
+        mode=FeedbackMode.TRAIL,
+        history_source=HistorySource.FULL_FRAME,
+        trail_decay=0.5,
+        persistence=1.0,
+        block_size=1,
+    )
+    beauty = _rgba(1, 1, 0.0)
+    first = _rgba(1, 1, 1.0)
+
+    _output, state = process_frame(
+        first,
+        _motion(1, 1),
+        np.ones((1, 1), dtype=np.float32),
+        None,
+        frame_number=1,
+        settings=settings,
+    )
+    second, state = process_frame(
+        beauty,
+        _motion(1, 1),
+        np.zeros((1, 1), dtype=np.float32),
+        state,
+        frame_number=2,
+        settings=settings,
+    )
+    third, state = process_frame(
+        beauty,
+        _motion(1, 1),
+        np.zeros((1, 1), dtype=np.float32),
+        state,
+        frame_number=3,
+        settings=settings,
+    )
+
+    np.testing.assert_array_equal(second, _rgba(1, 1, 0.5))
+    np.testing.assert_array_equal(third, _rgba(1, 1, 0.125))
+    np.testing.assert_array_equal(state.history, third)
+    np.testing.assert_array_equal(state.history_matte, np.full((1, 1), 0.25, dtype=np.float32))
+
+
+@pytest.mark.parametrize(
+    ("trail_decay", "expected_output", "expected_coverage"),
+    [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)],
+)
+def test_full_frame_trail_decay_controls_old_effect_coverage(
+    trail_decay: float,
+    expected_output: float,
+    expected_coverage: float,
+) -> None:
+    previous = FeedbackState(
+        _rgba(1, 1, 1.0),
+        np.ones((1, 1), dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        _rgba(1, 1, 0.0),
+        _motion(1, 1),
+        np.zeros((1, 1), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=trail_decay,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, _rgba(1, 1, expected_output))
+    np.testing.assert_array_equal(
+        state.history_matte,
+        np.full((1, 1), expected_coverage, dtype=np.float32),
+    )
+
+
+def test_full_frame_trail_refresh_falls_back_to_current_beauty() -> None:
+    beauty = _rgba(3, 5, 0.25)
+    previous = FeedbackState(
+        _rgba(3, 5, 1.0),
+        np.ones((3, 5), dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        beauty,
+        _motion(3, 5),
+        np.zeros((3, 5), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=2,
+            refresh_probability=1.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.full((3, 5), 0.5, dtype=np.float32))
+
+
+def test_full_frame_trail_invalid_color_falls_back_without_erasing_effect_coverage() -> None:
+    history = _rgba(1, 1, 1.0)
+    history[0, 0, 0] = np.nan
+    previous = FeedbackState(
+        history,
+        np.ones((1, 1), dtype=np.float32),
+        frame_number=1,
+    )
+    beauty = _rgba(1, 1, 0.25)
+
+    output, state = process_frame(
+        beauty,
+        _motion(1, 1),
+        np.zeros((1, 1), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.full((1, 1), 0.5, dtype=np.float32))
+
+
+def test_full_frame_trail_rejects_invalid_effect_mask_sample() -> None:
+    previous = FeedbackState(
+        _rgba(1, 2, 1.0),
+        np.array([[np.nan, 1.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    motion = _motion(1, 2)
+    motion[0, 1, 0] = 0.5
+    beauty = _rgba(1, 2, 0.25)
+
+    output, state = process_frame(
+        beauty,
+        motion,
+        np.zeros((1, 2), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=1.0,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 0], beauty[0, 0])
+    np.testing.assert_array_equal(output[0, 1], previous.history[0, 1])
+    np.testing.assert_array_equal(state.history_matte, np.array([[0.0, 1.0]], dtype=np.float32))
+
+
+def test_full_frame_trail_out_of_bounds_color_falls_back_to_current_beauty() -> None:
+    previous = FeedbackState(
+        _rgba(1, 1, 1.0),
+        np.ones((1, 1), dtype=np.float32),
+        frame_number=1,
+    )
+    motion = _motion(1, 1)
+    motion[0, 0, 0] = 1.0
+    beauty = _rgba(1, 1, 0.25)
+
+    output, state = process_frame(
+        beauty,
+        motion,
+        np.ones((1, 1), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=1.0,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.ones((1, 1), dtype=np.float32))
+
+
+def test_full_frame_trail_supports_odd_dimensions_and_partial_edge_blocks() -> None:
+    height, width = 3, 5
+    previous = FeedbackState(
+        _rgba(height, width, 1.0),
+        np.ones((height, width), dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        _rgba(height, width, 0.0),
+        _motion(height, width),
+        np.zeros((height, width), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=0.5,
+            persistence=1.0,
+            block_size=2,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, _rgba(height, width, 0.5))
+    np.testing.assert_array_equal(
+        state.history_matte, np.full((height, width), 0.5, dtype=np.float32)
+    )
+    assert output.shape == (height, width, 4)
+    assert output.dtype == np.float32
+
+
 def test_trail_mode_retains_decayed_selected_object_history_outside_current_matte() -> None:
     beauty = _rgba(1, 3, 0.2)
     history = _rgba(1, 3, 100.0)

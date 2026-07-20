@@ -31,14 +31,14 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
     assert settings.matte_source is MatteSource.OBJECT_INDEX
 
 
-def test_feedback_settings_rejects_full_frame_trail_until_supported() -> None:
-    with pytest.raises(
-        ValueError, match="Full Frame history source is not supported with Trail mode"
-    ):
-        FeedbackSettings(
-            mode=FeedbackMode.TRAIL,
-            history_source=HistorySource.FULL_FRAME,
-        )
+def test_feedback_settings_supports_full_frame_trail() -> None:
+    settings = FeedbackSettings(
+        mode=FeedbackMode.TRAIL,
+        history_source=HistorySource.FULL_FRAME,
+    )
+
+    assert settings.mode is FeedbackMode.TRAIL
+    assert settings.history_source is HistorySource.FULL_FRAME
 
 
 def test_feedback_settings_reject_values_outside_probability_range() -> None:

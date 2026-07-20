@@ -91,8 +91,30 @@ def process_frame(
             )
             covered = valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
             warped_history = np.where(covered[..., None], warped_history, 0.0)
-            next_matte = matte
-            localized_history = matte
+            if settings.mode is FeedbackMode.TRAIL:
+                history_matte_valid = (
+                    np.isfinite(previous_state.history_matte)
+                    & (previous_state.history_matte >= 0.0)
+                    & (previous_state.history_matte <= 1.0)
+                )
+                safe_history_matte = np.where(
+                    history_matte_valid, previous_state.history_matte, 0.0
+                ).astype(np.float32, copy=False)
+                warped_matte, matte_sample_valid = bilinear_sample(
+                    safe_history_matte, sample_x, sample_y
+                )
+                warped_matte_invalid, _ = bilinear_sample(
+                    (~history_matte_valid).astype(np.float32), sample_x, sample_y
+                )
+                effect_sample_valid = (
+                    matte_sample_valid & (warped_matte_invalid == 0.0) & np.isfinite(warped_matte)
+                )
+                decayed_history_matte = settings.trail_decay * warped_matte * effect_sample_valid
+                next_matte = np.maximum(matte, decayed_history_matte).astype(np.float32, copy=False)
+                localized_history = next_matte
+            else:
+                next_matte = matte
+                localized_history = matte
         else:
             history_matte_valid = (
                 np.isfinite(previous_state.history_matte)
