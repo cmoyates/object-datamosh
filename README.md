@@ -441,9 +441,19 @@ next state stores the complete processed output as color history and the combine
 mask history.
 
 First frames and resets initialize complete color history from current beauty and mask history from
-the current target matte. **History Source** is available in the sidebar; changing it invalidates a
-processed recovery manifest but leaves retained raw beauty, vector, and matte passes reusable for a
-new reprocess run.
+the current target matte. An object visible on that first/reset frame therefore seeds its clean
+image; a background-only pre-roll can instead produce a more corrupted entrance when the object
+appears. **History Source** is available in the sidebar as **Target Only (Legacy / Stable)** and
+**Full Frame (Extreme)**. Changing it invalidates a processed recovery manifest but leaves retained
+raw beauty, vector, and matte passes reusable for a new reprocess run.
+
+The sidebar's **Extreme Full-Frame Feedback** action applies this documented artistic starting
+point: Full Frame, Trail, persistence `1.0`, Trail Decay `0.98`, Refresh Probability `0.01`, Block
+Size `32`, Motion Quantization `8.0`, and Diffusion `2.0`. These values are within the controls'
+normal ranges and intentionally strong, but they do not guarantee identical visual results across
+scenes. The action changes only those Object Datamosh effect settings (plus its status report); it
+does not alter target, camera, render, output, color-management, material, collection, or visibility
+state.
 
 **Trail** with Target Only advects selected-object history with the same motion field, multiplies
 warped history coverage by **Trail Decay**, and combines that coverage with the current matte for

@@ -169,6 +169,14 @@ def main() -> None:
     assert feedback_settings.mode.value == "HARD_LOCALIZED"
     assert feedback_settings.history_source.value == "TARGET_ONLY"
     assert settings.history_source == "TARGET_ONLY"
+    history_property = cast(Any, type(settings).bl_rna.properties["history_source"])
+    history_items = {item.identifier: item for item in history_property.enum_items}
+    assert history_items["TARGET_ONLY"].name == "Target Only (Legacy / Stable)"
+    assert "prior target/effect coverage" in history_items["TARGET_ONLY"].description
+    assert "preserves more object identity" in history_items["TARGET_ONLY"].description
+    assert history_items["FULL_FRAME"].name == "Full Frame (Extreme)"
+    assert "entire previous processed frame" in history_items["FULL_FRAME"].description
+    assert "effect mask controls only where it appears" in history_items["FULL_FRAME"].description
     settings.history_source = "FULL_FRAME"
     assert feedback_settings_for_scene(scene).history_source.value == "FULL_FRAME"
     settings.history_source = "TARGET_ONLY"
@@ -225,7 +233,11 @@ def main() -> None:
         "object_datamosh.render_and_process",
         "object_datamosh.process_sequence",
         "object_datamosh.create_vector_calibration",
+        "object_datamosh.extreme_full_frame_feedback",
     }
+    assert any("first/reset frame seeds its clean image" in label for label in layout.labels)
+    assert any("background-only pre-roll" in label for label in layout.labels)
+    assert any("starting point" in label and "vary by scene" in label for label in layout.labels)
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
     assert any(label.startswith("Status: ") for label in layout.labels)
@@ -262,6 +274,7 @@ def main() -> None:
     assert not object_datamosh_ops.render_and_process.poll()
     assert not object_datamosh_ops.process_sequence.poll()
     assert not object_datamosh_ops.restore_object_index.poll()
+    assert not object_datamosh_ops.extreme_full_frame_feedback.poll()
     assert object_datamosh_ops.cancel_operation() == {"FINISHED"}
     assert runtime.active
     assert runtime.cancel_requested
@@ -271,6 +284,66 @@ def main() -> None:
     runtime.cancel_requested = False
     runtime.phase = "IDLE"
     runtime.status = "Ready"
+
+    effect_before_extreme_setup = (
+        settings.history_source,
+        settings.feedback_mode,
+        settings.persistence,
+        settings.trail_decay,
+        settings.refresh_probability,
+        settings.block_size,
+        settings.motion_quantization,
+        settings.diffusion,
+    )
+    unrelated_before_extreme_setup = (
+        settings.target_object,
+        settings.frame_start,
+        settings.frame_end,
+        settings.output_directory,
+        settings.matte_source,
+        settings.motion_channels,
+        settings.reverse_motion,
+        settings.flip_x,
+        settings.flip_y,
+        settings.motion_gain,
+        settings.motion_clamp,
+        settings.seed,
+    )
+    assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
+    assert settings.history_source == "FULL_FRAME"
+    assert settings.feedback_mode == "TRAIL"
+    assert abs(settings.persistence - 1.0) < 1e-6
+    assert abs(settings.trail_decay - 0.98) < 1e-6
+    assert abs(settings.refresh_probability - 0.01) < 1e-6
+    assert settings.block_size == 32
+    assert abs(settings.motion_quantization - 8.0) < 1e-6
+    assert abs(settings.diffusion - 2.0) < 1e-6
+    assert settings.status == "Applied Extreme Full-Frame Feedback starting configuration"
+    assert unrelated_before_extreme_setup == (
+        settings.target_object,
+        settings.frame_start,
+        settings.frame_end,
+        settings.output_directory,
+        settings.matte_source,
+        settings.motion_channels,
+        settings.reverse_motion,
+        settings.flip_x,
+        settings.flip_y,
+        settings.motion_gain,
+        settings.motion_clamp,
+        settings.seed,
+    )
+    assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
+    (
+        settings.history_source,
+        settings.feedback_mode,
+        settings.persistence,
+        settings.trail_decay,
+        settings.refresh_probability,
+        settings.block_size,
+        settings.motion_quantization,
+        settings.diffusion,
+    ) = effect_before_extreme_setup
 
     scenes_before_calibration = set(bpy.data.scenes)
     active_scene_before_calibration = bpy.context.scene
