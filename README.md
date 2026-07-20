@@ -620,11 +620,17 @@ compositor nodes and restore pass settings that they change.
 
 ## Development and verification
 
-Install the development environment:
+Verify that the committed lockfile matches the project metadata, then install the development
+environment:
 
 ```bash
+uv lock --check
 uv sync
 ```
+
+Keep the editable `object-datamosh` package version in `uv.lock` synchronized with the
+`[project].version` value in `pyproject.toml`; routine `uv` commands should not rewrite the tracked
+lockfile.
 
 Set `BLENDER_BIN` to the tested Blender executable, then run all repository gates:
 
