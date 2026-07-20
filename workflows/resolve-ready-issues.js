@@ -89,6 +89,7 @@ const validateHandoff = async (path, stage) => {
   if (!found.exists || found.bytes > HANDOFF_MAX_BYTES) throw new Error("handoff is missing or exceeds 8 KB");
   const loaded = await operation("read-json", { path });
   if (!loaded.exists || loaded.value.schemaVersion !== SCHEMA_VERSION || loaded.value.issueNumber !== state.issueNumber || loaded.value.stage !== stage) throw new Error("handoff identity is invalid");
+  return loaded.value;
 };
 const persistBeforeAgent = async (label) => { state.pendingAgentLabel = label; state.attempt = state.attempt || 1; await save(); };
 
@@ -195,10 +196,15 @@ if (state.stage === "implement") {
     if (value.status !== "implemented") return await stop("deterministic-operation-failed", `unexpected implementation status ${value.status}`);
     required(value, ["issueTitle", "baseSha", "implementationSha", "branchName", "pullRequestUrl", "handoffPath", "summary"]); fullSha(value.baseSha, "baseSha"); fullSha(value.implementationSha, "implementationSha");
     if (value.issueNumber !== state.issueNumber || value.branchName !== state.branchName || value.baseSha !== state.baseSha) return await stop("deterministic-operation-failed", "implementation identity mismatch");
-    const current = await prView(value.pullRequestUrl);
-    if (current.state !== "OPEN" || current.baseRefName !== "main" || current.headRefName !== state.branchName || current.headRefOid !== value.implementationSha || !(await cleanTree())) return await stop("deterministic-operation-failed", "implementation PR/SHA/tree validation failed");
-    await validateHandoff(value.handoffPath, "implement");
-    state.pullRequestUrl = value.pullRequestUrl; state.implementationSha = value.implementationSha; state.expectedHeadSha = value.implementationSha; state.handoffPath = value.handoffPath; state.affectedPaths = value.affectedPaths || []; state.stage = "review"; state.reviewRound = 1; state.continuationNumber = 0; state.attempt = 1; await save();
+    // The durable handoff was written from the repository itself, while structured model output can
+    // mistype a SHA. Treat the handoff as authoritative only after independently revalidating every
+    // identity field against the live PR, local branch, and clean worktree.
+    const handoff = await validateHandoff(value.handoffPath, "implement");
+    required(handoff, ["issueTitle", "baseSha", "implementationSha", "branchName", "pullRequestUrl", "summary"]); fullSha(handoff.baseSha, "handoff baseSha"); fullSha(handoff.implementationSha, "handoff implementationSha");
+    if (handoff.branchName !== state.branchName || handoff.baseSha !== state.baseSha || handoff.pullRequestUrl !== value.pullRequestUrl) return await stop("deterministic-operation-failed", "implementation handoff identity mismatch");
+    const current = await prView(handoff.pullRequestUrl);
+    if (current.state !== "OPEN" || current.baseRefName !== "main" || current.headRefName !== state.branchName || current.headRefOid !== handoff.implementationSha || await branchSha() !== handoff.implementationSha || !(await cleanTree())) return await stop("deterministic-operation-failed", "implementation PR/SHA/tree validation failed");
+    state.pullRequestUrl = handoff.pullRequestUrl; state.implementationSha = handoff.implementationSha; state.expectedHeadSha = handoff.implementationSha; state.handoffPath = value.handoffPath; state.affectedPaths = handoff.affectedPaths || value.affectedPaths || []; state.stage = "review"; state.reviewRound = 1; state.continuationNumber = 0; state.attempt = 1; await save();
   }
 }
 
