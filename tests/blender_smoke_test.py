@@ -270,7 +270,9 @@ def main() -> None:
     feedback_settings = feedback_settings_for_scene(scene)
     assert feedback_settings.mode.value == "HARD_LOCALIZED"
     assert feedback_settings.history_source.value == "TARGET_ONLY"
+    assert feedback_settings.invalid_history_fallback.value == "CURRENT_BEAUTY"
     assert settings.history_source == "TARGET_ONLY"
+    assert settings.invalid_history_fallback == "CURRENT_BEAUTY"
     history_property = cast(Any, type(settings).bl_rna.properties["history_source"])
     history_items = {item.identifier: item for item in history_property.enum_items}
     assert history_items["TARGET_ONLY"].name == "Target Only (Legacy / Stable)"
@@ -279,9 +281,17 @@ def main() -> None:
     assert history_items["FULL_FRAME"].name == "Full Frame (Extreme)"
     assert "entire previous processed frame" in history_items["FULL_FRAME"].description
     assert "effect mask controls only where it appears" in history_items["FULL_FRAME"].description
+    fallback_property = cast(Any, type(settings).bl_rna.properties["invalid_history_fallback"])
+    fallback_items = {item.identifier: item for item in fallback_property.enum_items}
+    assert fallback_items["CURRENT_BEAUTY"].name == "Current Beauty (Compatible)"
+    assert fallback_items["SAME_PIXEL_HISTORY"].name == "Same Screen Position (Extreme)"
     settings.history_source = "FULL_FRAME"
-    assert feedback_settings_for_scene(scene).history_source.value == "FULL_FRAME"
+    settings.invalid_history_fallback = "SAME_PIXEL_HISTORY"
+    converted = feedback_settings_for_scene(scene)
+    assert converted.history_source.value == "FULL_FRAME"
+    assert converted.invalid_history_fallback.value == "SAME_PIXEL_HISTORY"
     settings.history_source = "TARGET_ONLY"
+    settings.invalid_history_fallback = "CURRENT_BEAUTY"
     assert abs(feedback_settings.trail_decay - FeedbackSettings().trail_decay) < 1e-6
     assert abs(feedback_settings.persistence - FeedbackSettings().persistence) < 1e-6
     assert feedback_settings.block_size == 16
@@ -311,6 +321,7 @@ def main() -> None:
         "external_matte_directory",
         "feedback_mode",
         "history_source",
+        "invalid_history_fallback",
         "trail_decay",
         "persistence",
         "block_size",
@@ -398,6 +409,7 @@ def main() -> None:
 
     effect_before_extreme_setup = (
         settings.history_source,
+        settings.invalid_history_fallback,
         settings.feedback_mode,
         settings.persistence,
         settings.trail_decay,
@@ -422,6 +434,7 @@ def main() -> None:
     )
     assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
     assert settings.history_source == "FULL_FRAME"
+    assert settings.invalid_history_fallback == "SAME_PIXEL_HISTORY"
     assert settings.feedback_mode == "TRAIL"
     assert abs(settings.persistence - 1.0) < 1e-6
     assert abs(settings.trail_decay - 0.98) < 1e-6
@@ -452,6 +465,7 @@ def main() -> None:
     assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
     (
         settings.history_source,
+        settings.invalid_history_fallback,
         settings.feedback_mode,
         settings.persistence,
         settings.trail_decay,

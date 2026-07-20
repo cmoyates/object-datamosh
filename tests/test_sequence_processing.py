@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 
 import object_datamosh.sequence_processing as sequence_processing
-from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings, HistorySource
+from object_datamosh.core.contracts import (
+    FeedbackMode,
+    FeedbackSettings,
+    HistorySource,
+    InvalidHistoryFallback,
+)
 from object_datamosh.core.mattes import ExternalMatteProvider, ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
 from object_datamosh.sequence_processing import (
@@ -1006,6 +1011,7 @@ def test_manifest_records_complete_readable_effective_configuration(tmp_path: Pa
     settings = FeedbackSettings(
         mode=FeedbackMode.TRAIL,
         history_source=HistorySource.FULL_FRAME,
+        invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
         persistence=0.75,
     )
     provider = ExternalMatteProvider(tmp_path / "mattes", prefix="mask_")
@@ -1028,6 +1034,7 @@ def test_manifest_records_complete_readable_effective_configuration(tmp_path: Pa
     assert manifest["schema_version"] == 4
     assert manifest["history_source"] == effective["history_source"] == "FULL_FRAME"
     assert effective["mode"] == "TRAIL"
+    assert effective["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"
     assert {field.name for field in fields(FeedbackSettings)} <= effective.keys()
     assert effective["matte_provider"] == {
         "settings": {
@@ -1286,6 +1293,35 @@ def test_history_source_changes_the_deterministic_settings_fingerprint(tmp_path:
 
     assert fingerprints[0] == fingerprints[1]
     assert fingerprints[0] != fingerprints[2]
+
+
+def test_invalid_history_fallback_changes_the_settings_fingerprint(tmp_path: Path) -> None:
+    fingerprints: list[str] = []
+    for directory, fallback in (
+        ("beauty", InvalidHistoryFallback.CURRENT_BEAUTY),
+        ("same-pixel", InvalidHistoryFallback.SAME_PIXEL_HISTORY),
+    ):
+        paths = SequencePaths(tmp_path / directory)
+        frame = paths.frame(1)
+        io = MemoryImageIO(
+            {
+                frame.beauty: _rgba(0.5),
+                frame.vector: _rgba(0.0),
+                frame.matte: np.ones((1, 2), dtype=np.float32),
+            }
+        )
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(invalid_history_fallback=fallback),
+            image_io=io,
+        )
+        manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+        fingerprints.append(manifest["settings_fingerprint"])
+
+    assert fingerprints[0] != fingerprints[1]
 
 
 def test_resume_rejects_discontinuous_completion_metadata(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from object_datamosh.core.contracts import (
     FeedbackSettings,
     FeedbackState,
     HistorySource,
+    InvalidHistoryFallback,
     MotionChannels,
 )
 from object_datamosh.core.feedback import process_frame
@@ -182,6 +183,95 @@ def test_full_frame_rejects_nonfinite_sample_and_preserves_clean_outside_matte(
     )
 
     np.testing.assert_array_equal(output, beauty)
+
+
+def test_full_frame_same_pixel_fallback_replaces_only_invalid_warp_samples() -> None:
+    red = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    green = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32)
+    blue = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+    history = np.broadcast_to(red, (1, 3, 4)).copy()
+    history[0, 0] = green
+    previous = FeedbackState(history, np.zeros((1, 3), dtype=np.float32), frame_number=1)
+    beauty = np.broadcast_to(blue, (1, 3, 4)).copy()
+    motion = _motion(1, 3)
+    motion[0, :2, 0] = 1.0
+    matte = np.array([[1.0, 1.0, 0.0]], dtype=np.float32)
+
+    output, _ = process_frame(
+        beauty,
+        motion,
+        matte,
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 0], green)
+    np.testing.assert_array_equal(output[0, 1], green)
+    np.testing.assert_array_equal(output[0, 2], blue)
+
+
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+def test_full_frame_same_pixel_fallback_rejects_nonfinite_history(
+    invalid_value: float,
+) -> None:
+    history = _rgba(1, 2, 1.0)
+    history[0, 0, 0] = invalid_value
+    previous = FeedbackState(history, np.zeros((1, 2), dtype=np.float32), frame_number=1)
+    beauty = _rgba(1, 2, 0.25)
+    motion = _motion(1, 2)
+    motion[0, 0, 0] = 1.0
+
+    output, _ = process_frame(
+        beauty,
+        motion,
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+
+
+def test_full_frame_same_pixel_fallback_replaces_contaminated_primary_sample() -> None:
+    history = _rgba(1, 3, 1.0)
+    history[0, 0, 0] = np.nan
+    history[0, 1] = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32)
+    previous = FeedbackState(history, np.zeros((1, 3), dtype=np.float32), frame_number=1)
+    beauty = _rgba(1, 3, 0.25)
+    motion = _motion(1, 3)
+    motion[0, 1, 0] = 0.5
+
+    output, _ = process_frame(
+        beauty,
+        motion,
+        np.array([[0.0, 1.0, 0.0]], dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output[0, 1], history[0, 1])
+    np.testing.assert_array_equal(output[0, [0, 2]], beauty[0, [0, 2]])
 
 
 def test_full_frame_out_of_bounds_sample_falls_back_without_wrapping() -> None:

@@ -93,6 +93,9 @@ def draw_sidebar(
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
     feedback.prop(settings, "history_source")
+    feedback.prop(settings, "invalid_history_fallback")
+    if settings.history_source == "TARGET_ONLY":
+        feedback.label(text="Invalid History applies only to Full Frame.", icon="INFO")
     feedback.operator("object_datamosh.extreme_full_frame_feedback")
     feedback.label(text="Artistic starting point; results vary by scene.")
     if settings.history_source == "TARGET_ONLY":
