@@ -385,6 +385,9 @@ def test_process_sequence_applies_explicit_resets_and_always_resets_first_frame(
 
     np.testing.assert_array_equal(io.written[first.processed], _rgba(0.75))
     np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 3
+    assert manifest["image_orientation"] == "display_top_left_v1"
 
 
 def test_trail_sequence_carries_moving_mask_history_until_an_explicit_reset(

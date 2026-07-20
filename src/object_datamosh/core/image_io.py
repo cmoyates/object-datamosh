@@ -7,7 +7,12 @@ from .contracts import FloatImage, FloatMask
 
 
 class ImageSequenceIO(Protocol):
-    """Read and write scene-linear float32 RGBA images."""
+    """Read and write canonical scene-linear float32 RGBA images.
+
+    Arrays have shape ``(height, width, 4)``. Row zero is the displayed top scanline and column
+    zero is the displayed left edge, so increasing array Y moves down and increasing X moves right.
+    Every pass and processed/history image uses this orientation inside the NumPy core.
+    """
 
     def read_rgba(self, path: str | Path) -> FloatImage:
         """Read ``path`` as ``(height, width, 4)`` float32 RGBA."""

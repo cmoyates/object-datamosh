@@ -19,8 +19,26 @@ from .core.exr import read_full_float_rgba
 from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
+def blender_pixels_to_canonical(
+    pixels: np.ndarray, *, width: int, height: int
+) -> FloatImage:
+    """Convert Blender's bottom-left-origin flat RGBA buffer to canonical image rows.
+
+    Canonical row zero is the displayed top scanline. Column zero is the displayed left edge;
+    increasing row and column indices therefore move down and right respectively. Blender's
+    ``Image.pixels`` starts at the displayed bottom-left and advances left-to-right, bottom-to-top.
+    """
+    blender_rows = np.asarray(pixels, dtype=np.float32).reshape((height, width, 4))
+    return np.ascontiguousarray(blender_rows[::-1], dtype=np.float32)
+
+
+def canonical_to_blender_pixels(pixels: FloatImage) -> np.ndarray:
+    """Flatten canonical top-left-origin RGBA rows for Blender's bottom-left-origin buffer."""
+    return np.ascontiguousarray(pixels[::-1], dtype=np.float32).ravel()
+
+
 class BlenderImageIO:
-    """Read/write float RGBA images using one initiating scene's render settings."""
+    """Read/write canonical, scene-linear float RGBA using one scene's render settings."""
 
     def __init__(self, scene: bpy.types.Scene | None = None) -> None:
         self._scene = scene
@@ -56,7 +74,7 @@ class BlenderImageIO:
             )
             pixels = np.empty(width * height * 4, dtype=np.float32)
             cast(Any, image.pixels).foreach_get(pixels)
-            return pixels.reshape((height, width, 4))
+            return blender_pixels_to_canonical(pixels, width=width, height=height)
         finally:
             bpy.data.images.remove(image)
 
@@ -90,7 +108,7 @@ class BlenderImageIO:
         image[OWNERSHIP_TAG] = True
         try:
             cast(Any, image.colorspace_settings).name = "Linear Rec.709"
-            cast(Any, image.pixels).foreach_set(np.ascontiguousarray(pixels).ravel())
+            cast(Any, image.pixels).foreach_set(canonical_to_blender_pixels(pixels))
             image.filepath_raw = str(image_path)
             image.file_format = "OPEN_EXR"
             self._save_full_float_exr(image, image_path)

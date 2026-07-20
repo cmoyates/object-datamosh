@@ -55,7 +55,8 @@ class ProcessingProgress(Protocol):
     def end(self) -> None: ...
 
 
-_MANIFEST_VERSION = 2
+_MANIFEST_VERSION = 3
+_IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 
 
@@ -630,6 +631,7 @@ def _new_manifest(
 ) -> dict[str, object]:
     return {
         "schema_version": _MANIFEST_VERSION,
+        "image_orientation": _IMAGE_ORIENTATION,
         "frame_start": frame_start,
         "frame_end": frame_end,
         "history_source": history_source.value,
@@ -671,6 +673,7 @@ def _validate_manifest(
 ) -> None:
     expected = {
         "schema_version": _MANIFEST_VERSION,
+        "image_orientation": _IMAGE_ORIENTATION,
         "frame_start": frame_start,
         "frame_end": frame_end,
         "history_source": history_source.value,
