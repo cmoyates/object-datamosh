@@ -13,7 +13,16 @@ def test_all_core_modules_import_without_blender() -> None:
     environment["PYTHONPATH"] = str(source_root)
     program = """
 import sys
-from object_datamosh.core import contracts, feedback, image_io, mattes, ownership, paths, sampling
+from object_datamosh.core import (
+    block_preparation,
+    contracts,
+    feedback,
+    image_io,
+    mattes,
+    ownership,
+    paths,
+    sampling,
+)
 assert 'bpy' not in sys.modules
 print('core imported without bpy')
 """

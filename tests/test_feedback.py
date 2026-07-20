@@ -1,3 +1,5 @@
+import hashlib
+
 import numpy as np
 import pytest
 
@@ -742,6 +744,80 @@ def test_odd_resolution_with_partial_blocks_preserves_shape_and_float32() -> Non
     assert output.dtype == np.float32
     np.testing.assert_allclose(output, _rgba(height, width, 0.45), atol=1e-7)
     assert state.history_matte.shape == (79, 101)
+
+
+@pytest.mark.parametrize(
+    ("mode", "channels", "reverse", "output_digest", "matte_digest"),
+    [
+        (
+            FeedbackMode.HARD_LOCALIZED,
+            MotionChannels.RG,
+            True,
+            "ff8b4547ef26ebc1fec4771f4f30f3e75ab6461c187cfa1893c498b536bef24d",
+            "e8de9f98cd3d3bdfae0814809225b6b26ca94aa6fa6bd2c2dfc3984a666a3dac",
+        ),
+        (
+            FeedbackMode.TRAIL,
+            MotionChannels.BA,
+            False,
+            "91293ce961af06f27a9cee2f04df77aeac9605ca75370b7109f25ea8114996d0",
+            "0019af03c8312cc2216ae05a9f576e2e5fd216b23702073e9caa6529514489c8",
+        ),
+    ],
+)
+def test_compact_block_refactor_preserves_feedback_bytes(
+    mode: FeedbackMode,
+    channels: MotionChannels,
+    reverse: bool,
+    output_digest: str,
+    matte_digest: str,
+) -> None:
+    """Lock representative pre-refactor float32 bytes for both feedback modes."""
+    height, width = 5, 7
+    y, x = np.indices((height, width), dtype=np.float32)
+    beauty = np.stack((x / 10, y / 10, (x + y) / 20, np.ones_like(x)), axis=-1).astype(np.float32)
+    history = np.stack(
+        ((x + 1) / 8, (y + 1) / 6, (x + 2 * y) / 16, np.ones_like(x)), axis=-1
+    ).astype(np.float32)
+    previous = FeedbackState(
+        history,
+        np.where((x + y) % 4 == 0, 0.25, 1.0).astype(np.float32),
+        frame_number=10,
+    )
+    matte = np.where((2 * x + y) % 5 == 0, 0.25, np.where((x + y) % 3 == 0, 0, 1)).astype(
+        np.float32
+    )
+    motion = np.stack(
+        ((x % 3) - 1, (y % 3) - 1, ((x + y) % 4) - 1.5, ((2 * y + x) % 5) - 2),
+        axis=-1,
+    ).astype(np.float32)
+
+    output, state = process_frame(
+        beauty,
+        motion,
+        matte,
+        previous,
+        frame_number=11,
+        settings=FeedbackSettings(
+            mode=mode,
+            trail_decay=0.73,
+            persistence=0.81,
+            block_size=3,
+            motion_channels=channels,
+            reverse_motion=reverse,
+            flip_x=True,
+            flip_y=True,
+            motion_gain=1.7,
+            motion_clamp=1.9,
+            motion_quantization=0.25,
+            diffusion=0.2,
+            refresh_probability=0.35,
+            seed=23,
+        ),
+    )
+
+    assert hashlib.sha256(output.tobytes()).hexdigest() == output_digest
+    assert hashlib.sha256(state.history_matte.tobytes()).hexdigest() == matte_digest
 
 
 def test_extreme_quantization_and_diffusion_remain_numerically_safe() -> None:

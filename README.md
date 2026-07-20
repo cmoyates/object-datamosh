@@ -225,6 +225,9 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   frame number. It validates dtype, channel count, and matching dimensions.
 - **Sampling:** `bilinear_sample` samples scalar or channel images in pixel coordinates, returns an
   in-bounds validity mask, and returns zero rather than wrapping for invalid coordinates.
+- **Block preparation:** `prepare_blocks` decodes motion and returns reusable compact
+  `PreparedBlocks` displacement and refresh grids. Grids include partial right and bottom blocks;
+  deterministic diffusion and refresh depend only on settings, frame, and block coordinates.
 - **Frame processing:** `process_frame` accepts beauty, motion, current matte, optional prior state,
   frame number, settings, and an optional forced-reset flag. It returns the processed float32 RGBA
   image and the next `FeedbackState` without importing Blender APIs or using global RNG state.
@@ -551,7 +554,8 @@ hard-localized feedback frames at 1280×720, block size 16, and zero motion took
 excludes image I/O. Production time varies with resolution, storage, compositor complexity, render
 engine, and scene complexity; measure a representative frame range before scheduling a final
 render. Memory use scales with pixel count because source, motion, matte, sampling, and history
-arrays coexist during processing.
+arrays coexist during processing. Motion reduction, quantization, diffusion, and refresh selection
+remain compact block grids until `process_frame` expands them for pixel sampling and blending.
 
 ## Troubleshooting
 
