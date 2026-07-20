@@ -121,17 +121,21 @@ async function continueOrStop(result, stage) {
 
 async function selectIssue() {
   const repository = await json("gh", ["repo", "view", "--json", "nameWithOwner"]);
-  const issues = await json("gh", ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"]);
+  const issues = await json("gh", ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,body,labels"]);
   const ready = issues.filter((item) => (item.labels || []).some((label) => String(label.name).toLowerCase() === "ready-for-agent"));
   const eligible = ready.length ? ready : issues;
-  // Query the dependency subresources directly. GitHub's general issue endpoint can return
-  // transient 503 responses while these narrower endpoints remain available.
+  // The workflow operation adapter intentionally restricts `gh api`. Read the explicit fallback
+  // references maintained in each issue's Blocked by section instead of depending on that API.
+  const openNumbers = new Set(issues.map((item) => item.number));
+  const blockersFor = (item) => {
+    const blockedBySection = String(item.body || "").split(/^## Blocked by\s*$/m)[1] || "";
+    return [...blockedBySection.matchAll(/#(\d+)/g)].map((match) => Number(match[1]));
+  };
+  const blockerMap = new Map(issues.map((item) => [item.number, blockersFor(item)]));
   const ranked = [];
   for (const item of eligible) {
-    const blockedBy = await json("gh", ["api", `repos/${repository.nameWithOwner}/issues/${item.number}/dependencies/blocked_by`]);
-    const blocking = await json("gh", ["api", `repos/${repository.nameWithOwner}/issues/${item.number}/dependencies/blocking`]);
-    const openBlockers = blockedBy.filter((issue) => issue.state === "open").length;
-    const blocksEligible = blocking.filter((issue) => issue.state === "open").length;
+    const openBlockers = (blockerMap.get(item.number) || []).filter((number) => openNumbers.has(number)).length;
+    const blocksEligible = eligible.filter((candidate) => (blockerMap.get(candidate.number) || []).includes(item.number)).length;
     if (openBlockers === 0) ranked.push({ ...item, blocksEligible });
   }
   ranked.sort((a, b) => b.blocksEligible - a.blocksEligible || a.number - b.number);
