@@ -146,6 +146,7 @@ def main() -> None:
 
     scene = bpy.context.scene
     assert scene is not None
+    cast(Any, scene.render).engine = "CYCLES"
     settings = settings_for_scene(scene)
     runtime = runtime_for_scene(scene)
     assert settings.status == "Ready"
@@ -435,7 +436,6 @@ def main() -> None:
         settings.frame_end = 1
         settings.overwrite_raw = False
         render = scene.render
-        render.engine = "CYCLES"
         render.resolution_x = 16
         render.resolution_y = 12
         render.resolution_percentage = 100
