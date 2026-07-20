@@ -200,14 +200,18 @@ if (state.stage === "implement") {
     // mistype a SHA. Treat the handoff as authoritative only after independently revalidating every
     // identity field against the live PR, local branch, and clean worktree.
     const handoff = await validateHandoff(value.handoffPath, "implement");
-    required(handoff, ["implementationSha"]); fullSha(handoff.implementationSha, "handoff implementationSha");
+    required(handoff, ["implementationSha"]);
+    const handoffSha = handoff.implementationSha;
+    const abbreviatedHandoffSha = /^[0-9a-f]{7,39}$/.test(handoffSha) && value.implementationSha.startsWith(handoffSha);
+    if (handoffSha !== value.implementationSha && !abbreviatedHandoffSha) return await stop("deterministic-operation-failed", "implementation handoff SHA conflicts with structured output");
     // Agents may organize descriptive handoff metadata differently on a resume. Reject conflicting
     // identity fields when present, but do not require duplicates already guaranteed by structured
-    // output and the live GitHub/local checks.
+    // output and the live GitHub/local checks. A conventional abbreviated Git SHA is accepted only
+    // when it is an exact prefix of the full structured SHA subsequently checked live.
     if ((handoff.branchName && handoff.branchName !== state.branchName) || (handoff.baseSha && handoff.baseSha !== state.baseSha) || (handoff.pullRequestUrl && handoff.pullRequestUrl !== value.pullRequestUrl)) return await stop("deterministic-operation-failed", "implementation handoff identity mismatch");
     const current = await prView(value.pullRequestUrl);
-    if (current.state !== "OPEN" || current.baseRefName !== "main" || current.headRefName !== state.branchName || current.headRefOid !== handoff.implementationSha || await branchSha() !== handoff.implementationSha || !(await cleanTree())) return await stop("deterministic-operation-failed", "implementation PR/SHA/tree validation failed");
-    state.pullRequestUrl = value.pullRequestUrl; state.implementationSha = handoff.implementationSha; state.expectedHeadSha = handoff.implementationSha; state.handoffPath = value.handoffPath; state.affectedPaths = handoff.affectedPaths || value.affectedPaths || []; state.stage = "review"; state.reviewRound = 1; state.continuationNumber = 0; state.attempt = 1; await save();
+    if (current.state !== "OPEN" || current.baseRefName !== "main" || current.headRefName !== state.branchName || current.headRefOid !== value.implementationSha || await branchSha() !== value.implementationSha || !(await cleanTree())) return await stop("deterministic-operation-failed", "implementation PR/SHA/tree validation failed");
+    state.pullRequestUrl = value.pullRequestUrl; state.implementationSha = value.implementationSha; state.expectedHeadSha = value.implementationSha; state.handoffPath = value.handoffPath; state.affectedPaths = handoff.affectedPaths || value.affectedPaths || []; state.stage = "review"; state.reviewRound = 1; state.continuationNumber = 0; state.attempt = 1; await save();
   }
 }
 
