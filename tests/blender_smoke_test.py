@@ -235,8 +235,16 @@ def main() -> None:
         "object_datamosh.create_vector_calibration",
         "object_datamosh.extreme_full_frame_feedback",
     }
-    assert any("first/reset frame seeds its clean image" in label for label in layout.labels)
-    assert any("background-only pre-roll" in label for label in layout.labels)
+    for guidance in (
+        "Target Only preserves more object identity.",
+        "Full Frame samples the entire prior frame.",
+        "The effect mask controls where it appears.",
+        "First/reset frame:",
+        "Visible object seeds its clean image.",
+        "Background-only pre-roll:",
+        "Enables a more corrupted entrance.",
+    ):
+        assert guidance in layout.labels
     assert any("starting point" in label and "vary by scene" in label for label in layout.labels)
     assert any(label.startswith("View Layer: ") for label in layout.labels)
     assert any(label.startswith("Output: ") for label in layout.labels)
