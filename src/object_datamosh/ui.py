@@ -50,6 +50,7 @@ from .core.mattes import (
     ObjectIndexMatteProvider,
 )
 from .core.paths import SequencePaths
+from .core.presets import extreme_full_frame_feedback_settings
 from .existing_pass_operation import ExistingPassModalController
 from .modal_lifecycle import OperationPhase, request_cancellation
 from .orchestration import RenderAndProcessPhase, render_and_process
@@ -136,6 +137,7 @@ def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
         history_source=HistorySource(settings.history_source),
         invalid_history_fallback=InvalidHistoryFallback(settings.invalid_history_fallback),
         trail_decay=settings.trail_decay,
+        trail_motion_mix=settings.trail_motion_mix,
         persistence=settings.persistence,
         block_size=settings.block_size,
         motion_channels=MotionChannels(settings.motion_channels),
@@ -351,6 +353,16 @@ class ODM_Settings(PropertyGroup):
         name="Trail Decay",
         description="Selected-object trail coverage retained per frame",
         default=0.85,
+        min=0.0,
+        max=1.0,
+    )
+    trail_motion_mix: FloatProperty(  # ty: ignore[invalid-type-form]
+        name="Trail Motion Follow",
+        description=(
+            "Full Frame Trail coverage propagation: 0 keeps history at its prior screen "
+            "position; 1 follows current object motion"
+        ),
+        default=1.0,
         min=0.0,
         max=1.0,
     )
@@ -925,16 +937,22 @@ class ODM_OT_extreme_full_frame_feedback(Operator):
             self.report({"ERROR"}, "An active scene is required")
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
-        settings.history_source = HistorySource.FULL_FRAME.value
-        settings.invalid_history_fallback = InvalidHistoryFallback.SAME_PIXEL_HISTORY.value
-        settings.feedback_mode = FeedbackMode.TRAIL.value
-        settings.persistence = 1.0
-        settings.trail_decay = 0.98
-        settings.refresh_probability = 0.01
-        settings.block_size = 32
-        settings.motion_quantization = 8.0
-        settings.diffusion = 2.0
-        message = "Applied Extreme Full-Frame Feedback starting configuration"
+        preset = extreme_full_frame_feedback_settings()
+        settings.history_source = preset.history_source.value
+        settings.invalid_history_fallback = preset.invalid_history_fallback.value
+        settings.feedback_mode = preset.mode.value
+        settings.persistence = preset.persistence
+        settings.trail_decay = preset.trail_decay
+        settings.trail_motion_mix = preset.trail_motion_mix
+        settings.refresh_probability = preset.refresh_probability
+        settings.block_size = preset.block_size
+        settings.motion_quantization = preset.motion_quantization
+        settings.diffusion = preset.diffusion
+        message = (
+            "Applied Extreme: Full Frame / Trail, Same Pixel History, "
+            "99.5% decay, 10% motion follow, 32 px blocks, 8 px quantization, "
+            "6 px diffusion, no refresh"
+        )
         settings.status = message
         self.report({"INFO"}, message)
         return {"FINISHED"}

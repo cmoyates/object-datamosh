@@ -136,7 +136,7 @@ def run_processing_modal_scenarios(
             f"Processed 2 frame(s) with Full Frame / Trail; report: {runtime.manifest_path}"
         )
         manifest = json.loads(Path(runtime.manifest_path).read_text(encoding="utf-8"))
-        assert manifest["schema_version"] == 4
+        assert manifest["schema_version"] == 5
         assert manifest["history_source"] == "FULL_FRAME"
         assert manifest["effective_settings"]["history_source"] == "FULL_FRAME"
         assert manifest["effective_settings"]["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"

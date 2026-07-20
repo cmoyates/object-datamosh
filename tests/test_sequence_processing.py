@@ -392,7 +392,7 @@ def test_process_sequence_applies_explicit_resets_and_always_resets_first_frame(
     np.testing.assert_array_equal(io.written[first.processed], _rgba(0.75))
     np.testing.assert_array_equal(io.written[second.processed], _rgba(0.25))
     manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == 4
+    assert manifest["schema_version"] == 5
     assert manifest["image_orientation"] == "display_top_left_v1"
 
 
@@ -1012,6 +1012,7 @@ def test_manifest_records_complete_readable_effective_configuration(tmp_path: Pa
         mode=FeedbackMode.TRAIL,
         history_source=HistorySource.FULL_FRAME,
         invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+        trail_motion_mix=0.2,
         persistence=0.75,
     )
     provider = ExternalMatteProvider(tmp_path / "mattes", prefix="mask_")
@@ -1031,9 +1032,10 @@ def test_manifest_records_complete_readable_effective_configuration(tmp_path: Pa
 
     manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
     effective = manifest["effective_settings"]
-    assert manifest["schema_version"] == 4
+    assert manifest["schema_version"] == 5
     assert manifest["history_source"] == effective["history_source"] == "FULL_FRAME"
     assert effective["mode"] == "TRAIL"
+    assert effective["trail_motion_mix"] == 0.2
     assert effective["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"
     assert {field.name for field in fields(FeedbackSettings)} <= effective.keys()
     assert effective["matte_provider"] == {
@@ -1105,6 +1107,34 @@ def test_resume_rejects_schema_v2_without_guessing_and_retains_raw_passes(tmp_pa
     assert frame.beauty.read_bytes() == b"retained"
     assert frame.vector.read_bytes() == b"retained"
     assert frame.matte.read_bytes() == b"retained"
+
+
+def test_resume_rejects_pre_trail_motion_manifest_schema(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=MemoryImageIO({}),
+    )
+    manifest_path = sequence_manifest_path(paths)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 4
+    manifest["effective_settings"].pop("trail_motion_mix")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version changed"):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO({}),
+            run_mode=SequenceRunMode.RESUME,
+        )
 
 
 def test_resume_rejects_disagreement_between_top_level_and_readable_history_source(
@@ -1293,6 +1323,32 @@ def test_history_source_changes_the_deterministic_settings_fingerprint(tmp_path:
 
     assert fingerprints[0] == fingerprints[1]
     assert fingerprints[0] != fingerprints[2]
+
+
+def test_trail_motion_mix_changes_the_settings_fingerprint(tmp_path: Path) -> None:
+    fingerprints: list[str] = []
+    for directory, trail_motion_mix in (("screen", 0.0), ("motion", 1.0)):
+        paths = SequencePaths(tmp_path / directory)
+        frame = paths.frame(1)
+        io = MemoryImageIO(
+            {
+                frame.beauty: _rgba(0.5),
+                frame.vector: _rgba(0.0),
+                frame.matte: np.ones((1, 2), dtype=np.float32),
+            }
+        )
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(trail_motion_mix=trail_motion_mix),
+            image_io=io,
+        )
+        manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+        fingerprints.append(manifest["settings_fingerprint"])
+
+    assert fingerprints[0] != fingerprints[1]
 
 
 def test_invalid_history_fallback_changes_the_settings_fingerprint(tmp_path: Path) -> None:

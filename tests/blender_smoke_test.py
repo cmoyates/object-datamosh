@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import struct
 import subprocess
@@ -44,10 +45,15 @@ from object_datamosh.compositor_setup import (  # noqa: E402
 from object_datamosh.core.contracts import FeedbackSettings  # noqa: E402
 from object_datamosh.core.exr import read_full_float_rgba  # noqa: E402
 from object_datamosh.core.feedback import process_frame  # noqa: E402
+from object_datamosh.core.mattes import ObjectIndexMatteProvider  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
 from object_datamosh.raw_render import (  # noqa: E402
     RawRenderCancelled,
     render_raw_passes,
+)
+from object_datamosh.sequence_processing import (  # noqa: E402
+    process_sequence,
+    sequence_manifest_path,
 )
 from object_datamosh.ui import (  # noqa: E402
     ODM_RuntimeState,
@@ -287,12 +293,20 @@ def main() -> None:
     assert fallback_items["SAME_PIXEL_HISTORY"].name == "Same Screen Position (Extreme)"
     settings.history_source = "FULL_FRAME"
     settings.invalid_history_fallback = "SAME_PIXEL_HISTORY"
+    settings.trail_motion_mix = 0.25
     converted = feedback_settings_for_scene(scene)
     assert converted.history_source.value == "FULL_FRAME"
     assert converted.invalid_history_fallback.value == "SAME_PIXEL_HISTORY"
+    assert abs(converted.trail_motion_mix - 0.25) < 1e-6
+    settings.trail_motion_mix = 1.0
     settings.history_source = "TARGET_ONLY"
     settings.invalid_history_fallback = "CURRENT_BEAUTY"
     assert abs(feedback_settings.trail_decay - FeedbackSettings().trail_decay) < 1e-6
+    assert abs(feedback_settings.trail_motion_mix - 1.0) < 1e-6
+    trail_motion_property = cast(Any, type(settings).bl_rna.properties["trail_motion_mix"])
+    assert trail_motion_property.name == "Trail Motion Follow"
+    assert "0 keeps history at its prior screen position" in trail_motion_property.description
+    assert "1 follows current object motion" in trail_motion_property.description
     assert abs(feedback_settings.persistence - FeedbackSettings().persistence) < 1e-6
     assert feedback_settings.block_size == 16
     assert feedback_settings.motion_channels.value == "RG"
@@ -323,6 +337,7 @@ def main() -> None:
         "history_source",
         "invalid_history_fallback",
         "trail_decay",
+        "trail_motion_mix",
         "persistence",
         "block_size",
         "motion_channels",
@@ -356,6 +371,7 @@ def main() -> None:
         "Visible object seeds its clean image.",
         "Background-only pre-roll:",
         "Enables a more corrupted entrance.",
+        "Trail Motion Follow applies only to Full Frame + Trail.",
     ):
         assert guidance in layout.labels
     assert any("starting point" in label and "vary by scene" in label for label in layout.labels)
@@ -413,6 +429,7 @@ def main() -> None:
         settings.feedback_mode,
         settings.persistence,
         settings.trail_decay,
+        settings.trail_motion_mix,
         settings.refresh_probability,
         settings.block_size,
         settings.motion_quantization,
@@ -431,18 +448,44 @@ def main() -> None:
         settings.motion_gain,
         settings.motion_clamp,
         settings.seed,
+        scene.camera,
+        scene.render.engine,
+        scene.render.filepath,
+        scene.render.resolution_x,
+        scene.render.resolution_y,
+        scene.render.resolution_percentage,
+        scene.render.image_settings.file_format,
+        scene.view_settings.look,
+        scene.view_settings.view_transform,
+        scene.view_settings.exposure,
+        scene.view_settings.gamma,
+        scene.compositing_node_group,
+        tuple(scene.collection.children),
+        tuple(
+            (
+                item,
+                item.hide_render,
+                item.hide_viewport,
+                tuple(slot.material for slot in item.material_slots),
+            )
+            for item in scene.objects
+        ),
     )
     assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
     assert settings.history_source == "FULL_FRAME"
     assert settings.invalid_history_fallback == "SAME_PIXEL_HISTORY"
     assert settings.feedback_mode == "TRAIL"
     assert abs(settings.persistence - 1.0) < 1e-6
-    assert abs(settings.trail_decay - 0.98) < 1e-6
-    assert abs(settings.refresh_probability - 0.01) < 1e-6
+    assert abs(settings.trail_decay - 0.995) < 1e-6
+    assert abs(settings.trail_motion_mix - 0.1) < 1e-6
+    assert abs(settings.refresh_probability) < 1e-6
     assert settings.block_size == 32
     assert abs(settings.motion_quantization - 8.0) < 1e-6
-    assert abs(settings.diffusion - 2.0) < 1e-6
-    assert settings.status == "Applied Extreme Full-Frame Feedback starting configuration"
+    assert abs(settings.diffusion - 6.0) < 1e-6
+    assert settings.status == (
+        "Applied Extreme: Full Frame / Trail, Same Pixel History, 99.5% decay, "
+        "10% motion follow, 32 px blocks, 8 px quantization, 6 px diffusion, no refresh"
+    )
     full_frame_layout = LayoutRecorder()
     _draw_sidebar(full_frame_layout, bpy.context, scene)
     assert "Complete previous processed frame is available" in full_frame_layout.labels
@@ -461,6 +504,28 @@ def main() -> None:
         settings.motion_gain,
         settings.motion_clamp,
         settings.seed,
+        scene.camera,
+        scene.render.engine,
+        scene.render.filepath,
+        scene.render.resolution_x,
+        scene.render.resolution_y,
+        scene.render.resolution_percentage,
+        scene.render.image_settings.file_format,
+        scene.view_settings.look,
+        scene.view_settings.view_transform,
+        scene.view_settings.exposure,
+        scene.view_settings.gamma,
+        scene.compositing_node_group,
+        tuple(scene.collection.children),
+        tuple(
+            (
+                item,
+                item.hide_render,
+                item.hide_viewport,
+                tuple(slot.material for slot in item.material_slots),
+            )
+            for item in scene.objects
+        ),
     )
     assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
     (
@@ -469,6 +534,7 @@ def main() -> None:
         settings.feedback_mode,
         settings.persistence,
         settings.trail_decay,
+        settings.trail_motion_mix,
         settings.refresh_probability,
         settings.block_size,
         settings.motion_quantization,
@@ -875,6 +941,56 @@ def main() -> None:
     assert bpy.data.node_groups.get(owned_tree_name) is None
 
     image_io = BlenderImageIO()
+    assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
+    extreme_settings = feedback_settings_for_scene(scene)
+    with tempfile.TemporaryDirectory(prefix="ODM_extreme_trail_smoke_") as temporary:
+        paths = SequencePaths(Path(temporary))
+        height, width = 5, 9
+        for frame_number, target_x in ((1, 1), (2, 5)):
+            frame = paths.frame(frame_number)
+            beauty = np.zeros((height, width, 4), dtype=np.float32)
+            beauty[..., 3] = 1.0
+            if frame_number == 1:
+                beauty[2, target_x] = np.ones(4, dtype=np.float32)
+            motion = np.zeros_like(beauty)
+            motion[2, target_x, 0] = 4.0
+            matte = np.zeros_like(beauty)
+            matte[..., 3] = 1.0
+            matte[2, target_x, :3] = 1.0
+            image_io.write_rgba(frame.beauty, beauty)
+            image_io.write_rgba(frame.vector, motion)
+            image_io.write_rgba(frame.matte, matte)
+
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=extreme_settings,
+            image_io=image_io,
+            extension_version="smoke",
+            blender_version=bpy.app.version_string,
+        )
+        reopened = image_io.read_rgba(paths.frame(2).processed)
+        assert reopened.shape == (height, width, 4)
+        assert reopened[2, 1, 0] > 0.85
+        manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+        assert manifest["schema_version"] == 5
+        assert abs(manifest["effective_settings"]["trail_motion_mix"] - 0.1) < 1e-6
+        assert manifest["effective_settings"]["invalid_history_fallback"] == ("SAME_PIXEL_HISTORY")
+
+    (
+        settings.history_source,
+        settings.invalid_history_fallback,
+        settings.feedback_mode,
+        settings.persistence,
+        settings.trail_decay,
+        settings.trail_motion_mix,
+        settings.refresh_probability,
+        settings.block_size,
+        settings.motion_quantization,
+        settings.diffusion,
+    ) = effect_before_extreme_setup
     run_processing_modal_scenarios(
         scene, settings, runtime, image_io, object_datamosh_ops, exr_contract
     )

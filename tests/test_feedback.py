@@ -12,6 +12,7 @@ from object_datamosh.core.contracts import (
     MotionChannels,
 )
 from object_datamosh.core.feedback import process_frame
+from object_datamosh.core.presets import extreme_full_frame_feedback_settings
 
 
 def _rgba(height: int, width: int, value: float) -> np.ndarray:
@@ -724,6 +725,87 @@ def test_hard_localization_preserves_nonzero_clean_beauty_outside_current_matte(
     np.testing.assert_array_equal(output[outside], beauty[outside])
 
 
+def test_extreme_preset_leaves_a_material_deterministic_screen_space_trail() -> None:
+    settings = extreme_full_frame_feedback_settings()
+    height, width = 5, 9
+    first_beauty = _rgba(height, width, 0.0)
+    first_beauty[2, 1] = np.ones(4, dtype=np.float32)
+    second_beauty = _rgba(height, width, 0.0)
+    first_matte = np.zeros((height, width), dtype=np.float32)
+    first_matte[2, 1] = 1.0
+    second_matte = np.zeros((height, width), dtype=np.float32)
+    second_matte[2, 5] = 1.0
+    motion = _motion(height, width)
+    motion[2, 5, 0] = 4.0
+
+    def run() -> tuple[np.ndarray, np.ndarray]:
+        _first, state = process_frame(
+            first_beauty, motion, first_matte, None, frame_number=1, settings=settings
+        )
+        second, state = process_frame(
+            second_beauty, motion, second_matte, state, frame_number=2, settings=settings
+        )
+        return second, state.history_matte
+
+    first_output, first_coverage = run()
+    second_output, second_coverage = run()
+
+    assert settings.history_source is HistorySource.FULL_FRAME
+    assert settings.mode is FeedbackMode.TRAIL
+    assert settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY
+    assert settings.persistence == 1.0
+    assert settings.trail_decay == 0.995
+    assert settings.trail_motion_mix == 0.1
+    assert settings.refresh_probability == 0.0
+    assert settings.block_size == 32
+    assert settings.motion_quantization == 8.0
+    assert settings.diffusion == 6.0
+    assert first_coverage[2, 1] > 0.85
+    assert first_output[2, 1, 0] > 0.85
+    np.testing.assert_array_equal(second_output, first_output)
+    np.testing.assert_array_equal(second_coverage, first_coverage)
+
+
+@pytest.mark.parametrize(
+    ("trail_motion_mix", "expected_coverage"),
+    [
+        (0.0, np.array([[0.8, 1.0, 0.0]], dtype=np.float32)),
+        (0.25, np.array([[0.6, 1.0, 0.0]], dtype=np.float32)),
+        (1.0, np.array([[0.0, 1.0, 0.0]], dtype=np.float32)),
+    ],
+)
+def test_full_frame_trail_mix_blends_screen_and_motion_following_coverage(
+    trail_motion_mix: float,
+    expected_coverage: np.ndarray,
+) -> None:
+    previous = FeedbackState(
+        _rgba(1, 3, 1.0),
+        np.array([[0.8, 0.0, 0.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    motion = _motion(1, 3)
+    motion[..., 0] = 1.0
+
+    _output, state = process_frame(
+        beauty=_rgba(1, 3, 0.0),
+        motion=motion,
+        matte=np.array([[0.0, 1.0, 0.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=1.0,
+            trail_motion_mix=trail_motion_mix,
+            persistence=1.0,
+            block_size=3,
+            motion_quantization=0.0,
+        ),
+    )
+
+    np.testing.assert_allclose(state.history_matte, expected_coverage, atol=1e-7)
+
+
 def test_full_frame_trail_uses_effect_mask_for_temporal_coverage_only() -> None:
     beauty = _rgba(1, 2, 0.0)
     history = _rgba(1, 2, 0.0)
@@ -1020,6 +1102,66 @@ def test_full_frame_trail_supports_odd_dimensions_and_partial_edge_blocks() -> N
     )
     assert output.shape == (height, width, 4)
     assert output.dtype == np.float32
+
+
+def test_target_only_trail_ignores_full_frame_trail_motion_mix() -> None:
+    beauty = _rgba(1, 3, 0.2)
+    previous = FeedbackState(
+        _rgba(1, 3, 1.0),
+        np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+        frame_number=1,
+    )
+    matte = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+    motion = _motion(1, 3)
+    motion[0, 1, 0] = 1.0
+
+    results = [
+        process_frame(
+            beauty,
+            motion,
+            matte,
+            previous,
+            frame_number=2,
+            settings=FeedbackSettings(
+                mode=FeedbackMode.TRAIL,
+                history_source=HistorySource.TARGET_ONLY,
+                trail_motion_mix=mix,
+                persistence=1.0,
+                block_size=1,
+            ),
+        )
+        for mix in (0.0, 1.0)
+    ]
+
+    np.testing.assert_array_equal(results[0][0], results[1][0])
+    np.testing.assert_array_equal(results[0][1].history_matte, results[1][1].history_matte)
+
+
+def test_full_frame_screen_space_trail_rejects_nonfinite_screen_mask() -> None:
+    previous = FeedbackState(
+        _rgba(1, 2, 1.0),
+        np.array([[np.inf, 0.75]], dtype=np.float32),
+        frame_number=1,
+    )
+
+    output, state = process_frame(
+        _rgba(1, 2, 0.0),
+        _motion(1, 2),
+        np.zeros((1, 2), dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            trail_decay=1.0,
+            trail_motion_mix=0.0,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    assert np.all(np.isfinite(output))
+    np.testing.assert_array_equal(state.history_matte, np.array([[0.0, 0.75]], dtype=np.float32))
 
 
 def test_trail_mode_retains_decayed_selected_object_history_outside_current_matte() -> None:

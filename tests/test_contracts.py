@@ -21,6 +21,7 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
     assert settings.history_source is HistorySource.TARGET_ONLY
     assert settings.invalid_history_fallback is InvalidHistoryFallback.CURRENT_BEAUTY
     assert settings.trail_decay == 0.85
+    assert settings.trail_motion_mix == 1.0
     assert settings.persistence == 0.85
     assert settings.block_size == 16
     assert settings.motion_channels is MotionChannels.RG
@@ -57,12 +58,15 @@ def test_feedback_settings_reject_values_outside_probability_range() -> None:
         FeedbackSettings(persistence=1.1)
     with pytest.raises(ValueError, match="trail_decay must be between 0 and 1"):
         FeedbackSettings(trail_decay=-0.1)
+    with pytest.raises(ValueError, match="trail_motion_mix must be between 0 and 1"):
+        FeedbackSettings(trail_motion_mix=1.1)
 
 
 @pytest.mark.parametrize(
     "field",
     [
         "trail_decay",
+        "trail_motion_mix",
         "persistence",
         "motion_gain",
         "motion_clamp",
