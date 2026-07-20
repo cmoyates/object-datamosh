@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from object_datamosh.core.presets import extreme_full_frame_feedback_settings
@@ -8,6 +9,7 @@ ROOT = Path(__file__).parents[1]
 README = ROOT / "README.md"
 MIGRATION_GUIDE = ROOT / "docs" / "extreme-workflow-migration.md"
 RELEASE_NOTES = ROOT / "docs" / "release-notes-0.2.0.md"
+EXTENSION_MANIFEST = ROOT / "src" / "object_datamosh" / "blender_manifest.toml"
 
 
 def read_readme() -> str:
@@ -94,7 +96,11 @@ def test_schema_v2_migration_guide_requires_explicit_safe_reprocessing() -> None
 def test_release_notes_match_the_public_extreme_preset() -> None:
     notes = " ".join(RELEASE_NOTES.read_text(encoding="utf-8").split())
     preset = extreme_full_frame_feedback_settings()
+    with EXTENSION_MANIFEST.open("rb") as manifest_file:
+        extension_version = tomllib.load(manifest_file)["version"]
 
+    assert RELEASE_NOTES.name == f"release-notes-{extension_version}.md"
+    assert f"Object Datamosh {extension_version} release notes" in notes
     assert "display_top_left_v1" in notes
     assert "effective_settings" in notes
     assert "Same Screen Position" in notes

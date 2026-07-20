@@ -40,21 +40,20 @@ record contains stable command/result references only.
 | `"$BLENDER_BIN" --background --factory-startup --python tests/blender_smoke_test.py` | Passed: `Object Datamosh Blender smoke test passed`; Extreme fixture receipt reported 65×37, four raw frames, eight processed EXRs, two manifests, and two reports. |
 | `"$BLENDER_BIN" --background --factory-startup --python tests/create_calibration_scene.py` | Passed: owned calibration scene, rectangle, and camera created with expected `(-2, 0, 0)` → `(2, 0, 0)` motion. |
 | `"$BLENDER_BIN" --command extension validate src/object_datamosh` | Passed: `Success parsing TOML in "src/object_datamosh"`. |
-| `mkdir -p dist` then `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: created `dist/object_datamosh-0.1.0.zip`, 64,058 bytes. |
-| `shasum -a 256 dist/object_datamosh-0.1.0.zip` | Passed: `e25761376eb564d185a5b70f8210b492b2716baf0fa1137ec8fa3f7927c8bbbc`. |
-| `unzip -l dist/object_datamosh-0.1.0.zip` and a Python forbidden-entry audit | Passed: 29 entries, 245,131 uncompressed bytes; no tests, caches, virtual/build trees, compiled libraries, or compiled Python. |
+| `mkdir -p dist` then `"$BLENDER_BIN" --command extension build --source-dir src/object_datamosh --output-dir dist` | Passed: created `dist/object_datamosh-0.2.0.zip`, 64,058 bytes. |
+| `shasum -a 256 dist/object_datamosh-0.2.0.zip` | Passed: `3718a4414ed3b81d419359f96096cecb8b52be8083ce46c0e87257bd82c8e701`. |
+| `unzip -l dist/object_datamosh-0.2.0.zip` and a Python forbidden-entry audit | Passed: 29 entries, 245,131 uncompressed bytes; no tests, caches, virtual/build trees, compiled libraries, or compiled Python. |
 | `git diff --check` | Passed. |
 
 The installation artifact is ignored build output and is not committed:
 
-- path: `dist/object_datamosh-0.1.0.zip`;
-- package manifest version: `0.1.0` (unchanged by issue #61);
+- path: `dist/object_datamosh-0.2.0.zip`;
+- package manifest version: `0.2.0`;
 - size: 64,058 bytes;
-- SHA-256: `e25761376eb564d185a5b70f8210b492b2716baf0fa1137ec8fa3f7927c8bbbc`.
+- SHA-256: `3718a4414ed3b81d419359f96096cecb8b52be8083ce46c0e87257bd82c8e701`.
 
-The repository project and lockfile both retain editable package version `0.2.0`; validation found
-no metadata/lock inconsistency requiring a version change. The Blender extension manifest's
-independent package version remains `0.1.0` under existing repository policy.
+The Blender extension manifest, repository project metadata, release notes, and lockfile editable
+package entry now agree on version `0.2.0`.
 
 ## Migration and compatibility cases verified
 
