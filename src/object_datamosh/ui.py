@@ -35,7 +35,13 @@ from .compositor_setup import (
     restore_object_index_passes,
     setup_object_index_passes,
 )
-from .core.contracts import FeedbackMode, FeedbackSettings, MatteSource, MotionChannels
+from .core.contracts import (
+    FeedbackMode,
+    FeedbackSettings,
+    HistorySource,
+    MatteSource,
+    MotionChannels,
+)
 from .core.mattes import (
     CryptomatteMatteProvider,
     ExternalMatteProvider,
@@ -105,6 +111,7 @@ def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
     settings = settings_for_scene(scene)
     return FeedbackSettings(
         mode=FeedbackMode(settings.feedback_mode),
+        history_source=HistorySource(settings.history_source),
         trail_decay=settings.trail_decay,
         persistence=settings.persistence,
         block_size=settings.block_size,
@@ -275,6 +282,22 @@ class ODM_Settings(PropertyGroup):
             ),
         ),
         default="HARD_LOCALIZED",
+    )
+    history_source: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="History Source",
+        items=(
+            (
+                "TARGET_ONLY",
+                "Target Only",
+                "Restrict feedback color to previous target coverage",
+            ),
+            (
+                "FULL_FRAME",
+                "Full Frame",
+                "Allow feedback color from the complete previous processed frame",
+            ),
+        ),
+        default="TARGET_ONLY",
     )
     trail_decay: FloatProperty(  # ty: ignore[invalid-type-form]
         name="Trail Decay",

@@ -7,6 +7,7 @@ from object_datamosh.core.contracts import (
     FeedbackMode,
     FeedbackSettings,
     FeedbackState,
+    HistorySource,
     MatteSource,
     MotionChannels,
 )
@@ -16,6 +17,7 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
     settings = FeedbackSettings()
 
     assert settings.mode is FeedbackMode.HARD_LOCALIZED
+    assert settings.history_source is HistorySource.TARGET_ONLY
     assert settings.trail_decay == 0.85
     assert settings.persistence == 0.85
     assert settings.block_size == 16
@@ -27,6 +29,16 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
     assert settings.refresh_probability == 0.0
     assert settings.seed == 0
     assert settings.matte_source is MatteSource.OBJECT_INDEX
+
+
+def test_feedback_settings_rejects_full_frame_trail_until_supported() -> None:
+    with pytest.raises(
+        ValueError, match="Full Frame history source is not supported with Trail mode"
+    ):
+        FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+        )
 
 
 def test_feedback_settings_reject_values_outside_probability_range() -> None:

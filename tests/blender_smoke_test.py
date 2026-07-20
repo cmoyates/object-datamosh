@@ -166,6 +166,11 @@ def main() -> None:
     assert settings.target_object is None
     feedback_settings = feedback_settings_for_scene(scene)
     assert feedback_settings.mode.value == "HARD_LOCALIZED"
+    assert feedback_settings.history_source.value == "TARGET_ONLY"
+    assert settings.history_source == "TARGET_ONLY"
+    settings.history_source = "FULL_FRAME"
+    assert feedback_settings_for_scene(scene).history_source.value == "FULL_FRAME"
+    settings.history_source = "TARGET_ONLY"
     assert abs(feedback_settings.trail_decay - FeedbackSettings().trail_decay) < 1e-6
     assert abs(feedback_settings.persistence - FeedbackSettings().persistence) < 1e-6
     assert feedback_settings.block_size == 16

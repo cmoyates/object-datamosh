@@ -34,6 +34,13 @@ class FeedbackMode(StrEnum):
     TRAIL = "TRAIL"
 
 
+class HistorySource(StrEnum):
+    """Which region of the previous processed frame may provide feedback color."""
+
+    TARGET_ONLY = "TARGET_ONLY"
+    FULL_FRAME = "FULL_FRAME"
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackState:
     """History carried between sequentially processed frames.
@@ -68,6 +75,7 @@ class FeedbackSettings:
     """Stable, Blender-independent controls for temporal feedback."""
 
     mode: FeedbackMode = FeedbackMode.HARD_LOCALIZED
+    history_source: HistorySource = HistorySource.TARGET_ONLY
     trail_decay: float = 0.85
     persistence: float = 0.85
     block_size: int = 16
@@ -100,6 +108,10 @@ class FeedbackSettings:
             raise TypeError("seed must be an integer")
         if not isinstance(self.mode, FeedbackMode):
             raise TypeError("mode must be a FeedbackMode value")
+        if not isinstance(self.history_source, HistorySource):
+            raise TypeError("history_source must be a HistorySource value")
+        if self.mode is FeedbackMode.TRAIL and self.history_source is HistorySource.FULL_FRAME:
+            raise ValueError("Full Frame history source is not supported with Trail mode")
         if not isinstance(self.motion_channels, MotionChannels):
             raise TypeError("motion_channels must be a MotionChannels value")
         if not isinstance(self.matte_source, MatteSource):

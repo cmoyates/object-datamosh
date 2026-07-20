@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import object_datamosh.sequence_processing as sequence_processing
-from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
+from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings, HistorySource
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import FramePaths, SequencePaths
 from object_datamosh.sequence_processing import (
@@ -889,6 +889,37 @@ def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Pa
         )
     else:
         raise AssertionError("processing resumed outputs made with incompatible settings")
+
+
+def test_history_source_changes_the_deterministic_settings_fingerprint(tmp_path: Path) -> None:
+    fingerprints: list[str] = []
+    for directory, history_source in (
+        ("target-a", HistorySource.TARGET_ONLY),
+        ("target-b", HistorySource.TARGET_ONLY),
+        ("full", HistorySource.FULL_FRAME),
+    ):
+        paths = SequencePaths(tmp_path / directory)
+        frame = paths.frame(1)
+        io = MemoryImageIO(
+            {
+                frame.beauty: _rgba(0.5),
+                frame.vector: _rgba(0.0),
+                frame.matte: np.ones((1, 2), dtype=np.float32),
+            }
+        )
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(history_source=history_source),
+            image_io=io,
+        )
+        manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+        fingerprints.append(manifest["settings_fingerprint"])
+
+    assert fingerprints[0] == fingerprints[1]
+    assert fingerprints[0] != fingerprints[2]
 
 
 def test_resume_rejects_discontinuous_completion_metadata(tmp_path: Path) -> None:
