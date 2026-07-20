@@ -13,6 +13,7 @@ from .contracts import (
     FloatImage,
     FloatMask,
     HistorySource,
+    InvalidHistoryFallback,
 )
 from .sampling import bilinear_sample
 
@@ -90,6 +91,20 @@ def process_frame(
                 (~history_color_valid).astype(np.float32), sample_x, sample_y
             )
             covered = valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
+            if settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY:
+                screen_y, screen_x = np.indices(matte.shape, dtype=np.float32)
+                screen_history, screen_valid = bilinear_sample(safe_history, screen_x, screen_y)
+                screen_invalid, _ = bilinear_sample(
+                    (~history_color_valid).astype(np.float32), screen_x, screen_y
+                )
+                screen_covered = (
+                    screen_valid
+                    & (screen_invalid == 0.0)
+                    & np.all(np.isfinite(screen_history), axis=-1)
+                )
+                use_screen = ~covered & screen_covered
+                warped_history = np.where(use_screen[..., None], screen_history, warped_history)
+                covered = covered | screen_covered
             warped_history = np.where(covered[..., None], warped_history, 0.0)
             if settings.mode is FeedbackMode.TRAIL:
                 history_matte_valid = (

@@ -8,6 +8,7 @@ from object_datamosh.core.contracts import (
     FeedbackSettings,
     FeedbackState,
     HistorySource,
+    InvalidHistoryFallback,
     MatteSource,
     MotionChannels,
 )
@@ -18,6 +19,7 @@ def test_feedback_settings_have_conservative_stable_defaults() -> None:
 
     assert settings.mode is FeedbackMode.HARD_LOCALIZED
     assert settings.history_source is HistorySource.TARGET_ONLY
+    assert settings.invalid_history_fallback is InvalidHistoryFallback.CURRENT_BEAUTY
     assert settings.trail_decay == 0.85
     assert settings.persistence == 0.85
     assert settings.block_size == 16
@@ -39,6 +41,15 @@ def test_feedback_settings_supports_full_frame_trail() -> None:
 
     assert settings.mode is FeedbackMode.TRAIL
     assert settings.history_source is HistorySource.FULL_FRAME
+
+
+def test_feedback_settings_supports_same_pixel_history_fallback() -> None:
+    settings = FeedbackSettings(
+        history_source=HistorySource.FULL_FRAME,
+        invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+    )
+
+    assert settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY
 
 
 def test_feedback_settings_reject_values_outside_probability_range() -> None:

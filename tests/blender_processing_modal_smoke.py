@@ -13,8 +13,10 @@ import numpy as np
 from blender_modal_test_support import ModalWindowManagerRecorder, ProcessOperatorHarness
 
 from object_datamosh.blender_image_io import BlenderImageIO
+from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import SequencePaths
-from object_datamosh.ui import ODM_OT_process_sequence
+from object_datamosh.sequence_processing import process_sequence
+from object_datamosh.ui import ODM_OT_process_sequence, feedback_settings_for_scene
 
 
 def run_processing_modal_scenarios(
@@ -33,13 +35,15 @@ def run_processing_modal_scenarios(
         first_beauty = np.full((2, 3, 4), 0.8, dtype=np.float32)
         second_beauty = np.full((2, 3, 4), 0.1, dtype=np.float32)
         zero_vector = np.zeros((2, 3, 4), dtype=np.float32)
+        entering_vector = zero_vector.copy()
+        entering_vector[:, :2, 0] = 1.0
         selected = np.zeros((2, 3), dtype=np.float32)
-        selected[:, 1] = 1.0
+        selected[:, :2] = 1.0
         matte_rgba = np.repeat(selected[..., None], 4, axis=2)
         processing_images_before = len(bpy.data.images)
         for frame_paths, beauty in ((first, first_beauty), (second, second_beauty)):
             image_io.write_rgba(frame_paths.beauty, beauty)
-            image_io.write_rgba(frame_paths.vector, zero_vector)
+            image_io.write_rgba(frame_paths.vector, entering_vector)
             image_io.write_rgba(frame_paths.matte, matte_rgba)
 
         settings.output_directory = str(processing_paths.root)
@@ -51,6 +55,7 @@ def run_processing_modal_scenarios(
         settings.overwrite_processed = False
         assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
         assert settings.history_source == "FULL_FRAME"
+        assert settings.invalid_history_fallback == "SAME_PIXEL_HISTORY"
         assert settings.feedback_mode == "TRAIL"
         # Keep the preset's identity while making this tiny image fixture pixel-local.
         settings.block_size = 1
@@ -134,6 +139,7 @@ def run_processing_modal_scenarios(
         assert manifest["schema_version"] == 4
         assert manifest["history_source"] == "FULL_FRAME"
         assert manifest["effective_settings"]["history_source"] == "FULL_FRAME"
+        assert manifest["effective_settings"]["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"
         assert manifest["effective_settings"]["mode"] == "TRAIL"
         assert manifest["effective_settings"]["extension_version"] == "0.1.0"
         assert manifest["effective_settings"]["blender_version"] == bpy.app.version_string
@@ -143,8 +149,35 @@ def run_processing_modal_scenarios(
         ]
         assert exr_contract(second.processed) == ((2, 3), (2, 2, 2, 2))
         processed = image_io.read_rgba(second.processed)
-        assert np.allclose(processed[:, 1], first_beauty[:, 1], atol=1e-6)
-        assert np.allclose(processed[:, (0, 2)], second_beauty[:, (0, 2)], atol=1e-6)
+        assert np.allclose(processed[:, :2], first_beauty[:, :2], atol=1e-6)
+        assert np.allclose(processed[:, 2], second_beauty[:, 2], atol=1e-6)
+
+        compatible_paths = SequencePaths(Path(temp_directory) / "current-beauty-fallback")
+        for frame_number, beauty in ((1, first_beauty), (2, second_beauty)):
+            frame_paths = compatible_paths.frame(frame_number)
+            image_io.write_rgba(frame_paths.beauty, beauty)
+            image_io.write_rgba(frame_paths.vector, entering_vector)
+            image_io.write_rgba(frame_paths.matte, matte_rgba)
+        settings.history_source = "FULL_FRAME"
+        settings.invalid_history_fallback = "CURRENT_BEAUTY"
+        settings.feedback_mode = "HARD_LOCALIZED"
+        settings.persistence = 1.0
+        settings.refresh_probability = 0.0
+        settings.block_size = 1
+        settings.motion_quantization = 0.0
+        settings.diffusion = 0.0
+        process_sequence(
+            compatible_paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=feedback_settings_for_scene(scene),
+            image_io=image_io,
+        )
+        compatible = image_io.read_rgba(compatible_paths.frame(2).processed)
+        assert np.allclose(compatible[:, 0], second_beauty[:, 0], atol=1e-6)
+        assert np.allclose(compatible[:, 1], first_beauty[:, 0], atol=1e-6)
+        assert np.allclose(compatible[:, 2], second_beauty[:, 2], atol=1e-6)
         assert len(bpy.data.images) == processing_images_before
         try:
             object_datamosh_ops.process_sequence()

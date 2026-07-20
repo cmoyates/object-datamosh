@@ -40,6 +40,7 @@ from .core.contracts import (
     FeedbackMode,
     FeedbackSettings,
     HistorySource,
+    InvalidHistoryFallback,
     MatteSource,
     MotionChannels,
 )
@@ -133,6 +134,7 @@ def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
     return FeedbackSettings(
         mode=FeedbackMode(settings.feedback_mode),
         history_source=HistorySource(settings.history_source),
+        invalid_history_fallback=InvalidHistoryFallback(settings.invalid_history_fallback),
         trail_decay=settings.trail_decay,
         persistence=settings.persistence,
         block_size=settings.block_size,
@@ -327,6 +329,23 @@ class ODM_Settings(PropertyGroup):
             ),
         ),
         default="TARGET_ONLY",
+    )
+    invalid_history_fallback: EnumProperty(  # ty: ignore[invalid-type-form]
+        name="Invalid History",
+        description="Fallback when a Full Frame motion-warped history sample is invalid",
+        items=(
+            (
+                "CURRENT_BEAUTY",
+                "Current Beauty (Compatible)",
+                "Use clean current beauty when warped history is invalid",
+            ),
+            (
+                "SAME_PIXEL_HISTORY",
+                "Same Screen Position (Extreme)",
+                "Try the previous processed frame at the current screen position before beauty",
+            ),
+        ),
+        default="CURRENT_BEAUTY",
     )
     trail_decay: FloatProperty(  # ty: ignore[invalid-type-form]
         name="Trail Decay",
@@ -907,6 +926,7 @@ class ODM_OT_extreme_full_frame_feedback(Operator):
             return {"CANCELLED"}
         settings = settings_for_scene(scene)
         settings.history_source = HistorySource.FULL_FRAME.value
+        settings.invalid_history_fallback = InvalidHistoryFallback.SAME_PIXEL_HISTORY.value
         settings.feedback_mode = FeedbackMode.TRAIL.value
         settings.persistence = 1.0
         settings.trail_decay = 0.98

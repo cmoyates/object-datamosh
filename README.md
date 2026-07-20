@@ -34,8 +34,8 @@ The sidebar currently provides:
   overwrite toggle, **Render Raw Passes**, **Render and Process**, reset/recovery policy, and
   **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
-- Hard Localized / Trail mode, Target Only / Full Frame history source, trail decay, persistence,
-  block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
+- Hard Localized / Trail mode, Target Only / Full Frame history source, invalid-history fallback,
+  trail decay, persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
   refresh-probability, and deterministic-seed controls; and
 - a status field and an explicit warning when the blend file has not been saved.
 
@@ -111,6 +111,11 @@ A conservative first setup is:
 For feedback that persists behind the moving object, choose **Trail** and begin with **Trail
 Decay** at `0.85`. Lower decay fades the trail sooner; `0` removes old trail coverage after one
 frame, while `1` retains reachable coverage without decay.
+
+Under **Full Frame**, **Invalid History: Current Beauty** preserves compatibility when a motion
+warp leaves the image or encounters invalid history. **Same Screen Position** instead tries the
+same pixel in the complete previous processed frame before using current beauty. This control is
+irrelevant under **Target Only**, whose history rules are unchanged.
 
 Vector conventions can differ by Blender release, engine, and scene. If the result moves in the
 wrong direction or at the wrong scale, use **Create Vector Calibration Scene** and follow

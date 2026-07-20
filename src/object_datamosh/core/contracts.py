@@ -41,6 +41,13 @@ class HistorySource(StrEnum):
     FULL_FRAME = "FULL_FRAME"
 
 
+class InvalidHistoryFallback(StrEnum):
+    """Fallback used when a Full Frame warped-history sample is invalid."""
+
+    CURRENT_BEAUTY = "CURRENT_BEAUTY"
+    SAME_PIXEL_HISTORY = "SAME_PIXEL_HISTORY"
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackState:
     """History carried between sequentially processed frames.
@@ -78,6 +85,7 @@ class FeedbackSettings:
 
     mode: FeedbackMode = FeedbackMode.HARD_LOCALIZED
     history_source: HistorySource = HistorySource.TARGET_ONLY
+    invalid_history_fallback: InvalidHistoryFallback = InvalidHistoryFallback.CURRENT_BEAUTY
     trail_decay: float = 0.85
     persistence: float = 0.85
     block_size: int = 16
@@ -112,6 +120,8 @@ class FeedbackSettings:
             raise TypeError("mode must be a FeedbackMode value")
         if not isinstance(self.history_source, HistorySource):
             raise TypeError("history_source must be a HistorySource value")
+        if not isinstance(self.invalid_history_fallback, InvalidHistoryFallback):
+            raise TypeError("invalid_history_fallback must be an InvalidHistoryFallback value")
         if not isinstance(self.motion_channels, MotionChannels):
             raise TypeError("motion_channels must be a MotionChannels value")
         if not isinstance(self.matte_source, MatteSource):
