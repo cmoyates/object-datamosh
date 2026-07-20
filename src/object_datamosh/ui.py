@@ -67,6 +67,7 @@ from .sequence_processing import (
     parse_reset_frames,
     processing_configuration_name,
     processing_configuration_summary,
+    processing_report_path,
     sequence_manifest_path,
 )
 from .sidebar import draw_sidebar
@@ -821,7 +822,7 @@ class ODM_OT_render_and_process(Operator):
         frame_count = len(result.processed.frames)
         message = (
             f"Render and Process complete: {frame_count} frame(s) with {configuration_name}; "
-            f"report: {manifest_path}"
+            f"report: {processing_report_path(paths)}"
         )
         settings.status = message
         self.report({"INFO"}, message)

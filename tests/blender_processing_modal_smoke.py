@@ -132,8 +132,9 @@ def run_processing_modal_scenarios(
         assert runtime.current_frame == 2
         assert runtime.completed_work == 2
         assert runtime.progress == 1.0
+        report_path = Path(runtime.manifest_path).with_name("ODM_processing_report.json")
         assert runtime.status == (
-            f"Processed 2 frame(s) with Full Frame / Trail; report: {runtime.manifest_path}"
+            f"Processed 2 frame(s) with Full Frame / Trail; report: {report_path}"
         )
         manifest = json.loads(Path(runtime.manifest_path).read_text(encoding="utf-8"))
         assert manifest["schema_version"] == 5

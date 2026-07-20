@@ -393,8 +393,27 @@ provenance. Enums use stable values; unavailable version provenance is written a
 The snapshot is captured once when the run starts and remains unchanged if scene controls are edited
 mid-run. Top-level History Source must agree with the snapshot, and manifest replacement remains
 atomic. Operational progress and cancellation state do not enter the semantic fingerprint. The
-manifest contains no image data. Output from different
-settings, a changed range, or discontinuous completion metadata is rejected rather than silently reused.
+manifest contains no image data. Output from different settings, a changed range, or discontinuous
+completion metadata is rejected rather than silently reused.
+
+Processing also atomically writes the bounded schema-1 diagnostics report
+`processed/ODM_processing_report.json` beside the manifest. It records the immutable configuration
+and semantic-settings reference, manifest fingerprint agreement, completed prefix, terminal outcome,
+reset count, and actual per-frame processing decisions. Counters cover matte/effect coverage, primary
+and same-pixel history sampling, final beauty fallback, refresh restoration, historical blending, and
+finite scene-linear RGB change versus current beauty. Totals exclude reset frames; detailed telemetry
+is limited to the latest 96 frames and contains no image data. Success, cancellation, and processing
+failure each retain the truthful completed prefix. If an older run has no report, diagnostics are
+unavailable; do not infer or fabricate them from its processed EXRs.
+
+A report warning is advisory and never blocks output. Efficacy assessment begins only after two
+non-reset frames with non-empty target mattes. A likely near-no-op requires both history use at or
+below 5% of primary attempts and changed output at or below 1% of pixels (RGB maximum absolute change
+above `1e-6` defines a changed pixel). Supported likely causes use inclusive 80% thresholds for mostly
+invalid primary samples or refresh-restored effect coverage. Empty mattes receive their own diagnostic
+instead of a generic near-no-op warning, and low persistence alone does not trigger one. The operator
+status points to the report so vector convention, fallback, History Source, and refresh evidence can
+be inspected without comparing EXRs manually.
 
 **Reprocess** starts from the configured first frame. Existing outputs stop it unless **Overwrite
 Processed Frames** is enabled; enabling overwrite is explicit permission to replace the complete
