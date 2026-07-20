@@ -12,7 +12,7 @@ from typing import Protocol, cast
 
 import numpy as np
 
-from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState
+from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState, HistorySource
 from .core.feedback import process_frame
 from .core.image_io import ImageSequenceIO
 from .core.mattes import MatteProvider
@@ -55,7 +55,7 @@ class ProcessingProgress(Protocol):
     def end(self) -> None: ...
 
 
-_MANIFEST_VERSION = 1
+_MANIFEST_VERSION = 2
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 
 
@@ -164,6 +164,7 @@ class ProcessingSession:
                 frame_start=frame_start,
                 frame_end=frame_end,
                 fingerprint=fingerprint,
+                history_source=settings.history_source,
                 reset_frames=reset_frames,
                 resolution_change=resolution_change,
             )
@@ -220,6 +221,7 @@ class ProcessingSession:
                         frame_start,
                         frame_end,
                         fingerprint,
+                        settings.history_source,
                         reset_frames,
                         resolution_change,
                         completed,
@@ -243,6 +245,7 @@ class ProcessingSession:
                     frame_start,
                     frame_end,
                     fingerprint,
+                    settings.history_source,
                     reset_frames,
                     resolution_change,
                     completed,
@@ -351,6 +354,7 @@ class ProcessingSession:
                     self.frame_start,
                     self.frame_end,
                     self.settings_fingerprint,
+                    self.settings.history_source,
                     self.reset_frames,
                     self.resolution_change,
                     self._completed_numbers,
@@ -427,6 +431,7 @@ class ProcessingSession:
                 self.frame_start,
                 self.frame_end,
                 self.settings_fingerprint,
+                self.settings.history_source,
                 self.reset_frames,
                 self.resolution_change,
                 committed_numbers,
@@ -610,6 +615,7 @@ def _new_manifest(
     frame_start: int,
     frame_end: int,
     fingerprint: str,
+    history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
     completed: list[int],
@@ -618,6 +624,7 @@ def _new_manifest(
         "schema_version": _MANIFEST_VERSION,
         "frame_start": frame_start,
         "frame_end": frame_end,
+        "history_source": history_source.value,
         "settings_fingerprint": fingerprint,
         "reset_frames": sorted(reset_frames),
         "resolution_change": resolution_change.value,
@@ -650,6 +657,7 @@ def _validate_manifest(
     frame_start: int,
     frame_end: int,
     fingerprint: str,
+    history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
 ) -> None:
@@ -657,6 +665,7 @@ def _validate_manifest(
         "schema_version": _MANIFEST_VERSION,
         "frame_start": frame_start,
         "frame_end": frame_end,
+        "history_source": history_source.value,
         "settings_fingerprint": fingerprint,
         "reset_frames": sorted(reset_frames),
         "resolution_change": resolution_change.value,

@@ -82,6 +82,7 @@ def draw_sidebar(
     feedback.enabled = not operation_active
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
+    feedback.prop(settings, "history_source")
     feedback.prop(settings, "trail_decay")
     feedback.prop(settings, "persistence")
     feedback.prop(settings, "block_size")

@@ -641,6 +641,82 @@ def test_trail_sequence_resume_restores_decayed_selected_object_coverage(
     )
 
 
+@pytest.mark.parametrize("mode", [FeedbackMode.HARD_LOCALIZED, FeedbackMode.TRAIL])
+def test_full_frame_resume_matches_fresh_run_across_reset_segments(
+    tmp_path: Path,
+    mode: FeedbackMode,
+) -> None:
+    settings = FeedbackSettings(
+        mode=mode,
+        history_source=HistorySource.FULL_FRAME,
+        trail_decay=0.5,
+        persistence=1.0,
+        block_size=1,
+    )
+    reset_frames = frozenset({3, 5})
+    roots = (SequencePaths(tmp_path / "fresh"), SequencePaths(tmp_path / "resumed"))
+    ios: list[MemoryImageIO] = []
+    mattes = (
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        np.array([[0.0, 1.0]], dtype=np.float32),
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        np.array([[0.0, 1.0]], dtype=np.float32),
+        np.array([[0.0, 1.0]], dtype=np.float32),
+        np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+    for paths in roots:
+        images: dict[Path, np.ndarray] = {}
+        for frame_number, matte in enumerate(mattes, start=1):
+            frame = paths.frame(frame_number)
+            beauty = np.array(
+                [[[frame_number / 10.0] * 4, [(frame_number + 1) / 10.0] * 4]],
+                dtype=np.float32,
+            )
+            images[frame.beauty] = beauty
+            images[frame.vector] = _rgba(0.0)
+            images[frame.matte] = matte
+        ios.append(MemoryImageIO(images))
+
+    process_sequence(
+        roots[0],
+        frame_start=1,
+        frame_end=6,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=ios[0],
+        reset_frames=reset_frames,
+    )
+    progress = ProgressRecorder()
+    with pytest.raises(SequenceProcessingCancelled):
+        process_sequence(
+            roots[1],
+            frame_start=1,
+            frame_end=6,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=settings,
+            image_io=ios[1],
+            reset_frames=reset_frames,
+            progress=progress,
+            should_cancel=lambda: ("update", 5) in progress.events,
+        )
+    process_sequence(
+        roots[1],
+        frame_start=1,
+        frame_end=6,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=ios[1],
+        reset_frames=reset_frames,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    for frame_number in range(1, 7):
+        np.testing.assert_array_equal(
+            ios[1].images[roots[1].frame(frame_number).processed],
+            ios[0].images[roots[0].frame(frame_number).processed],
+        )
+
+
 def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     tmp_path: Path,
 ) -> None:
@@ -689,8 +765,10 @@ def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     assert resumed.result.frames == (paths.frame(2).processed,)
 
 
+@pytest.mark.parametrize("history_source", [HistorySource.TARGET_ONLY, HistorySource.FULL_FRAME])
 def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_frame(
     tmp_path: Path,
+    history_source: HistorySource,
 ) -> None:
     paths = SequencePaths(tmp_path)
     matte = np.ones((1, 2), dtype=np.float32)
@@ -701,7 +779,11 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
         images[frame.vector] = _rgba(0.0)
         images[frame.matte] = matte
     io = MemoryImageIO(images)
-    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    settings = FeedbackSettings(
+        mode=FeedbackMode.TRAIL,
+        history_source=history_source,
+        block_size=1,
+    )
     process_sequence(
         paths,
         frame_start=1,
@@ -760,8 +842,19 @@ def test_complete_trail_resume_applies_missing_history_policy_at_the_failed_fram
     assert subsequent.frames == ()
 
 
+@pytest.mark.parametrize(
+    ("mode", "history_source"),
+    [
+        (FeedbackMode.HARD_LOCALIZED, HistorySource.TARGET_ONLY),
+        (FeedbackMode.TRAIL, HistorySource.TARGET_ONLY),
+        (FeedbackMode.HARD_LOCALIZED, HistorySource.FULL_FRAME),
+        (FeedbackMode.TRAIL, HistorySource.FULL_FRAME),
+    ],
+)
 def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
     tmp_path: Path,
+    mode: FeedbackMode,
+    history_source: HistorySource,
 ) -> None:
     paths = SequencePaths(tmp_path)
     matte = np.ones((1, 2), dtype=np.float32)
@@ -773,13 +866,18 @@ def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
         images[frame.matte] = matte
     io = MemoryImageIO(images)
     progress = ProgressRecorder()
+    settings = FeedbackSettings(
+        mode=mode,
+        history_source=history_source,
+        block_size=1,
+    )
     with pytest.raises(SequenceProcessingCancelled):
         process_sequence(
             paths,
             frame_start=1,
             frame_end=2,
             matte_provider=ObjectIndexMatteProvider(),
-            settings=FeedbackSettings(),
+            settings=settings,
             image_io=io,
             progress=progress,
             should_cancel=lambda: ("update", 1) in progress.events,
@@ -793,7 +891,7 @@ def test_resume_reprocesses_from_a_missing_history_frame_when_configured(
         frame_start=1,
         frame_end=2,
         matte_provider=ObjectIndexMatteProvider(),
-        settings=FeedbackSettings(),
+        settings=settings,
         image_io=io,
         run_mode=SequenceRunMode.RESUME,
         missing_history=MissingHistoryPolicy.RESET,
@@ -889,6 +987,48 @@ def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Pa
         )
     else:
         raise AssertionError("processing resumed outputs made with incompatible settings")
+
+
+def test_resume_reports_history_source_manifest_incompatibility_before_reading_raw_passes(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    frame = paths.frame(1)
+    io = MemoryImageIO(
+        {
+            frame.beauty: _rgba(0.5),
+            frame.vector: _rgba(0.0),
+            frame.matte: np.ones((1, 2), dtype=np.float32),
+        }
+    )
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(history_source=HistorySource.TARGET_ONLY),
+        image_io=io,
+    )
+    io.reads.clear()
+
+    with pytest.raises(
+        ValueError,
+        match="Sequence recovery manifest is incompatible: history_source changed",
+    ):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(history_source=HistorySource.FULL_FRAME),
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+    assert io.reads == []
+    assert frame.beauty in io.images
+    assert frame.vector in io.images
+    assert frame.matte in io.images
 
 
 def test_history_source_changes_the_deterministic_settings_fingerprint(tmp_path: Path) -> None:
