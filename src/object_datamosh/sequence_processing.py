@@ -200,6 +200,7 @@ class ProcessingSession:
                 history_source=settings.history_source,
                 reset_frames=reset_frames,
                 resolution_change=resolution_change,
+                semantic_settings=_semantic_settings_snapshot(settings, matte_provider),
             )
             effective_settings = cast(dict[str, object], manifest["effective_settings"])
             completed = _completed_frames(manifest)
@@ -761,6 +762,7 @@ def _validate_manifest(
     history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
+    semantic_settings: dict[str, object],
 ) -> None:
     schema_version = manifest.get("schema_version")
     if schema_version == 2:
@@ -791,6 +793,38 @@ def _validate_manifest(
             "Sequence recovery manifest is incompatible: history_source disagrees with "
             "effective_settings"
         )
+    expected_effective_names = {
+        *semantic_settings,
+        "reset_frames",
+        "resolution_change",
+        "extension_version",
+        "blender_version",
+    }
+    if set(effective_settings) != expected_effective_names:
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: effective_settings fields changed"
+        )
+    for name, value in semantic_settings.items():
+        if effective_settings.get(name) != value:
+            raise ValueError(
+                f"Sequence recovery manifest is incompatible: effective_settings.{name} changed"
+            )
+    if effective_settings.get("reset_frames") != sorted(reset_frames):
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: effective_settings.reset_frames changed"
+        )
+    if effective_settings.get("resolution_change") != resolution_change.value:
+        raise ValueError(
+            "Sequence recovery manifest is incompatible: "
+            "effective_settings.resolution_change changed"
+        )
+    for name in ("extension_version", "blender_version"):
+        provenance = effective_settings.get(name)
+        if not isinstance(provenance, str) or not provenance:
+            raise ValueError(
+                f"Sequence recovery manifest is incompatible: effective_settings.{name} "
+                "is missing or invalid"
+            )
     completed = _completed_frames(manifest)
     if completed != list(range(frame_start, frame_start + len(completed))):
         raise ValueError("Sequence recovery manifest has discontinuous completed frames")

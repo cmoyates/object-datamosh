@@ -1129,6 +1129,53 @@ def test_resume_rejects_disagreement_between_top_level_and_readable_history_sour
         )
 
 
+@pytest.mark.parametrize(
+    ("path", "value", "diagnostic"),
+    [
+        (("mode",), "TRAIL", "effective_settings.mode changed"),
+        (
+            ("matte_provider", "type"),
+            "ExternalMatteProvider",
+            "effective_settings.matte_provider changed",
+        ),
+        (("reset_frames",), [9], "effective_settings.reset_frames changed"),
+    ],
+)
+def test_resume_rejects_tampered_readable_effective_settings(
+    tmp_path: Path,
+    path: tuple[str, ...],
+    value: object,
+    diagnostic: str,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=1,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(),
+        image_io=MemoryImageIO({}),
+    )
+    manifest_path = sequence_manifest_path(paths)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    target = manifest["effective_settings"]
+    for name in path[:-1]:
+        target = target[name]
+    target[path[-1]] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=diagnostic):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO({}),
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+
 def test_resume_rejects_outputs_from_incompatible_feedback_settings(tmp_path: Path) -> None:
     paths = SequencePaths(tmp_path)
     frame = paths.frame(1)

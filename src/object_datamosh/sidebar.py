@@ -93,23 +93,25 @@ def draw_sidebar(
     feedback.label(text="Feedback")
     feedback.prop(settings, "feedback_mode")
     feedback.prop(settings, "history_source")
+    feedback.operator("object_datamosh.extreme_full_frame_feedback")
+    feedback.label(text="Artistic starting point; results vary by scene.")
     if settings.history_source == "TARGET_ONLY":
         warning = feedback.row()
         warning.alert = True
         warning.label(text="Full-frame history is OFF.", icon="INFO")
-        warning.label(text="Background and unrelated screen content cannot become history color")
-        warning.label(text="inside the target.")
+        warning = feedback.row()
+        warning.alert = True
+        warning.label(text="Background and unrelated screen content")
+        warning = feedback.row()
+        warning.alert = True
+        warning.label(text="cannot become history color inside the target.")
     else:
-        feedback.label(
-            text="The complete previous processed frame is available as history color.",
-            icon="INFO",
-        )
+        feedback.label(text="Complete previous processed frame is available", icon="INFO")
+        feedback.label(text="as history color.")
     feedback.label(text="First/reset frame:")
     feedback.label(text="Visible object seeds its clean image.")
     feedback.label(text="Background-only pre-roll:")
     feedback.label(text="Enables a more corrupted entrance.")
-    feedback.operator("object_datamosh.extreme_full_frame_feedback")
-    feedback.label(text="Artistic starting point; results vary by scene.")
     feedback.prop(settings, "trail_decay")
     feedback.prop(settings, "persistence")
     feedback.prop(settings, "block_size")

@@ -339,8 +339,8 @@ def main() -> None:
     }
     for guidance in (
         "Full-frame history is OFF.",
-        "Background and unrelated screen content cannot become history color",
-        "inside the target.",
+        "Background and unrelated screen content",
+        "cannot become history color inside the target.",
         "First/reset frame:",
         "Visible object seeds its clean image.",
         "Background-only pre-roll:",
@@ -432,10 +432,8 @@ def main() -> None:
     assert settings.status == "Applied Extreme Full-Frame Feedback starting configuration"
     full_frame_layout = LayoutRecorder()
     _draw_sidebar(full_frame_layout, bpy.context, scene)
-    assert (
-        "The complete previous processed frame is available as history color."
-        in full_frame_layout.labels
-    )
+    assert "Complete previous processed frame is available" in full_frame_layout.labels
+    assert "as history color." in full_frame_layout.labels
     assert any(label.startswith("Active: Full Frame / Trail") for label in full_frame_layout.labels)
     assert unrelated_before_extreme_setup == (
         settings.target_object,
