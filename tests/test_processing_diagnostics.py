@@ -344,6 +344,41 @@ def test_mostly_refreshed_cause_threshold_is_inclusive(
     assert ("Refresh restores too much clean beauty" in causes) is has_cause
 
 
+def test_valid_history_fully_restored_by_refresh_warns_with_refresh_evidence() -> None:
+    refreshed = _frame(
+        primary_history_valid_uses=100,
+        refresh_restored_pixels=100,
+        refresh_restored_blocks=100,
+        historical_blend_pixels=0,
+        historical_blend_weight=0.0,
+        changed_output_pixels=0,
+        changed_output_ratio=0.0,
+    )
+    assessment = assess_near_no_op(
+        ProcessingDiagnostics.from_frames(
+            (
+                refreshed,
+                _frame(
+                    frame_number=3,
+                    **{
+                        "primary_history_valid_uses": 100,
+                        "refresh_restored_pixels": 100,
+                        "refresh_restored_blocks": 100,
+                        "historical_blend_pixels": 0,
+                        "historical_blend_weight": 0.0,
+                        "changed_output_pixels": 0,
+                        "changed_output_ratio": 0.0,
+                    },
+                ),
+            )
+        ),
+        FeedbackSettings(refresh_probability=1.0),
+    )
+
+    assert assessment.likely_near_no_op
+    assert "Refresh restores too much clean beauty" in assessment.causes
+
+
 def test_effective_extreme_and_deliberately_low_persistence_do_not_warn() -> None:
     effective = ProcessingDiagnostics.from_frames((_frame(), _frame(frame_number=3)))
     low_persistence = FeedbackSettings(persistence=0.01)

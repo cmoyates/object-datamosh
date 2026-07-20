@@ -193,8 +193,11 @@ def assess_near_no_op(
     if diagnostics.eligible_frame_count < MIN_ELIGIBLE_FRAMES or totals.target_matte_pixels == 0:
         return NearNoOpAssessment(False, ())
 
+    # Valid samples are only candidates: refresh and zero persistence can still restore current
+    # beauty. Measure pixels that actually received historical weight so refresh-driven no-ops
+    # remain diagnosable.
     history_use_ratio = _ratio(
-        totals.primary_history_valid_uses + totals.same_pixel_fallback_valid_uses,
+        totals.historical_blend_pixels,
         totals.primary_history_attempts,
     )
     near_no_op = (

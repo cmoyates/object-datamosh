@@ -407,10 +407,11 @@ failure each retain the truthful completed prefix. If an older run has no report
 unavailable; do not infer or fabricate them from its processed EXRs.
 
 A report warning is advisory and never blocks output. Efficacy assessment begins only after two
-non-reset frames with non-empty target mattes. A likely near-no-op requires both history use at or
-below 5% of primary attempts and changed output at or below 1% of pixels (RGB maximum absolute change
-above `1e-6` defines a changed pixel). Supported likely causes use inclusive 80% thresholds for mostly
-invalid primary samples or refresh-restored effect coverage. Empty mattes receive their own diagnostic
+non-reset frames with non-empty target mattes. A likely near-no-op requires both actual historical
+blend coverage at or below 5% of primary attempts and changed output at or below 1% of pixels (RGB
+maximum absolute change above `1e-6` defines a changed pixel). Supported likely causes use inclusive
+80% thresholds for mostly invalid primary samples or refresh-restored effect coverage. Empty mattes
+receive their own diagnostic
 instead of a generic near-no-op warning, and low persistence alone does not trigger one. The operator
 status points to the report so vector convention, fallback, History Source, and refresh evidence can
 be inspected without comparing EXRs manually.
