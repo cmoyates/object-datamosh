@@ -124,8 +124,18 @@ def process_frame(
                 effect_sample_valid = (
                     matte_sample_valid & (warped_matte_invalid == 0.0) & np.isfinite(warped_matte)
                 )
-                decayed_history_matte = settings.trail_decay * warped_matte * effect_sample_valid
-                next_matte = np.maximum(matte, decayed_history_matte).astype(np.float32, copy=False)
+                motion_mask = warped_matte * effect_sample_valid
+                screen_mask = safe_history_matte
+                propagated_mask = np.clip(
+                    (1.0 - settings.trail_motion_mix) * screen_mask
+                    + settings.trail_motion_mix * motion_mask,
+                    0.0,
+                    1.0,
+                )
+                trail_mask = settings.trail_decay * propagated_mask
+                next_matte = np.clip(np.maximum(matte, trail_mask), 0.0, 1.0).astype(
+                    np.float32, copy=False
+                )
                 localized_history = next_matte
             else:
                 next_matte = matte

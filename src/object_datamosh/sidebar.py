@@ -116,6 +116,9 @@ def draw_sidebar(
     feedback.label(text="Background-only pre-roll:")
     feedback.label(text="Enables a more corrupted entrance.")
     feedback.prop(settings, "trail_decay")
+    feedback.prop(settings, "trail_motion_mix")
+    if settings.history_source != "FULL_FRAME" or settings.feedback_mode != "TRAIL":
+        feedback.label(text="Trail Motion Follow applies only to Full Frame + Trail.", icon="INFO")
     feedback.prop(settings, "persistence")
     feedback.prop(settings, "block_size")
     feedback.prop(settings, "motion_channels")

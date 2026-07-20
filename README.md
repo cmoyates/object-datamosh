@@ -35,7 +35,8 @@ The sidebar currently provides:
   **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - Hard Localized / Trail mode, Target Only / Full Frame history source, invalid-history fallback,
-  trail decay, persistence, block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
+  trail decay, Trail Motion Follow, persistence, block size,
+  motion-channel/direction/axis/gain/clamp/quantization, diffusion,
   refresh-probability, and deterministic-seed controls; and
 - a status field and an explicit warning when the blend file has not been saved.
 
@@ -110,7 +111,10 @@ A conservative first setup is:
 
 For feedback that persists behind the moving object, choose **Trail** and begin with **Trail
 Decay** at `0.85`. Lower decay fades the trail sooner; `0` removes old trail coverage after one
-frame, while `1` retains reachable coverage without decay.
+frame, while `1` retains reachable coverage without decay. Under **Full Frame + Trail**, **Trail
+Motion Follow** controls mask propagation: `0` keeps prior effect coverage at its old screen
+position, `1` follows current object motion (the compatibility default), and intermediate values
+blend the two bounded coverages. Target Only semantics do not use this control.
 
 Under **Full Frame**, **Invalid History: Current Beauty** preserves compatibility when a motion
 warp leaves the image or encounters invalid history. **Same Screen Position** instead tries the
@@ -469,8 +473,9 @@ because the pre-roll target matte was empty, it has no eligible prior color ther
 the entering object's current beauty. Use pre-roll as an artistic setup, not as donor-EXR history.
 
 The **Extreme Full-Frame Feedback** guided setup is a tunable artistic default: Full Frame, Trail,
-Persistence `1.0`, Trail Decay `0.98`, Refresh Probability `0.01`, Block Size `32`, Motion
-Quantization `8.0`, and Diffusion `2.0`. These starting values match the sidebar action; tune them
+Same Screen Position fallback, Persistence `1.0`, Trail Decay `0.995`, Trail Motion Follow `0.1`,
+Refresh Probability `0`, Block Size `32`, Motion Quantization `8.0`, and Diffusion `6.0`. These
+starting values match the sidebar action and a deterministic moving-target fixture; tune them
 for the scene rather than treating them as a physical or universal preset.
 
 ### Full Frame resets, recovery, and reprocessing
@@ -526,9 +531,10 @@ With **Full Frame**, color is sampled directly from the complete previous proces
 than being premultiplied by or restricted to the previous target matte. In Hard Localized mode, the
 current target matte controls where feedback appears and becomes the next effect-mask history.
 
-In **Full Frame + Trail**, history matte is instead an independent effect/output coverage mask. It
-is warped at the same source coordinates as full-frame color, decayed by **Trail Decay**, and
-combined with current target coverage using a clamped maximum. That combined mask controls only
+In **Full Frame + Trail**, history matte is instead an independent effect/output coverage mask.
+**Trail Motion Follow** blends its prior screen-space coverage with coverage warped by current
+motion, then **Trail Decay** is applied and current target coverage is reinforced using a clamped
+maximum. That combined mask controls only
 where the independently sampled full-frame color appears, allowing trails to contain background or
 unrelated content from the prior processed frame. Invalid or out-of-bounds color falls back to
 current beauty; invalid or out-of-bounds mask samples do not propagate old effect coverage. Each
@@ -543,8 +549,9 @@ appears. **History Source** is available in the sidebar as **Target Only (Legacy
 raw beauty, vector, and matte passes reusable for a new reprocess run.
 
 The sidebar's **Extreme Full-Frame Feedback** action applies this documented artistic starting
-point: Full Frame, Trail, persistence `1.0`, Trail Decay `0.98`, Refresh Probability `0.01`, Block
-Size `32`, Motion Quantization `8.0`, and Diffusion `2.0`. These values are within the controls'
+point: Full Frame, Trail, Same Screen Position fallback, persistence `1.0`, Trail Decay `0.995`,
+Trail Motion Follow `0.1`, Refresh Probability `0`, Block Size `32`, Motion Quantization `8.0`, and
+Diffusion `6.0`. These values are within the controls'
 normal ranges and intentionally strong, but they do not guarantee identical visual results across
 scenes. The action changes only those Object Datamosh effect settings (plus its status report); it
 does not alter target, camera, render, output, color-management, material, collection, or visibility

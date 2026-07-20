@@ -55,7 +55,7 @@ class ProcessingProgress(Protocol):
     def end(self) -> None: ...
 
 
-_MANIFEST_VERSION = 4
+_MANIFEST_VERSION = 5
 _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 

@@ -87,6 +87,7 @@ class FeedbackSettings:
     history_source: HistorySource = HistorySource.TARGET_ONLY
     invalid_history_fallback: InvalidHistoryFallback = InvalidHistoryFallback.CURRENT_BEAUTY
     trail_decay: float = 0.85
+    trail_motion_mix: float = 1.0
     persistence: float = 0.85
     block_size: int = 16
     motion_channels: MotionChannels = MotionChannels.RG
@@ -104,6 +105,7 @@ class FeedbackSettings:
     def __post_init__(self) -> None:
         for name in (
             "trail_decay",
+            "trail_motion_mix",
             "persistence",
             "motion_gain",
             "motion_clamp",
@@ -132,6 +134,8 @@ class FeedbackSettings:
 
         if not 0.0 <= self.trail_decay <= 1.0:
             raise ValueError("trail_decay must be between 0 and 1")
+        if not 0.0 <= self.trail_motion_mix <= 1.0:
+            raise ValueError("trail_motion_mix must be between 0 and 1")
         if not 0.0 <= self.persistence <= 1.0:
             raise ValueError("persistence must be between 0 and 1")
         if self.block_size < 1:
