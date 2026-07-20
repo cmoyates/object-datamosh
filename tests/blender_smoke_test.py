@@ -976,7 +976,7 @@ def main() -> None:
         assert reopened[2, 1, 0] > 0.85
         manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
         assert manifest["schema_version"] == 5
-        assert manifest["effective_settings"]["trail_motion_mix"] == 0.1
+        assert abs(manifest["effective_settings"]["trail_motion_mix"] - 0.1) < 1e-6
         assert manifest["effective_settings"]["invalid_history_fallback"] == ("SAME_PIXEL_HISTORY")
 
     (
