@@ -402,6 +402,76 @@ Reprocess with overwrite when deliberately replacing the full sequence.
 
 ## Localized feedback semantics
 
+Object Datamosh is an artistic temporal-feedback effect, not literal compressed-video bitstream
+corruption. Its controls intentionally make image history unstable while keeping the workflow
+scene-linear, deterministic for fixed inputs and settings, and recoverable from retained passes.
+
+### History color versus effect coverage
+
+**History Source chooses the pixels available for history color; Mode chooses where that history
+color can affect the output.** These are independent choices:
+
+- **Target Only** restricts history color to pixels covered by the selected-object matte. **Full
+  Frame** makes the complete prior processed image available as history color.
+- **Hard Localized** limits feedback to the current target matte, so output outside the current
+  matte is always clean current beauty. It does not leave an effect trail.
+- **Trail** carries a separate effect-coverage mask forward with motion, combines it with the
+  current matte, and applies Trail Decay. Its decaying temporal coverage can extend the effect
+  beyond the object's current silhouette. The mask controls *where* feedback appears; it does not
+  select the history color source.
+
+Consequently, Full Frame + Hard can place full-frame history inside the current object while still
+keeping a clean image everywhere outside its matte. Full Frame + Trail can place the same color in
+both the object and the decaying trail. Target Only + Trail extends only color that originated
+inside selected-object coverage.
+
+### Choosing Target Only or Full Frame
+
+Choose **Target Only** when the moving object should preserve more correct object color, texture,
+and recognizable form. Prior background and unrelated objects are excluded from its color history,
+and newly revealed or invalid samples fall back to current beauty. Choose **Full Frame** for a more
+extreme effect that may pull background or unrelated content into the target and its trail.
+
+Full Frame history is recursive: after initialization, it samples the previous processed frame,
+not the previous raw beauty frame. Each processed distortion can therefore feed the next frame.
+Accurate motion vectors can preserve coherent structure by compensating motion successfully. To
+make the result break apart more aggressively, increase Motion Quantization so block vectors move
+in coarse steps and increase Diffusion to add deterministic block jitter; quantization and
+diffusion deliberately break motion compensation rather than repairing the vectors.
+
+A **background-only pre-roll** makes this difference especially visible. Begin the processing range
+before the target enters the frame, then let it enter on a later frame. The first frame seeds clean
+background as full-frame color history with zero target coverage. On entry, Full Frame can sample
+that prior background and display it inside the new object's matte. Target Only cannot do so:
+because the pre-roll target matte was empty, it has no eligible prior color there and falls back to
+the entering object's current beauty. Use pre-roll as an artistic setup, not as donor-EXR history.
+
+The **Extreme Full-Frame Feedback** guided setup is a tunable artistic default: Full Frame, Trail,
+Persistence `1.0`, Trail Decay `0.98`, Refresh Probability `0.01`, Block Size `32`, Motion
+Quantization `8.0`, and Diffusion `2.0`. These starting values match the sidebar action; tune them
+for the scene rather than treating them as a physical or universal preset.
+
+### Full Frame resets, recovery, and reprocessing
+
+The configured first frame always seeds clean current beauty as color history and the current target
+matte as coverage. An explicit reset frame does the same on that frame; it does not sample the
+preceding segment. Every reset starts a new independent history segment, and multiple reset frames
+are applied in ascending sequence order. Hard coverage resumes from the corresponding raw target
+matte. Trail resume deterministically replays coverage from the latest reset boundary through the
+completed prefix, while color history comes from the latest retained processed frame, so normal
+resume preserves recursive state without rerunning completed output.
+
+If required processed color history is absent or invalid, **Missing History: Stop** reports the
+problem without continuing. **Missing History: Reset** rolls processing back to the recoverable
+boundary and initializes clean history there; it does not invent or silently substitute a donor
+history frame. Resolution-policy resets likewise clear both color and effect coverage.
+
+To try Full Frame or new effect settings without rerendering the 3D scene, keep the retained raw
+beauty, vector, and matte passes, select **Reprocess**, enable **Overwrite Processed Frames**, and
+run **Process Existing Passes**. Changing History Source invalidates the old recovery manifest, so
+start a full reprocess; the raw inputs remain reusable. This workflow is supported only while the
+retained passes still satisfy the documented paths, frame range, dimensions, and matte contract.
+
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
 the current frame. For a current pixel `(x, y)`, the processor therefore samples history at
 `(x - displacement_x, y - displacement_y)`. RG maps R to X and G to Y; BA maps B to X and A to Y.
@@ -417,10 +487,10 @@ Diffusion adds an independent per-block X/Y offset in `[-Diffusion, +Diffusion]`
 whole blocks to use clean beauty. Both choices are deterministic hashes of seed, frame number, and
 block coordinates and do not touch NumPy's global random state.
 
-A missing prior state or **Force Reset** initializes history from clean beauty. Otherwise, warped
-history color is sampled premultiplied by its selected-object matte and is accepted only where the
-sample coordinate, warped history matte, and contributing history pixels are valid. Unselected
-background color therefore cannot enter history at a matte edge.
+A missing prior state or **Force Reset** initializes history from clean beauty. With **Target
+Only**, warped history color is sampled premultiplied by its selected-object matte and is accepted
+only where the sample coordinate, warped history matte, and contributing history pixels are valid.
+Unselected background color therefore cannot enter Target Only history at a matte edge.
 
 With the default **Target Only** history source, **Hard Localized** multiplies persistence by
 current and warped matte coverage; refresh makes that weight zero. Newly revealed target pixels
@@ -575,6 +645,8 @@ development dependency and is bundled with Blender at runtime; the extension dec
 third-party runtime dependency. The current foreground observations, gate results, archive path,
 and checksum are recorded in
 [Responsive operations release verification](docs/responsive-operations-release-verification.md).
+The integrated Full Frame commands, artifact, and remaining visual checks are recorded in
+[Full Frame release verification](docs/full-frame-release-verification.md).
 
 ## Performance expectations
 
