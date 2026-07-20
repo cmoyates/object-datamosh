@@ -427,16 +427,22 @@ current and warped matte coverage; refresh makes that weight zero. Newly reveale
 therefore use current beauty, and premultiplied sampling prevents previous background color from
 entering at matte edges.
 
-With **Full Frame**, Hard Localized samples color directly from the complete previous processed
-frame. The current target matte controls only where and how strongly feedback appears; the previous
-matte does not restrict color. Samples must remain in bounds and finite, and pixels outside the
-current matte equal current beauty exactly. First frames and resets store complete current beauty;
-each subsequent state stores the complete processed output recursively while retaining the current
-matte as effect-mask history. Full Frame is stored on the Blender scene but deliberately has no
-normal-sidebar selector in this milestone.
+With **Full Frame**, color is sampled directly from the complete previous processed frame rather
+than being premultiplied by or restricted to the previous target matte. In Hard Localized mode, the
+current target matte controls where feedback appears and becomes the next effect-mask history.
 
-**Full Frame + Trail** is rejected with a clear validation error until Full Frame Trail semantics
-are implemented.
+In **Full Frame + Trail**, history matte is instead an independent effect/output coverage mask. It
+is warped at the same source coordinates as full-frame color, decayed by **Trail Decay**, and
+combined with current target coverage using a clamped maximum. That combined mask controls only
+where the independently sampled full-frame color appears, allowing trails to contain background or
+unrelated content from the prior processed frame. Invalid or out-of-bounds color falls back to
+current beauty; invalid or out-of-bounds mask samples do not propagate old effect coverage. Each
+next state stores the complete processed output as color history and the combined effect mask as
+mask history.
+
+First frames and resets initialize complete color history from current beauty and mask history from
+the current target matte. Full Frame remains stored on the Blender scene but deliberately has no
+normal-sidebar selector until sequence recovery supports its Trail mask semantics safely.
 
 **Trail** with Target Only advects selected-object history with the same motion field, multiplies
 warped history coverage by **Trail Decay**, and combines that coverage with the current matte for
@@ -609,11 +615,12 @@ remain explicit interactive checks; they were not claimed by the background gate
 - Resume is deliberately range-based and sequential. It does not splice arbitrary processed
   fragments, migrate old manifest schemas, or delete stale files; incompatible or discontinuous
   runs require explicit full-range reprocessing.
-- Full Frame history is currently supported only with Hard Localized mode and is intentionally
-  stored but not exposed in the normal sidebar; Full Frame Trail construction fails validation.
-- Trail mode follows only the available selected-object matte and vector information. Occlusions,
-  disocclusions, inaccurate vectors, and low-resolution mattes can shorten or distort trails; it
-  does not infer hidden geometry or admit unrelated-object/background history.
+- Full Frame history supports both feedback modes but is intentionally stored without a normal
+  sidebar selector until Full Frame Trail resume/recovery is safe.
+- Trail mode follows only the available matte and vector information. Occlusions, disocclusions,
+  inaccurate vectors, and low-resolution mattes can shorten or distort trails; it does not infer
+  hidden geometry. Target Only trails cannot admit unrelated-object/background history, while Full
+  Frame trails intentionally can sample such content from the complete prior processed frame.
 - Object Index is the MVP selected-object matte. External mattes follow the documented
   numbered-file contract. Cryptomatte appears as experimental UI/contract surface only; decoding
   is not implemented. Object Index availability remains render-engine dependent.

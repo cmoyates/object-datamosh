@@ -46,7 +46,9 @@ class FeedbackState:
     """History carried between sequentially processed frames.
 
     ``history`` is scene-linear float32 RGBA with shape ``(height, width, 4)``.
-    ``history_matte`` is float32 coverage with shape ``(height, width)``.
+    ``history_matte`` is float32 coverage with shape ``(height, width)``. It represents
+    legal target-color coverage for Target Only history and independent effect/output
+    coverage for Full Frame Trail history.
     """
 
     history: FloatImage
@@ -110,8 +112,6 @@ class FeedbackSettings:
             raise TypeError("mode must be a FeedbackMode value")
         if not isinstance(self.history_source, HistorySource):
             raise TypeError("history_source must be a HistorySource value")
-        if self.mode is FeedbackMode.TRAIL and self.history_source is HistorySource.FULL_FRAME:
-            raise ValueError("Full Frame history source is not supported with Trail mode")
         if not isinstance(self.motion_channels, MotionChannels):
             raise TypeError("motion_channels must be a MotionChannels value")
         if not isinstance(self.matte_source, MatteSource):
