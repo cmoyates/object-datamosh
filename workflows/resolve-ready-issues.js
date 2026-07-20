@@ -31,6 +31,7 @@ const config = {
   maxTransientRetries: clamp(input.maxTransientRetries, 3, 1, 3),
   contextSoftLimit: clamp(input.contextSoftLimit, 22, 10, 24),
   contextHardLimit: 28,
+  resetAgentBudget: input.resetAgentBudget === true,
 };
 config.contextHardLimit = clamp(input.contextHardLimit, 28, config.contextSoftLimit + 1, 29);
 
@@ -158,6 +159,14 @@ if (loaded.exists) {
   const validIdentity = Number.isInteger(state.issueNumber) && state.issueNumber > 0 && state.branchName === `agent/issue-${state.issueNumber}`;
   const validShas = ["baseSha", "implementationSha", "expectedHeadSha", "cleanReviewSha", "verifiedSha", "mergeSha"].every((field) => state[field] === undefined || SHA.test(state[field]));
   if (state.schemaVersion !== SCHEMA_VERSION || !state.repository || !validStage || !validCounters || !validIdentity || !validShas) return { status: "stale-resume-state", message: "Saved state is invalid; it was not overwritten.", statePath };
+  // A call-budget stop is a durable checkpoint, not a permanently terminal state. Require an
+  // explicit new-run opt-in before replenishing the per-run agent-call and transient-retry budget.
+  if (config.resetAgentBudget && state.lastFailure?.kind === "call-budget-exhausted") {
+    state.agentCallsUsed = 0;
+    state.retriesUsed = 0;
+    delete state.lastFailure;
+    await save();
+  }
 } else {
   if (!(await cleanTree())) return { status: "deterministic-operation-failed", message: "Working tree must be clean before selection.", agentCallsUsed: aggregateUsage.agentCallsUsed, agentCallLimit: config.maxAgentCalls, continuationsUsed: aggregateUsage.continuationsUsed, retriesUsed: aggregateUsage.retriesUsed };
   const ownedPrs = (await json("gh", ["pr", "list", "--state", "open", "--limit", "100", "--json", "url,headRefName,baseRefName,body"])).filter((pr) => /^agent\/issue-\d+$/.test(pr.headRefName));
