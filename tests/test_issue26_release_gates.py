@@ -55,9 +55,7 @@ def test_gate_environment_isolates_blender_and_drops_python_injection(
 
     assert "PYTHONPATH" not in environment
     assert environment["BLENDER_USER_SCRIPTS"] == str(tmp_path / "blender-user" / "scripts")
-    assert environment["BLENDER_USER_EXTENSIONS"] == str(
-        tmp_path / "blender-user" / "extensions"
-    )
+    assert environment["BLENDER_USER_EXTENSIONS"] == str(tmp_path / "blender-user" / "extensions")
 
 
 def real_escape_events() -> list[dict[str, object]]:

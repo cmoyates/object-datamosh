@@ -30,11 +30,7 @@ def completed_raw_prefix(paths: SequencePaths, *, end: int) -> list[int]:
 def completed_processed_prefix(paths: SequencePaths, *, end: int) -> list[int]:
     """Validate and return a cancelled processing run's manifest-backed prefix."""
     completed = [number for number in range(1, end + 1) if paths.frame(number).processed.is_file()]
-    if (
-        not completed
-        or completed != list(range(1, len(completed) + 1))
-        or len(completed) >= end
-    ):
+    if not completed or completed != list(range(1, len(completed) + 1)) or len(completed) >= end:
         raise AssertionError(
             f"Processed outputs are not a cancelled contiguous prefix: {completed}"
         )

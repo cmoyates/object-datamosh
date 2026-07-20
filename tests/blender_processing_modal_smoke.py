@@ -19,9 +19,7 @@ from object_datamosh.core.paths import SequencePaths
 from object_datamosh.sequence_processing import process_sequence
 from object_datamosh.ui import ODM_OT_process_sequence, feedback_settings_for_scene
 
-EXTENSION_MANIFEST = (
-    Path(__file__).parents[1] / "src" / "object_datamosh" / "blender_manifest.toml"
-)
+EXTENSION_MANIFEST = Path(__file__).parents[1] / "src" / "object_datamosh" / "blender_manifest.toml"
 
 
 def run_processing_modal_scenarios(
