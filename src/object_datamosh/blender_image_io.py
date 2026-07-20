@@ -19,9 +19,7 @@ from .core.exr import read_full_float_rgba
 from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
-def blender_pixels_to_canonical(
-    pixels: np.ndarray, *, width: int, height: int
-) -> FloatImage:
+def blender_pixels_to_canonical(pixels: np.ndarray, *, width: int, height: int) -> FloatImage:
     """Convert Blender's bottom-left-origin flat RGBA buffer to canonical image rows.
 
     Canonical row zero is the displayed top scanline. Column zero is the displayed left edge;

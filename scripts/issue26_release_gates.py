@@ -494,8 +494,7 @@ def validate_real_escape_timing(events: list[dict[str, object]]) -> None:
         matches = [
             event
             for event in events
-            if event.get("event") == name
-            and (marker is None or event.get("marker") == marker)
+            if event.get("event") == name and (marker is None or event.get("marker") == marker)
         ]
         if len(matches) != 1:
             raise RuntimeError(f"Real-Escape receipt requires one {name} event for {marker}")
@@ -544,9 +543,7 @@ def validate_real_escape_timing(events: list[dict[str, object]]) -> None:
         raise RuntimeError("Real raw Escape lacks a strict partial cancellation result")
 
     processing_ready = one_event("processing_escape_ready")
-    processing_started = one_event(
-        "external_escape_send_started", marker="processing_escape_ready"
-    )
+    processing_started = one_event("external_escape_send_started", marker="processing_escape_ready")
     processing_sent = one_event("external_escape_sent", marker="processing_escape_ready")
     ready_time = event_time(processing_ready)
     processing_start_time = event_time(processing_started)
