@@ -53,6 +53,7 @@ from object_datamosh.raw_render import (  # noqa: E402
 )
 from object_datamosh.sequence_processing import (  # noqa: E402
     process_sequence,
+    processing_report_path,
     sequence_manifest_path,
 )
 from object_datamosh.ui import (  # noqa: E402
@@ -943,41 +944,136 @@ def main() -> None:
     image_io = BlenderImageIO()
     assert object_datamosh_ops.extreme_full_frame_feedback() == {"FINISHED"}
     extreme_settings = feedback_settings_for_scene(scene)
-    with tempfile.TemporaryDirectory(prefix="ODM_extreme_trail_smoke_") as temporary:
-        paths = SequencePaths(Path(temporary))
-        height, width = 5, 9
-        for frame_number, target_x in ((1, 1), (2, 5)):
-            frame = paths.frame(frame_number)
-            beauty = np.zeros((height, width, 4), dtype=np.float32)
+    with tempfile.TemporaryDirectory(prefix="ODM_extreme_acceptance_smoke_") as temporary:
+        paths = SequencePaths(Path(temporary) / "trail")
+        height, width = 37, 65
+        beauties: dict[int, np.ndarray] = {}
+        mattes: dict[int, np.ndarray] = {}
+        target_bounds = {1: None, 2: (0, 22), 3: (16, 46), 4: (45, 65)}
+        target_colors = {
+            2: np.array([0.95, 0.05, 0.1, 1.0], dtype=np.float32),
+            3: np.array([0.05, 0.95, 0.1, 1.0], dtype=np.float32),
+            4: np.array([0.1, 0.05, 0.95, 1.0], dtype=np.float32),
+        }
+        marker_positions = (
+            (0, 0),
+            (0, width - 1),
+            (height - 1, 0),
+            (height - 1, width - 1),
+            (0, width // 2),
+            (height - 1, width // 2),
+        )
+        for frame_number in range(1, 5):
+            rows, columns = np.indices((height, width), dtype=np.float32)
+            beauty = np.empty((height, width, 4), dtype=np.float32)
+            beauty[..., 0] = 0.05 * frame_number + columns / (width * 3.0)
+            beauty[..., 1] = 0.03 * frame_number + rows / (height * 4.0)
+            beauty[..., 2] = 0.15 + (rows + 2.0 * columns) / (height + 2.0 * width) * 0.2
             beauty[..., 3] = 1.0
-            if frame_number == 1:
-                beauty[2, target_x] = np.ones(4, dtype=np.float32)
+            for marker_index, (row, column) in enumerate(marker_positions):
+                beauty[row, column] = np.array(
+                    [
+                        0.07 * (marker_index + 1),
+                        0.11 * frame_number,
+                        0.9 - 0.08 * marker_index,
+                        1.0,
+                    ],
+                    dtype=np.float32,
+                )
+            matte_mask = np.zeros((height, width), dtype=np.float32)
+            bounds = target_bounds[frame_number]
+            if bounds is not None:
+                x0, x1 = bounds
+                matte_mask[8:29, x0:x1] = 1.0
+                beauty[8:29, x0:x1] = target_colors[frame_number]
             motion = np.zeros_like(beauty)
-            motion[2, target_x, 0] = 4.0
-            matte = np.zeros_like(beauty)
-            matte[..., 3] = 1.0
-            matte[2, target_x, :3] = 1.0
+            motion[..., 3] = 1.0
+            motion[matte_mask > 0.0, 0] = 100.0
+            matte_rgba = np.repeat(matte_mask[..., None], 4, axis=2)
+            frame = paths.frame(frame_number)
             image_io.write_rgba(frame.beauty, beauty)
             image_io.write_rgba(frame.vector, motion)
-            image_io.write_rgba(frame.matte, matte)
+            image_io.write_rgba(frame.matte, matte_rgba)
+            beauties[frame_number] = beauty
+            mattes[frame_number] = matte_mask
 
+        images_before_acceptance = len(bpy.data.images)
         process_sequence(
             paths,
             frame_start=1,
-            frame_end=2,
+            frame_end=4,
             matte_provider=ObjectIndexMatteProvider(),
             settings=extreme_settings,
             image_io=image_io,
             extension_version="smoke",
             blender_version=bpy.app.version_string,
         )
-        reopened = image_io.read_rgba(paths.frame(2).processed)
-        assert reopened.shape == (height, width, 4)
-        assert reopened[2, 1, 0] > 0.85
+        outputs = {
+            number: image_io.read_rgba(paths.frame(number).processed) for number in range(1, 5)
+        }
+        tolerance = 2.0e-5
+        for frame_number, output in outputs.items():
+            assert output.shape == (height, width, 4)
+            for row, column in marker_positions:
+                np.testing.assert_allclose(
+                    output[row, column], beauties[frame_number][row, column], atol=tolerance
+                )
+        # Frame B's entering target samples out of bounds, then uses prior background.
+        np.testing.assert_allclose(outputs[2][15, 5], beauties[1][15, 5], atol=tolerance)
+        assert np.max(np.abs(outputs[2][8:29, :22] - beauties[2][8:29, :22])) > 0.5
+        # Frame C recursively sees processed B (background), not raw red target beauty.
+        np.testing.assert_allclose(outputs[3][15, 20], outputs[2][15, 20], atol=tolerance)
+        assert np.max(np.abs(outputs[3][15, 20] - beauties[2][15, 20])) > 0.5
+        # Frame D retains changed screen-space Trail pixels outside its current silhouette.
+        assert mattes[4][15, 20] == 0.0
+        assert np.max(np.abs(outputs[4][15, 20] - beauties[4][15, 20])) > 0.1
+
         manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+        report = json.loads(processing_report_path(paths).read_text(encoding="utf-8"))
         assert manifest["schema_version"] == 5
+        assert manifest["history_source"] == "FULL_FRAME"
+        assert manifest["effective_settings"]["history_source"] == "FULL_FRAME"
+        assert manifest["effective_settings"]["mode"] == "TRAIL"
         assert abs(manifest["effective_settings"]["trail_motion_mix"] - 0.1) < 1e-6
-        assert manifest["effective_settings"]["invalid_history_fallback"] == ("SAME_PIXEL_HISTORY")
+        assert manifest["effective_settings"]["invalid_history_fallback"] == "SAME_PIXEL_HISTORY"
+        assert report["terminal_outcome"] == "SUCCESS"
+        assert report["completed_prefix"] == {"count": 4, "start": 1, "end": 4}
+        assert report["totals"]["primary_history_invalid_samples"] > 0
+        assert report["totals"]["same_pixel_fallback_valid_uses"] > 0
+        assert report["totals"]["historical_blend_pixels"] > 0
+        assert report["totals"]["changed_output_ratio"] > 0.05
+        assert not report["warnings"]
+
+        # Hard-mode companion keeps every pixel outside the current matte exactly clean.
+        settings.feedback_mode = "HARD_LOCALIZED"
+        hard_settings = feedback_settings_for_scene(scene)
+        hard_paths = SequencePaths(Path(temporary) / "hard")
+        for number in range(1, 5):
+            source = paths.frame(number)
+            destination = hard_paths.frame(number)
+            for source_path, destination_path in (
+                (source.beauty, destination.beauty),
+                (source.vector, destination.vector),
+                (source.matte, destination.matte),
+            ):
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source_path, destination_path)
+        process_sequence(
+            hard_paths,
+            frame_start=1,
+            frame_end=4,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=hard_settings,
+            image_io=image_io,
+        )
+        hard_four = image_io.read_rgba(hard_paths.frame(4).processed)
+        outside = mattes[4] == 0.0
+        np.testing.assert_allclose(hard_four[outside], beauties[4][outside], atol=tolerance)
+        assert len(bpy.data.images) == images_before_acceptance
+        print(
+            "Extreme acceptance fixture: 65x37, 4 raw beauty/vector/matte frames, "
+            "8 processed EXRs, 2 manifests, 2 reports"
+        )
 
     (
         settings.history_source,

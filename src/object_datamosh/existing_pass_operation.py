@@ -181,17 +181,23 @@ class ExistingPassModalController:
             result = session.result
         except Exception as error:
             return self._fail_step(frame_number, error)
+        report_path = getattr(session, "report_path", session.manifest_path)
         message = (
             f"Processed {len(result.frames)} frame(s) with {session.configuration_name}; "
-            f"report: {session.manifest_path}"
+            f"report: {report_path}"
         )
         if not self.finalize(OperationPhase.COMPLETED, message):
             self._operator.report({"ERROR"}, self._visible_status(message))
             return {"CANCELLED"}
+        for warning in getattr(session, "advisory_warnings", ()):
+            self._operator.report({"WARNING"}, f"{warning}; report: {report_path}")
         self._operator.report({"INFO"}, message)
         return {"FINISHED"}
 
     def _finish_cancelled(self, completed_count: int) -> set[Any]:
+        if self._session is not None:
+            with suppress(Exception):
+                self._session.write_terminal_report("CANCELLED")
         message = f"Cancelled after {completed_count} frame(s)"
         cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
         report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
@@ -215,6 +221,8 @@ class ExistingPassModalController:
         completed_work = 0
         if session is not None:
             completed_work = len(session.retained_frames)
+            with suppress(Exception):
+                session.write_terminal_report("FAILURE", failure=str(error))
         with suppress(Exception):
             self._lifecycle.update(
                 phase=OperationPhase.FAILED,

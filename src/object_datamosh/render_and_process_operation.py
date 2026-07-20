@@ -379,15 +379,32 @@ class RenderAndProcessModalController:
         except Exception as error:
             return self._fail("processing", frame_number, error)
         configuration_name = getattr(session, "configuration_name", "Unknown configuration")
-        manifest_path = getattr(session, "manifest_path", "manifest unavailable")
+        report_path = getattr(
+            session,
+            "report_path",
+            getattr(session, "manifest_path", "processing report unavailable"),
+        )
         message = (
             f"Render and Process complete: {len(result.frames)} frame(s) with "
-            f"{configuration_name}; report: {manifest_path}"
+            f"{configuration_name}; report: {report_path}"
         )
-        return self._finalize(OperationPhase.COMPLETED, message, {"FINISHED"}, {"INFO"})
+        warnings = tuple(getattr(session, "advisory_warnings", ()))
+        if warnings:
+            message += "; warning: " + " | ".join(warnings)
+        return self._finalize(
+            OperationPhase.COMPLETED,
+            message,
+            {"FINISHED"},
+            {"WARNING"} if warnings else {"INFO"},
+        )
 
     def _finish_cancelled(self) -> set[Any]:
         state = self._require_state()
+        if self._processing_session is not None:
+            writer = getattr(self._processing_session, "write_terminal_report", None)
+            if callable(writer):
+                with suppress(Exception):
+                    writer("CANCELLED")
         state.cancel()
         message = (
             f"Render and Process cancelled after {state.completed_work} of {state.total_work} steps"
@@ -398,6 +415,11 @@ class RenderAndProcessModalController:
         return self._fail("rendering", frame_number, error)
 
     def _fail(self, phase: str, frame_number: int, error: Exception) -> set[Any]:
+        if self._processing_session is not None:
+            writer = getattr(self._processing_session, "write_terminal_report", None)
+            if callable(writer):
+                with suppress(Exception):
+                    writer("FAILURE", failure=str(error))
         if self._state is not None:
             self._state.fail()
         message = f"Render and Process failed during {phase} at frame {frame_number}: {error}"

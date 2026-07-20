@@ -8,12 +8,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 import numpy as np
 
 from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState, HistorySource
-from .core.feedback import process_frame
+from .core.diagnostics import FrameDiagnostics, ProcessingDiagnostics, assess_near_no_op
+from .core.feedback import process_frame, process_frame_with_diagnostics
 from .core.image_io import ImageSequenceIO
 from .core.mattes import MatteProvider
 from .core.paths import FramePaths, SequencePaths
@@ -58,11 +59,17 @@ class ProcessingProgress(Protocol):
 _MANIFEST_VERSION = 5
 _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
+_REPORT_FILENAME = "ODM_processing_report.json"
 
 
 def sequence_manifest_path(paths: SequencePaths) -> Path:
     """Return the recovery-manifest path for a processed sequence."""
     return paths.root / "processed" / _MANIFEST_FILENAME
+
+
+def processing_report_path(paths: SequencePaths) -> Path:
+    """Return the bounded processing-diagnostics report path beside the manifest."""
+    return paths.root / "processed" / _REPORT_FILENAME
 
 
 def processing_configuration_name(settings: FeedbackSettings) -> str:
@@ -124,9 +131,11 @@ class ProcessingSession:
     settings_fingerprint: str
     effective_settings: dict[str, object]
     manifest_path: Path
+    report_path: Path
     current_frame: int
     completed_frames: tuple[Path, ...]
     _completed_numbers: list[int]
+    _frame_diagnostics: list[FrameDiagnostics]
     _state: FeedbackState | None = None
     _recovery_reset_frame: int | None = None
     _trail_recovery_frames: tuple[int, ...] = ()
@@ -288,7 +297,7 @@ class ProcessingSession:
                     effective_settings,
                 ),
             )
-        return cls(
+        session = cls(
             paths=paths,
             frame_start=frame_start,
             frame_end=frame_end,
@@ -305,19 +314,45 @@ class ProcessingSession:
             settings_fingerprint=fingerprint,
             effective_settings=effective_settings,
             manifest_path=manifest_path,
+            report_path=processing_report_path(paths),
             current_frame=first_frame,
             completed_frames=(),
             _completed_numbers=completed,
+            _frame_diagnostics=[],
             _state=state,
             _recovery_reset_frame=recovery_reset_frame,
             _trail_recovery_frames=trail_recovery_frames,
             _is_finished=first_frame > frame_end and not trail_recovery_frames,
         )
+        session._write_report("SUCCESS" if session._is_finished else "RUNNING")
+        return session
 
     @property
     def configuration_name(self) -> str:
         """Concise immutable configuration identity for this session."""
         return processing_configuration_name(self.settings)
+
+    @property
+    def advisory_warnings(self) -> tuple[str, ...]:
+        """Evidence-based advisory warnings for the completed prefix."""
+        assessment = assess_near_no_op(
+            ProcessingDiagnostics.from_frames(tuple(self._frame_diagnostics)), self.settings
+        )
+        messages: list[str] = []
+        if assessment.likely_near_no_op:
+            messages.append("Likely ineffective feedback: " + "; ".join(assessment.causes))
+        elif assessment.causes:
+            messages.append("Diagnostics: " + "; ".join(assessment.causes))
+        return tuple(messages)
+
+    def write_terminal_report(
+        self,
+        outcome: Literal["CANCELLED", "FAILURE"],
+        *,
+        failure: str | None = None,
+    ) -> None:
+        """Persist a terminal report when a caller stops before the next processing step."""
+        self._write_report(outcome, failure=failure)
 
     @property
     def is_finished(self) -> bool:
@@ -362,6 +397,11 @@ class ProcessingSession:
         except Exception as error:
             self._terminal_error = error
             self._is_finished = True
+            outcome = "CANCELLED" if isinstance(error, SequenceProcessingCancelled) else "FAILURE"
+            try:
+                self._write_report(outcome, failure=None if outcome == "CANCELLED" else str(error))
+            except Exception as report_error:
+                error.add_note(f"Processing report also failed: {report_error}")
             raise
 
     def _restore_next_trail_frame(self) -> None:
@@ -452,7 +492,7 @@ class ProcessingSession:
                 f"Resolution changed at frame {frame_number}: "
                 f"{self._state.history.shape[:2]} -> {beauty.shape[:2]}"
             )
-        output, self._state = process_frame(
+        output, self._state, frame_diagnostics = process_frame_with_diagnostics(
             beauty,
             motion,
             matte,
@@ -486,10 +526,44 @@ class ProcessingSession:
         # Publish completion only after the recovery manifest atomically commits the frame.
         self._completed_numbers = committed_numbers
         self.completed_frames = (*self.completed_frames, frame.processed)
+        self._frame_diagnostics.append(frame_diagnostics)
         if frame_number == self.frame_end:
             self._is_finished = True
+            self._write_report("SUCCESS")
+            for warning in self.advisory_warnings:
+                logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
         else:
             self.current_frame += 1
+            self._write_report("RUNNING")
+
+    def _write_report(
+        self,
+        outcome: Literal["SUCCESS", "CANCELLED", "FAILURE", "RUNNING"],
+        *,
+        failure: str | None = None,
+    ) -> None:
+        diagnostics = ProcessingDiagnostics.from_frames(tuple(self._frame_diagnostics))
+        configuration = {
+            "history_source": self.settings.history_source.value,
+            "mode": self.settings.mode.value,
+            "invalid_history_fallback": self.settings.invalid_history_fallback.value,
+            "semantic_settings_reference": f"{self.manifest_path.name}#/effective_settings",
+            "extension_version": self.effective_settings.get("extension_version"),
+            "blender_version": self.effective_settings.get("blender_version"),
+        }
+        payload = diagnostics.to_report_payload(
+            outcome=outcome,
+            frame_start=self.frame_start,
+            frame_end=self.frame_end,
+            completed_frames=tuple(self._completed_numbers),
+            configuration=configuration,
+            manifest_path=self.manifest_path,
+            report_path=self.report_path,
+            settings_fingerprint=self.settings_fingerprint,
+            warnings=self.advisory_warnings,
+            failure=failure,
+        )
+        _write_json_atomic(self.report_path, payload, compact=True)
 
 
 def process_sequence(
@@ -737,11 +811,20 @@ def _new_manifest(
     }
 
 
-def _write_manifest(path: Path, manifest: dict[str, object]) -> None:
+def _write_json_atomic(path: Path, payload: dict[str, object], *, compact: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp")
-    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    serialized = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        if compact
+        else json.dumps(payload, indent=2, sort_keys=True)
+    )
+    temporary.write_text(serialized + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def _write_manifest(path: Path, manifest: dict[str, object]) -> None:
+    _write_json_atomic(path, manifest, compact=False)
 
 
 def _read_manifest(path: Path) -> dict[str, object]:

@@ -110,15 +110,19 @@ def run_combined_modal_scenario(
     assert "Phase Work: 2/2" in completed_layout.labels
     assert "Overall Work: 4/4" in completed_layout.labels
     manifest_path = paths.root / "processed" / "ODM_sequence_manifest.json"
+    report_path = paths.root / "processed" / "ODM_processing_report.json"
     assert runtime.status == (
         "Render and Process complete: 2 frame(s) with Target Only / Hard Localized; "
-        f"report: {manifest_path}"
+        f"report: {report_path}"
     )
     assert settings.status == runtime.status
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["history_source"] == "TARGET_ONLY"
     assert manifest["effective_settings"]["history_source"] == "TARGET_ONLY"
     assert manifest["effective_settings"]["mode"] == "HARD_LOCALIZED"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["terminal_outcome"] == "SUCCESS"
+    assert report["agreement"]["settings_fingerprint"] == manifest["settings_fingerprint"]
     settings.history_source = "TARGET_ONLY"
     settings.feedback_mode = "HARD_LOCALIZED"
     assert scene.frame_current == original_frame

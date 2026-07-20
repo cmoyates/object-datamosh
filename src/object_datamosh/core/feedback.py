@@ -15,6 +15,7 @@ from .contracts import (
     HistorySource,
     InvalidHistoryFallback,
 )
+from .diagnostics import CHANGE_EPSILON, FrameDiagnostics
 from .sampling import bilinear_sample
 
 
@@ -64,6 +65,28 @@ def process_frame(
     force_reset: bool = False,
 ) -> tuple[FloatImage, FeedbackState]:
     """Process one frame and return its RGBA output plus state for the next frame."""
+    output, state, _diagnostics = process_frame_with_diagnostics(
+        beauty,
+        motion,
+        matte,
+        previous_state,
+        frame_number,
+        settings,
+        force_reset,
+    )
+    return output, state
+
+
+def process_frame_with_diagnostics(
+    beauty: FloatImage,
+    motion: FloatImage,
+    matte: FloatMask,
+    previous_state: FeedbackState | None,
+    frame_number: int,
+    settings: FeedbackSettings,
+    force_reset: bool = False,
+) -> tuple[FloatImage, FeedbackState, FrameDiagnostics]:
+    """Process one frame and return diagnostics captured from its actual pixel decisions."""
     if isinstance(frame_number, bool) or not isinstance(frame_number, Integral):
         raise TypeError("frame_number must be an integer")
     if not isinstance(settings, FeedbackSettings):
@@ -71,8 +94,19 @@ def process_frame(
     if not isinstance(force_reset, bool):
         raise TypeError("force_reset must be a boolean")
     _validate_inputs(beauty, motion, matte, previous_state)
-    if previous_state is None or force_reset:
+    reset = previous_state is None or force_reset
+    primary_attempt = np.zeros(matte.shape, dtype=bool)
+    primary_valid = np.zeros(matte.shape, dtype=bool)
+    fallback_attempt = np.zeros(matte.shape, dtype=bool)
+    fallback_valid = np.zeros(matte.shape, dtype=bool)
+    refreshed = np.zeros(matte.shape, dtype=bool)
+    refresh_restored = np.zeros(matte.shape, dtype=bool)
+    blend = np.zeros((*matte.shape, 1), dtype=np.float32)
+    refresh_blocks = 0
+    if reset:
         output = beauty.copy()
+        next_matte = matte
+        localized_history = matte
     else:
         prepared_blocks = prepare_blocks(motion, matte, frame_number, settings)
 
@@ -91,6 +125,7 @@ def process_frame(
                 (~history_color_valid).astype(np.float32), sample_x, sample_y
             )
             covered = valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
+            primary_covered = covered.copy()
             if settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY:
                 screen_y, screen_x = np.indices(matte.shape, dtype=np.float32)
                 screen_history, screen_valid = bilinear_sample(safe_history, screen_x, screen_y)
@@ -105,6 +140,8 @@ def process_frame(
                 use_screen = ~covered & screen_covered
                 warped_history = np.where(use_screen[..., None], screen_history, warped_history)
                 covered = covered | screen_covered
+            else:
+                use_screen = np.zeros(matte.shape, dtype=bool)
             warped_history = np.where(covered[..., None], warped_history, 0.0)
             if settings.mode is FeedbackMode.TRAIL:
                 history_matte_valid = (
@@ -173,12 +210,64 @@ def process_frame(
             else:
                 next_matte = matte
                 localized_history = matte * warped_matte
+            primary_covered = covered.copy()
+            use_screen = np.zeros(matte.shape, dtype=bool)
+        candidate = localized_history > 0.0
+        primary_attempt = candidate
+        primary_valid = candidate & primary_covered
+        fallback_attempt = candidate & ~primary_covered
+        fallback_valid = candidate & use_screen
         refreshed = _expand_blocks(
             prepared_blocks.refresh, prepared_blocks.block_size, height, width
-        )
-        blend = (settings.persistence * localized_history * covered * ~refreshed)[..., None]
+        ).astype(bool, copy=False)
+        block_candidates = np.zeros(prepared_blocks.refresh.shape, dtype=bool)
+        for block_y in range(block_candidates.shape[0]):
+            for block_x in range(block_candidates.shape[1]):
+                y0 = block_y * prepared_blocks.block_size
+                x0 = block_x * prepared_blocks.block_size
+                block_candidates[block_y, block_x] = bool(
+                    np.any(
+                        (candidate & covered & (settings.persistence > 0.0))[
+                            y0 : y0 + prepared_blocks.block_size,
+                            x0 : x0 + prepared_blocks.block_size,
+                        ]
+                    )
+                )
+        refresh_blocks = int(np.count_nonzero(prepared_blocks.refresh & block_candidates))
+        unrefreshed_blend = settings.persistence * localized_history * covered
+        refresh_restored = refreshed & (unrefreshed_blend > 0.0)
+        blend = (unrefreshed_blend * ~refreshed)[..., None]
         output = (beauty * (1.0 - blend) + warped_history * blend).astype(np.float32, copy=False)
-    if previous_state is None or force_reset:
-        next_matte = matte
     state = FeedbackState(output.copy(), next_matte.copy(), frame_number)
-    return output, state
+    pixel_change = np.max(np.abs(output[..., :3] - beauty[..., :3]), axis=-1)
+    changed = pixel_change > CHANGE_EPSILON
+    diagnostics = FrameDiagnostics(
+        frame_number=int(frame_number),
+        reset=reset,
+        pixel_count=matte.size,
+        target_matte_pixels=int(np.count_nonzero(matte > 0.0)),
+        target_matte_coverage=float(np.mean(matte, dtype=np.float64)),
+        effect_matte_pixels=int(np.count_nonzero(localized_history > 0.0)),
+        effect_matte_coverage=float(np.mean(localized_history, dtype=np.float64)),
+        primary_history_attempts=int(np.count_nonzero(primary_attempt)),
+        primary_history_valid_uses=int(np.count_nonzero(primary_valid)),
+        primary_history_invalid_samples=int(np.count_nonzero(primary_attempt & ~primary_valid)),
+        same_pixel_fallback_attempts=(
+            int(np.count_nonzero(fallback_attempt))
+            if settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY
+            else 0
+        ),
+        same_pixel_fallback_valid_uses=int(np.count_nonzero(fallback_valid)),
+        current_beauty_fallback_pixels=int(
+            np.count_nonzero(primary_attempt & ~primary_valid & ~fallback_valid)
+        ),
+        refresh_restored_pixels=int(np.count_nonzero(refresh_restored)),
+        refresh_restored_blocks=refresh_blocks,
+        historical_blend_pixels=int(np.count_nonzero(blend[..., 0] > 0.0)),
+        historical_blend_weight=float(np.sum(blend[..., 0], dtype=np.float64)),
+        changed_output_pixels=int(np.count_nonzero(changed)),
+        changed_output_ratio=float(np.count_nonzero(changed) / matte.size),
+        changed_output_mean_absolute=float(np.mean(pixel_change, dtype=np.float64)),
+        changed_output_max_absolute=float(np.max(pixel_change)),
+    )
+    return output, state, diagnostics
