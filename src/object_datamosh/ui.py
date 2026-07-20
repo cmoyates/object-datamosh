@@ -288,13 +288,15 @@ class ODM_Settings(PropertyGroup):
         items=(
             (
                 "TARGET_ONLY",
-                "Target Only",
-                "Restrict feedback color to previous target coverage",
+                "Target Only (Legacy / Stable)",
+                "Restrict historical color to prior target/effect coverage, which preserves more "
+                "object identity",
             ),
             (
                 "FULL_FRAME",
-                "Full Frame",
-                "Allow feedback color from the complete previous processed frame",
+                "Full Frame (Extreme)",
+                "Permit color from the entire previous processed frame; the effect mask controls "
+                "only where it appears",
             ),
         ),
         default="TARGET_ONLY",
@@ -837,6 +839,40 @@ class ODM_OT_process_sequence(Operator):
             self._controller.cancel()
 
 
+class ODM_OT_extreme_full_frame_feedback(Operator):
+    """Apply a focused high-feedback artistic starting configuration."""
+
+    bl_idname = "object_datamosh.extreme_full_frame_feedback"
+    bl_label = "Extreme Full-Frame Feedback"
+    bl_description = (
+        "Apply an extreme Full Frame and Trail starting point; visual results vary by scene"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return _operation_is_idle(context)
+
+    def execute(self, context: Context) -> set[Any]:
+        scene = context.scene
+        if scene is None:
+            self.report({"ERROR"}, "An active scene is required")
+            return {"CANCELLED"}
+        settings = settings_for_scene(scene)
+        settings.history_source = HistorySource.FULL_FRAME.value
+        settings.feedback_mode = FeedbackMode.TRAIL.value
+        settings.persistence = 1.0
+        settings.trail_decay = 0.98
+        settings.refresh_probability = 0.01
+        settings.block_size = 32
+        settings.motion_quantization = 8.0
+        settings.diffusion = 2.0
+        message = "Applied Extreme Full-Frame Feedback starting configuration"
+        settings.status = message
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
 class ODM_OT_create_vector_calibration(Operator):
     """Create a separate deterministic scene for manual vector calibration."""
 
@@ -954,6 +990,7 @@ _CLASSES = (
     ODM_OT_render_raw_passes,
     ODM_OT_render_and_process,
     ODM_OT_process_sequence,
+    ODM_OT_extreme_full_frame_feedback,
     ODM_OT_create_vector_calibration,
     ODM_OT_restore_object_index,
     ODM_PT_sidebar,
