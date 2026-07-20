@@ -717,6 +717,44 @@ def test_full_frame_resume_matches_fresh_run_across_reset_segments(
         )
 
 
+def test_trail_resume_rejects_discontinuous_dimensions_when_changes_are_disabled(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    images: dict[Path, np.ndarray] = {}
+    for frame_number in (1, 2):
+        frame = paths.frame(frame_number)
+        images[frame.beauty] = _rgba(frame_number / 4.0)
+        images[frame.vector] = _rgba(0.0)
+        images[frame.matte] = np.ones((1, 2), dtype=np.float32)
+    io = MemoryImageIO(images)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=2,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=io,
+    )
+    io.images[paths.frame(2).processed] = np.ones((2, 2, 4), dtype=np.float32)
+    io.images[paths.frame(2).matte] = np.ones((2, 2), dtype=np.float32)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Resume history is invalid for frame 2: Resolution changed in resume history",
+    ):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=settings,
+            image_io=io,
+            run_mode=SequenceRunMode.RESUME,
+        )
+
+
 def test_trail_resume_rebuilds_only_one_history_frame_per_session_step(
     tmp_path: Path,
 ) -> None:

@@ -334,6 +334,7 @@ class ProcessingSession:
                 settings=self.settings,
                 image_io=self.image_io,
                 reset_frames=self.reset_frames,
+                resolution_change=self.resolution_change,
             )
             _validate_history_state(self._state)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
@@ -559,12 +560,19 @@ def _restore_trail_frame(
     settings: FeedbackSettings,
     image_io: ImageSequenceIO,
     reset_frames: frozenset[int],
+    resolution_change: ResolutionChangePolicy,
 ) -> FeedbackState:
     """Rebuild one frame of trail coverage while trusting processed color as history."""
     frame = paths.frame(frame_number)
     history = image_io.read_rgba(frame.processed)
     matte = image_io.read_mask(matte_provider.path_for_frame(frame_number, paths))
-    reset = state is None or frame_number in reset_frames or state.history.shape != history.shape
+    dimensions_changed = state is not None and state.history.shape != history.shape
+    if dimensions_changed and resolution_change is ResolutionChangePolicy.ERROR:
+        raise ValueError(
+            f"Resolution changed in resume history at frame {frame_number}: "
+            f"{state.history.shape[:2]} -> {history.shape[:2]}"
+        )
+    reset = state is None or frame_number in reset_frames or dimensions_changed
     if reset:
         return FeedbackState(history, matte, frame_number)
     motion = image_io.read_rgba(frame.vector)
