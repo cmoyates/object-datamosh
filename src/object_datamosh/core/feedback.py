@@ -12,6 +12,7 @@ from .contracts import (
     FeedbackState,
     FloatImage,
     FloatMask,
+    HistorySource,
 )
 from .sampling import bilinear_sample
 
@@ -81,38 +82,50 @@ def process_frame(
         sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
         sample_x -= displacement[..., 0]
         sample_y -= displacement[..., 1]
-        history_matte_valid = (
-            np.isfinite(previous_state.history_matte)
-            & (previous_state.history_matte >= 0.0)
-            & (previous_state.history_matte <= 1.0)
-        )
-        history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
-        history_covered = (
-            history_matte_valid & history_color_valid & (previous_state.history_matte > 0.0)
-        )
-        invalid_covered_history = ~history_matte_valid | (
-            (previous_state.history_matte > 0.0) & ~history_color_valid
-        )
-        valid_history_matte = np.where(history_covered, previous_state.history_matte, 0.0).astype(
-            np.float32, copy=False
-        )
-        safe_history = np.where(history_covered[..., None], previous_state.history, 0.0)
-        premultiplied = safe_history * valid_history_matte[..., None]
-        warped_premultiplied, valid = bilinear_sample(premultiplied, sample_x, sample_y)
-        warped_matte, _ = bilinear_sample(valid_history_matte, sample_x, sample_y)
-        warped_invalid, _ = bilinear_sample(
-            invalid_covered_history.astype(np.float32), sample_x, sample_y
-        )
-        covered = valid & (warped_matte > 0.0) & (warped_invalid == 0.0)
-        safe_matte = np.where(covered, warped_matte, 1.0)
-        warped_history = warped_premultiplied / safe_matte[..., None]
-        if settings.mode is FeedbackMode.TRAIL:
-            decayed_history_matte = settings.trail_decay * warped_matte * covered
-            next_matte = np.maximum(matte, decayed_history_matte).astype(np.float32, copy=False)
-            localized_history = matte * warped_matte + (1.0 - matte) * decayed_history_matte
-        else:
+        if settings.history_source is HistorySource.FULL_FRAME:
+            history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
+            safe_history = np.where(history_color_valid[..., None], previous_state.history, 0.0)
+            warped_history, valid = bilinear_sample(safe_history, sample_x, sample_y)
+            warped_invalid, _ = bilinear_sample(
+                (~history_color_valid).astype(np.float32), sample_x, sample_y
+            )
+            covered = valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
+            warped_history = np.where(covered[..., None], warped_history, 0.0)
             next_matte = matte
-            localized_history = matte * warped_matte
+            localized_history = matte
+        else:
+            history_matte_valid = (
+                np.isfinite(previous_state.history_matte)
+                & (previous_state.history_matte >= 0.0)
+                & (previous_state.history_matte <= 1.0)
+            )
+            history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
+            history_covered = (
+                history_matte_valid & history_color_valid & (previous_state.history_matte > 0.0)
+            )
+            invalid_covered_history = ~history_matte_valid | (
+                (previous_state.history_matte > 0.0) & ~history_color_valid
+            )
+            valid_history_matte = np.where(
+                history_covered, previous_state.history_matte, 0.0
+            ).astype(np.float32, copy=False)
+            safe_history = np.where(history_covered[..., None], previous_state.history, 0.0)
+            premultiplied = safe_history * valid_history_matte[..., None]
+            warped_premultiplied, valid = bilinear_sample(premultiplied, sample_x, sample_y)
+            warped_matte, _ = bilinear_sample(valid_history_matte, sample_x, sample_y)
+            warped_invalid, _ = bilinear_sample(
+                invalid_covered_history.astype(np.float32), sample_x, sample_y
+            )
+            covered = valid & (warped_matte > 0.0) & (warped_invalid == 0.0)
+            safe_matte = np.where(covered, warped_matte, 1.0)
+            warped_history = warped_premultiplied / safe_matte[..., None]
+            if settings.mode is FeedbackMode.TRAIL:
+                decayed_history_matte = settings.trail_decay * warped_matte * covered
+                next_matte = np.maximum(matte, decayed_history_matte).astype(np.float32, copy=False)
+                localized_history = matte * warped_matte + (1.0 - matte) * decayed_history_matte
+            else:
+                next_matte = matte
+                localized_history = matte * warped_matte
         refreshed = _expand_blocks(
             prepared_blocks.refresh, prepared_blocks.block_size, height, width
         )

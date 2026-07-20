@@ -36,7 +36,8 @@ The sidebar currently provides:
 - Object Index, External Matte, and experimental Cryptomatte source choices;
 - Hard Localized / Trail mode, trail decay, persistence, block size,
   motion-channel/direction/axis/gain/clamp/quantization, diffusion, refresh-probability, and
-  deterministic-seed controls; and
+  deterministic-seed controls (the stored History Source setting is intentionally not exposed in
+  this normal sidebar yet); and
 - a status field and an explicit warning when the blend file has not been saved.
 
 The target assignment operator has a useful poll: it is available only when an active object
@@ -231,8 +232,9 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
 - **Frame processing:** `process_frame` accepts beauty, motion, current matte, optional prior state,
   frame number, settings, and an optional forced-reset flag. It returns the processed float32 RGBA
   image and the next `FeedbackState` without importing Blender APIs or using global RNG state.
-- **Feedback settings:** immutable `FeedbackSettings` contains all sidebar feedback controls and
-  validates probabilities, block size, and non-negative motion controls.
+- **Feedback settings:** immutable `FeedbackSettings` contains all feedback controls, including
+  the `HistorySource` choice (`TARGET_ONLY` by default or `FULL_FRAME`), and validates
+  probabilities, block size, non-negative motion controls, and supported mode/source combinations.
 - **Matte providers:** `ObjectIndexMatteProvider` resolves rendered Object Index mattes;
   `ExternalMatteProvider` safely resolves a numbered external sequence without allowing its
   filename pattern to escape the selected directory. The
@@ -420,12 +422,25 @@ history color is sampled premultiplied by its selected-object matte and is accep
 sample coordinate, warped history matte, and contributing history pixels are valid. Unselected
 background color therefore cannot enter history at a matte edge.
 
-**Hard Localized** multiplies persistence by current and warped matte coverage; refresh makes that
-weight zero. Pixels outside the current matte consequently equal clean beauty exactly. This is the
-conservative default and preserves the original outside-mask invariant.
+With the default **Target Only** history source, **Hard Localized** multiplies persistence by
+current and warped matte coverage; refresh makes that weight zero. Newly revealed target pixels
+therefore use current beauty, and premultiplied sampling prevents previous background color from
+entering at matte edges.
 
-**Trail** advects selected-object history with the same motion field, multiplies the warped history
-coverage by **Trail Decay**, and combines that coverage with the current matte for the next frame.
+With **Full Frame**, Hard Localized samples color directly from the complete previous processed
+frame. The current target matte controls only where and how strongly feedback appears; the previous
+matte does not restrict color. Samples must remain in bounds and finite, and pixels outside the
+current matte equal current beauty exactly. First frames and resets store complete current beauty;
+each subsequent state stores the complete processed output recursively while retaining the current
+matte as effect-mask history. Full Frame is stored on the Blender scene but deliberately has no
+normal-sidebar selector in this milestone.
+
+**Full Frame + Trail** is rejected with a clear validation error until Full Frame Trail semantics
+are implemented.
+
+**Trail** with Target Only advects selected-object history with the same motion field, multiplies
+warped history coverage by **Trail Decay**, and combines that coverage with the current matte for
+the next frame.
 Output can extend beyond the current silhouette only where that advected selected-object coverage
 remains nonzero. Coverage never comes from background color. A decay of `0` removes old trail
 coverage after one frame; `1` retains reachable coverage without decay. The default `0.85` fades
@@ -594,6 +609,8 @@ remain explicit interactive checks; they were not claimed by the background gate
 - Resume is deliberately range-based and sequential. It does not splice arbitrary processed
   fragments, migrate old manifest schemas, or delete stale files; incompatible or discontinuous
   runs require explicit full-range reprocessing.
+- Full Frame history is currently supported only with Hard Localized mode and is intentionally
+  stored but not exposed in the normal sidebar; Full Frame Trail construction fails validation.
 - Trail mode follows only the available selected-object matte and vector information. Occlusions,
   disocclusions, inaccurate vectors, and low-resolution mattes can shorten or distort trails; it
   does not infer hidden geometry or admit unrelated-object/background history.

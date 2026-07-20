@@ -7,6 +7,7 @@ from object_datamosh.core.contracts import (
     FeedbackMode,
     FeedbackSettings,
     FeedbackState,
+    HistorySource,
     MotionChannels,
 )
 from object_datamosh.core.feedback import process_frame
@@ -76,6 +77,133 @@ def test_history_without_selected_object_coverage_is_rejected() -> None:
         previous_state=previous,
         frame_number=2,
         settings=FeedbackSettings(persistence=1.0, block_size=1),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+
+
+def test_full_frame_history_reveals_offscreen_preroll_color_on_target_entrance() -> None:
+    red = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    blue = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+    preroll = np.broadcast_to(red, (1, 1, 4)).copy()
+    entering = np.broadcast_to(blue, (1, 1, 4)).copy()
+    zero_matte = np.zeros((1, 1), dtype=np.float32)
+    target_matte = np.ones((1, 1), dtype=np.float32)
+
+    _preroll_output, full_state = process_frame(
+        preroll,
+        _motion(1, 1),
+        zero_matte,
+        None,
+        frame_number=1,
+        settings=FeedbackSettings(history_source=HistorySource.FULL_FRAME),
+    )
+    full_output, _ = process_frame(
+        entering,
+        _motion(1, 1),
+        target_matte,
+        full_state,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+    _target_preroll, target_state = process_frame(
+        preroll,
+        _motion(1, 1),
+        zero_matte,
+        None,
+        frame_number=1,
+        settings=FeedbackSettings(),
+    )
+    target_output, _ = process_frame(
+        entering,
+        _motion(1, 1),
+        target_matte,
+        target_state,
+        frame_number=2,
+        settings=FeedbackSettings(persistence=1.0, block_size=1),
+    )
+
+    np.testing.assert_array_equal(full_output[0, 0], red)
+    np.testing.assert_array_equal(target_output[0, 0], blue)
+
+
+def test_full_frame_history_is_recursive_processed_output() -> None:
+    first = _rgba(1, 1, 1.0)
+    second = _rgba(1, 1, 0.0)
+    third = _rgba(1, 1, 0.0)
+    matte = np.ones((1, 1), dtype=np.float32)
+    settings = FeedbackSettings(
+        history_source=HistorySource.FULL_FRAME,
+        persistence=0.5,
+        block_size=1,
+    )
+
+    _first_output, state = process_frame(
+        first, _motion(1, 1), matte, None, frame_number=1, settings=settings
+    )
+    second_output, state = process_frame(
+        second, _motion(1, 1), matte, state, frame_number=2, settings=settings
+    )
+    third_output, state = process_frame(
+        third, _motion(1, 1), matte, state, frame_number=3, settings=settings
+    )
+
+    np.testing.assert_array_equal(second_output, _rgba(1, 1, 0.5))
+    np.testing.assert_array_equal(third_output, _rgba(1, 1, 0.25))
+    np.testing.assert_array_equal(state.history, third_output)
+    np.testing.assert_array_equal(state.history_matte, matte)
+
+
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+def test_full_frame_rejects_nonfinite_sample_and_preserves_clean_outside_matte(
+    invalid_value: float,
+) -> None:
+    beauty = _rgba(1, 2, 0.25)
+    history = _rgba(1, 2, 1.0)
+    history[0, 0, 0] = invalid_value
+    previous = FeedbackState(history, np.zeros((1, 2), dtype=np.float32), frame_number=1)
+    matte = np.array([[1.0, 0.0]], dtype=np.float32)
+
+    output, _ = process_frame(
+        beauty,
+        _motion(1, 2),
+        matte,
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            persistence=1.0,
+            block_size=1,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+
+
+def test_full_frame_out_of_bounds_sample_falls_back_without_wrapping() -> None:
+    beauty = _rgba(1, 2, 0.25)
+    history = _rgba(1, 2, 0.0)
+    history[0, 1] = 1.0
+    previous = FeedbackState(history, np.zeros((1, 2), dtype=np.float32), frame_number=1)
+    motion = _motion(1, 2)
+    motion[0, 0, 0] = 1.0
+
+    output, _ = process_frame(
+        beauty,
+        motion,
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
     )
 
     np.testing.assert_array_equal(output, beauty)
@@ -406,12 +534,16 @@ def test_forced_reset_discards_available_history() -> None:
         matte=np.ones((2, 2), dtype=np.float32),
         previous_state=previous,
         frame_number=2,
-        settings=FeedbackSettings(persistence=1.0),
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            persistence=1.0,
+        ),
         force_reset=True,
     )
 
     np.testing.assert_array_equal(output, beauty)
     np.testing.assert_array_equal(state.history, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.ones((2, 2), dtype=np.float32))
 
 
 def test_hard_localization_preserves_nonzero_clean_beauty_outside_current_matte() -> None:
