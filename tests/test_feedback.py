@@ -185,6 +185,76 @@ def test_full_frame_rejects_nonfinite_sample_and_preserves_clean_outside_matte(
     np.testing.assert_array_equal(output, beauty)
 
 
+@pytest.mark.parametrize(
+    ("fallback", "expected_target"),
+    [
+        (
+            InvalidHistoryFallback.CURRENT_BEAUTY,
+            np.array(
+                [
+                    [[0.0, 0.0, 1.0, 1.0], [1.0, 0.0, 0.0, 1.0]],
+                    [[0.0, 0.0, 1.0, 1.0], [1.0, 0.0, 0.0, 1.0]],
+                ],
+                dtype=np.float32,
+            ),
+        ),
+        (
+            InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            np.array(
+                [
+                    [[1.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]],
+                    [[1.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]],
+                ],
+                dtype=np.float32,
+            ),
+        ),
+    ],
+)
+def test_full_frame_entering_target_uses_selected_invalid_history_fallback(
+    fallback: InvalidHistoryFallback,
+    expected_target: np.ndarray,
+) -> None:
+    red = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    blue = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+    previous_beauty = np.broadcast_to(red, (2, 3, 4)).copy()
+    zero_matte = np.zeros((2, 3), dtype=np.float32)
+    settings = FeedbackSettings(
+        mode=FeedbackMode.HARD_LOCALIZED,
+        history_source=HistorySource.FULL_FRAME,
+        invalid_history_fallback=fallback,
+        persistence=1.0,
+        block_size=1,
+        motion_quantization=0.0,
+        diffusion=0.0,
+        refresh_probability=0.0,
+    )
+    _, previous = process_frame(
+        previous_beauty,
+        _motion(2, 3),
+        zero_matte,
+        previous_state=None,
+        frame_number=1,
+        settings=settings,
+    )
+    current_beauty = np.broadcast_to(blue, (2, 3, 4)).copy()
+    entering_matte = np.zeros((2, 3), dtype=np.float32)
+    entering_matte[:, :2] = 1.0
+    entering_motion = _motion(2, 3)
+    entering_motion[:, :2, 0] = 1.0
+
+    output, _ = process_frame(
+        current_beauty,
+        entering_motion,
+        entering_matte,
+        previous,
+        frame_number=2,
+        settings=settings,
+    )
+
+    np.testing.assert_array_equal(output[:, :2], expected_target)
+    np.testing.assert_array_equal(output[:, 2], current_beauty[:, 2])
+
+
 def test_full_frame_same_pixel_fallback_replaces_only_invalid_warp_samples() -> None:
     red = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
     green = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32)
