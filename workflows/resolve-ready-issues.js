@@ -124,13 +124,14 @@ async function selectIssue() {
   const issues = await json("gh", ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"]);
   const ready = issues.filter((item) => (item.labels || []).some((label) => String(label.name).toLowerCase() === "ready-for-agent"));
   const eligible = ready.length ? ready : issues;
-  // Native dependency counts use GitHub's documented issue_dependencies_summary.
+  // Query the dependency subresources directly. GitHub's general issue endpoint can return
+  // transient 503 responses while these narrower endpoints remain available.
   const ranked = [];
   for (const item of eligible) {
-    const dependency = await json("gh", ["api", `repos/${repository.nameWithOwner}/issues/${item.number}`]);
-    const summary = dependency.issue_dependencies_summary || {};
-    const openBlockers = Number(summary.blocked_by || 0);
-    const blocksEligible = Number(summary.blocking || 0);
+    const blockedBy = await json("gh", ["api", `repos/${repository.nameWithOwner}/issues/${item.number}/dependencies/blocked_by`]);
+    const blocking = await json("gh", ["api", `repos/${repository.nameWithOwner}/issues/${item.number}/dependencies/blocking`]);
+    const openBlockers = blockedBy.filter((issue) => issue.state === "open").length;
+    const blocksEligible = blocking.filter((issue) => issue.state === "open").length;
     if (openBlockers === 0) ranked.push({ ...item, blocksEligible });
   }
   ranked.sort((a, b) => b.blocksEligible - a.blocksEligible || a.number - b.number);
