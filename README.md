@@ -385,7 +385,7 @@ default) or performs a documented clean reset, according to **Resolution Change*
 
 Each result is written to `processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed,
 full-float RGBA OpenEXR. Processing also atomically updates
-`processed/ODM_sequence_manifest.json`. Schema 4 records the frame range, ordered completed-frame
+`processed/ODM_sequence_manifest.json`. Schema 5 records the frame range, ordered completed-frame
 prefix, explicit resets, resolution policy, top-level History Source, and a SHA-256 semantic
 fingerprint. Its readable `effective_settings` snapshot records every `FeedbackSettings` field,
 matte-provider type and configuration, reset/resolution controls, and extension/Blender version
@@ -496,10 +496,10 @@ history frame. Resolution-policy resets likewise clear both color and effect cov
 To try Full Frame or new effect settings without rerendering the 3D scene, keep the retained raw
 beauty, vector, and matte passes, select **Reprocess**, enable **Overwrite Processed Frames**, and
 run **Process Existing Passes**. Changing History Source invalidates the old recovery manifest, so
-start a full reprocess; the raw inputs remain reusable. Recovery manifest schema 4 retains the
-canonical orientation marker (`image_orientation: display_top_left_v1`) and adds complete readable
-configuration provenance. Processed history from older manifests is intentionally incompatible and
-must be reprocessed, while retained raw passes remain reusable. This workflow is supported only while the
+start a full reprocess; the raw inputs remain reusable. Recovery manifest schema 5 retains the
+canonical orientation marker (`image_orientation: display_top_left_v1`) and records complete readable
+configuration provenance, including Trail Motion Follow. Processed history from older manifests is
+intentionally incompatible and must be reprocessed, while retained raw passes remain reusable. This workflow is supported only while the
 retained passes still satisfy the documented paths, frame range, dimensions, and matte contract.
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
