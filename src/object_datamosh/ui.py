@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any, cast
 
@@ -62,6 +63,9 @@ from .sequence_processing import (
     SequenceProcessingFrameError,
     SequenceRunMode,
     parse_reset_frames,
+    processing_configuration_name,
+    processing_configuration_summary,
+    sequence_manifest_path,
 )
 from .sidebar import draw_sidebar
 
@@ -104,6 +108,23 @@ def settings_for_scene(scene: Scene) -> ODM_Settings:
 def runtime_for_scene(scene: Scene) -> ODM_RuntimeState:
     """Return the serializable runtime state owned by ``scene``."""
     return cast(ODM_RuntimeState, getattr(scene, _SCENE_RUNTIME_ATTRIBUTE))
+
+
+def _extension_version() -> str | None:
+    """Read the packaged extension version with a deterministic unavailable fallback."""
+    try:
+        manifest = tomllib.loads(
+            Path(__file__).with_name("blender_manifest.toml").read_text(encoding="utf-8")
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    version = manifest.get("version")
+    return version if isinstance(version, str) and version else None
+
+
+def _blender_version() -> str | None:
+    value = getattr(bpy.app, "version_string", None)
+    return value if isinstance(value, str) and value else None
 
 
 def feedback_settings_for_scene(scene: Scene) -> FeedbackSettings:
@@ -194,6 +215,12 @@ class ODM_RuntimeState(PropertyGroup):
     )
     status: StringProperty(  # ty: ignore[invalid-type-form]
         name="Status", default="Ready", options={"SKIP_SAVE"}
+    )
+    configuration_summary: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Effective Configuration", default="", options={"SKIP_SAVE"}
+    )
+    manifest_path: StringProperty(  # ty: ignore[invalid-type-form]
+        name="Manifest Path", default="", options={"SKIP_SAVE"}
     )
 
 
@@ -654,6 +681,8 @@ class ODM_OT_render_and_process(Operator):
                 overwrite=settings.overwrite_processed,
                 reset_frames=parse_reset_frames(settings.reset_frames),
                 resolution_change=ResolutionChangePolicy(settings.resolution_change),
+                extension_version=_extension_version(),
+                blender_version=_blender_version(),
             )
         except (TypeError, ValueError) as error:
             message = (
@@ -662,6 +691,11 @@ class ODM_OT_render_and_process(Operator):
             settings.status = message
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
+        configuration_name = processing_configuration_name(processing.feedback_settings)
+        manifest_path = sequence_manifest_path(paths)
+        start_message = f"Starting: {configuration_name}"
+        settings.status = start_message
+        self.report({"INFO"}, start_message)
         if not (bpy.app.background and isinstance(context.window_manager, bpy.types.WindowManager)):
             runtime = runtime_for_scene(scene)
             controller = RenderAndProcessModalController(
@@ -674,7 +708,10 @@ class ODM_OT_render_and_process(Operator):
             )
             self._controller = controller
             _driver_namespace()[_ACTIVE_CONTROLLER_KEY] = controller
-            settings.status = "Initializing Render and Process..."
+            runtime.configuration_summary = processing_configuration_summary(
+                processing.feedback_settings
+            )
+            runtime.manifest_path = str(manifest_path)
             try:
                 render_session = RawRenderSession.create(
                     scene,
@@ -697,9 +734,9 @@ class ODM_OT_render_and_process(Operator):
             nonlocal phase
             phase = value
             settings.status = (
-                "Rendering raw passes..."
+                f"Rendering raw passes: {configuration_name}"
                 if value is RenderAndProcessPhase.RENDERING
-                else "Processing rendered passes..."
+                else f"Processing: {configuration_name}"
             )
 
         def render_phase():
@@ -751,7 +788,10 @@ class ODM_OT_render_and_process(Operator):
             self.report({"ERROR"}, message)
             return {"CANCELLED"}
         frame_count = len(result.processed.frames)
-        message = f"Render and Process complete: {frame_count} frame(s)"
+        message = (
+            f"Render and Process complete: {frame_count} frame(s) with {configuration_name}; "
+            f"report: {manifest_path}"
+        )
         settings.status = message
         self.report({"INFO"}, message)
         return {"FINISHED"}
@@ -819,7 +859,14 @@ class ODM_OT_process_sequence(Operator):
                 run_mode=SequenceRunMode(settings.sequence_run_mode),
                 missing_history=MissingHistoryPolicy(settings.missing_history),
                 should_cancel=lambda: controller.cancel_requested,
+                extension_version=_extension_version(),
+                blender_version=_blender_version(),
             )
+            runtime.configuration_summary = processing_configuration_summary(session.settings)
+            runtime.manifest_path = str(session.manifest_path)
+            start_message = f"Starting: {session.configuration_name}"
+            settings.status = start_message
+            self.report({"INFO"}, start_message)
             controller.start(context, session)
         except Exception as error:
             controller.fail_initialization(settings.frame_start, error)

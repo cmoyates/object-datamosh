@@ -319,11 +319,14 @@ class RenderAndProcessModalController:
             self._processing_session = processing
             state.begin_processing()
             current_frame = processing.current_frame
+            configuration_name = getattr(processing, "configuration_name", "Unknown configuration")
             self._lifecycle.update(
                 phase=OperationPhase.PROCESSING,
                 current_frame=current_frame,
                 completed_work=state.completed_work,
-                status=f"Processing frame {current_frame} of {state.frame_end}",
+                status=(
+                    f"Processing: {configuration_name} (frame {current_frame} of {state.frame_end})"
+                ),
                 phase_completed_work=state.processed_count,
                 phase_total_work=state.frame_count,
             )
@@ -358,7 +361,11 @@ class RenderAndProcessModalController:
                     phase=OperationPhase.PROCESSING,
                     current_frame=frame_number,
                     completed_work=state.completed_work,
-                    status=f"Processed frame {frame_number} of {state.frame_end}",
+                    status=(
+                        "Processing: "
+                        f"{getattr(session, 'configuration_name', 'Unknown configuration')} "
+                        f"(processed frame {frame_number} of {state.frame_end})"
+                    ),
                     phase_completed_work=state.processed_count,
                     phase_total_work=state.frame_count,
                 )
@@ -371,7 +378,12 @@ class RenderAndProcessModalController:
             state.complete()
         except Exception as error:
             return self._fail("processing", frame_number, error)
-        message = f"Render and Process complete: {len(result.frames)} frame(s)"
+        configuration_name = getattr(session, "configuration_name", "Unknown configuration")
+        manifest_path = getattr(session, "manifest_path", "manifest unavailable")
+        message = (
+            f"Render and Process complete: {len(result.frames)} frame(s) with "
+            f"{configuration_name}; report: {manifest_path}"
+        )
         return self._finalize(OperationPhase.COMPLETED, message, {"FINISHED"}, {"INFO"})
 
     def _finish_cancelled(self) -> set[Any]:

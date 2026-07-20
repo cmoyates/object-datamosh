@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,6 +29,8 @@ def run_combined_modal_scenario(
     settings.frame_end = 2
     settings.overwrite_raw = False
     settings.overwrite_processed = False
+    settings.history_source = "TARGET_ONLY"
+    settings.feedback_mode = "HARD_LOCALIZED"
     original_frame = scene.frame_current
     window_manager = ModalWindowManagerRecorder()
     context = type(
@@ -51,6 +54,8 @@ def run_combined_modal_scenario(
     assert runtime.active
     assert runtime.phase == "RENDERING"
     assert runtime.total_work == 4
+    assert runtime.configuration_summary.startswith("Target Only / Hard Localized")
+    assert operator.reports[-1] == ({"INFO"}, "Starting: Target Only / Hard Localized")
     rendering_layout = LayoutRecorder()
     _draw_sidebar(rendering_layout, cast(Any, context), scene)
     assert "Phase: Rendering Raw Passes" in rendering_layout.labels
@@ -70,12 +75,15 @@ def run_combined_modal_scenario(
     # Scripted RNA changes cannot alter the configuration snapshotted at modal invocation.
     settings.frame_start = 8
     settings.frame_end = 9
+    settings.history_source = "FULL_FRAME"
+    settings.feedback_mode = "TRAIL"
     assert operator.modal(context, timer) == {"RUNNING_MODAL"}
     settings.frame_start = 1
     settings.frame_end = 2
     assert runtime.phase == "PROCESSING"
     assert runtime.completed_work == 2
     assert runtime.progress == 0.5
+    assert runtime.status == "Processing: Target Only / Hard Localized (frame 1 of 2)"
     processing_layout = LayoutRecorder()
     _draw_sidebar(processing_layout, cast(Any, context), scene)
     assert "Phase: Processing Passes" in processing_layout.labels
@@ -101,8 +109,18 @@ def run_combined_modal_scenario(
     _draw_sidebar(completed_layout, cast(Any, context), scene)
     assert "Phase Work: 2/2" in completed_layout.labels
     assert "Overall Work: 4/4" in completed_layout.labels
-    assert runtime.status == "Render and Process complete: 2 frame(s)"
+    manifest_path = paths.root / "processed" / "ODM_sequence_manifest.json"
+    assert runtime.status == (
+        "Render and Process complete: 2 frame(s) with Target Only / Hard Localized; "
+        f"report: {manifest_path}"
+    )
     assert settings.status == runtime.status
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["history_source"] == "TARGET_ONLY"
+    assert manifest["effective_settings"]["history_source"] == "TARGET_ONLY"
+    assert manifest["effective_settings"]["mode"] == "HARD_LOCALIZED"
+    settings.history_source = "TARGET_ONLY"
+    settings.feedback_mode = "HARD_LOCALIZED"
     assert scene.frame_current == original_frame
     assert window_manager.events[-2:] == [
         ("timer_remove", window_manager.timer),

@@ -33,6 +33,8 @@ class CombinedProcessingConfiguration:
     overwrite: bool
     reset_frames: frozenset[int]
     resolution_change: ResolutionChangePolicy
+    extension_version: str | None = None
+    blender_version: str | None = None
 
     def create_session(
         self,
@@ -53,6 +55,8 @@ class CombinedProcessingConfiguration:
             run_mode=SequenceRunMode.REPROCESS,
             should_cancel=should_cancel,
             input_frames=input_frames,
+            extension_version=self.extension_version,
+            blender_version=self.blender_version,
         )
 
     def process(
@@ -75,4 +79,6 @@ class CombinedProcessingConfiguration:
             progress=progress,
             input_frames=input_frames,
             frame_error_factory=SequenceProcessingFrameError,
+            extension_version=self.extension_version,
+            blender_version=self.blender_version,
         )
