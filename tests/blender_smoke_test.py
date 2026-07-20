@@ -32,12 +32,18 @@ from blender_processing_modal_smoke import run_processing_modal_scenarios  # noq
 from blender_raw_render_modal_smoke import run_raw_render_modal_scenarios  # noqa: E402
 
 import object_datamosh  # noqa: E402
-from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
+from object_datamosh.blender_image_io import (  # noqa: E402
+    BlenderImageIO,
+    blender_pixels_to_canonical,
+    canonical_to_blender_pixels,
+)
 from object_datamosh.compositor_setup import (  # noqa: E402
     restore_object_index_passes,
     setup_object_index_passes,
 )
 from object_datamosh.core.contracts import FeedbackSettings  # noqa: E402
+from object_datamosh.core.exr import read_full_float_rgba  # noqa: E402
+from object_datamosh.core.feedback import process_frame  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
 from object_datamosh.raw_render import (  # noqa: E402
     RawRenderCancelled,
@@ -87,6 +93,100 @@ def exr_contract(path: Path) -> tuple[tuple[int, int], tuple[int, ...]]:
         (maximum_y - minimum_y + 1, maximum_x - minimum_x + 1),
         tuple(pixel_types),
     )
+
+
+def run_multilayer_orientation_smoke(expected: np.ndarray, image_io: BlenderImageIO) -> None:
+    """Prove compositor multilayer scanlines and all raw passes share canonical coordinates."""
+    images_before = len(bpy.data.images)
+    scenes_before = len(bpy.data.scenes)
+    node_groups_before = len(bpy.data.node_groups)
+    cameras_before = len(bpy.data.cameras)
+    objects_before = len(bpy.data.objects)
+    height, width, _channels = expected.shape
+    vector = np.ascontiguousarray(expected[..., [2, 0, 1, 3]], dtype=np.float32)
+    matte = np.empty_like(expected)
+    matte[..., 0] = expected[..., 0]
+    matte[..., 1] = expected[..., 2]
+    matte[..., 2] = expected[..., 1]
+    matte[..., 3] = expected[..., 3]
+    passes = {"beauty": expected, "vector": vector, "matte": matte}
+
+    scene = bpy.data.scenes.new("ODM_Orientation_Smoke")
+    camera_data = bpy.data.cameras.new("ODM_Orientation_Smoke_Camera")
+    camera = bpy.data.objects.new("ODM_Orientation_Smoke_Camera", camera_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+    tree = bpy.data.node_groups.new("ODM_Orientation_Smoke_Tree", "CompositorNodeTree")
+    scene.compositing_node_group = tree
+    created_images: list[Any] = []
+    try:
+        cast(Any, scene.render).engine = "BLENDER_WORKBENCH"
+        scene.render.resolution_x = width
+        scene.render.resolution_y = height
+        scene.render.resolution_percentage = 100
+        with tempfile.TemporaryDirectory(prefix="ODM_orientation_smoke_") as temporary:
+            root = Path(temporary)
+            for pass_name, pixels in passes.items():
+                image = bpy.data.images.new(
+                    f"ODM_Orientation_{pass_name}",
+                    width=width,
+                    height=height,
+                    alpha=True,
+                    float_buffer=True,
+                )
+                created_images.append(image)
+                cast(Any, image.colorspace_settings).name = "Linear Rec.709"
+                cast(Any, image.pixels).foreach_set(canonical_to_blender_pixels(pixels))
+                raw_pixels = np.empty(pixels.size, dtype=np.float32)
+                cast(Any, image.pixels).foreach_get(raw_pixels)
+                np.testing.assert_array_equal(
+                    blender_pixels_to_canonical(raw_pixels, width=width, height=height), pixels
+                )
+
+                image_node = cast(Any, tree.nodes.new("CompositorNodeImage"))
+                image_node.image = image
+                output = cast(Any, tree.nodes.new("CompositorNodeOutputFile"))
+                output.directory = str(root)
+                output.file_name = f"ODM_{pass_name}_####"
+                output.format.file_format = "OPEN_EXR_MULTILAYER"
+                output.format.color_mode = "RGBA"
+                output.format.color_depth = "32"
+                output.format.exr_codec = "ZIP"
+                output.save_as_render = False
+                output.file_output_items.clear()
+                item = output.file_output_items.new("RGBA", "Image")
+                item.override_node_format = False
+                item.save_as_render = False
+                tree.links.new(image_node.outputs["Image"], output.inputs["Image"])
+
+            scene.frame_set(1)
+            bpy.ops.render.render(scene=scene.name)
+            decoded: dict[str, np.ndarray] = {}
+            for pass_name, pixels in passes.items():
+                path = root / f"ODM_{pass_name}_0001.exr"
+                assert path.is_file()
+                decoded[pass_name] = read_full_float_rgba(path)
+                np.testing.assert_allclose(decoded[pass_name], pixels, atol=1e-6)
+            np.testing.assert_allclose(
+                image_io.read_mask(root / "ODM_matte_0001.exr"), expected[..., 0], atol=1e-6
+            )
+            # Every asymmetric marker occupies the same X/Y in beauty, Vector, and matte.
+            np.testing.assert_array_equal(decoded["beauty"][..., 0], decoded["matte"][..., 0])
+            np.testing.assert_array_equal(decoded["beauty"][..., 2], decoded["vector"][..., 0])
+    finally:
+        scene.compositing_node_group = None
+        bpy.data.scenes.remove(scene)
+        bpy.data.node_groups.remove(tree)
+        for image in created_images:
+            bpy.data.images.remove(image)
+        bpy.data.objects.remove(camera)
+        bpy.data.cameras.remove(camera_data)
+
+    assert len(bpy.data.images) == images_before
+    assert len(bpy.data.scenes) == scenes_before
+    assert len(bpy.data.node_groups) == node_groups_before
+    assert len(bpy.data.cameras) == cameras_before
+    assert len(bpy.data.objects) == objects_before
 
 
 class ProgressRecorder:
@@ -758,8 +858,39 @@ def main() -> None:
     )
 
     image_path = Path(bpy.app.tempdir) / "ODM_image_io_smoke.exr"
-    expected = np.array([[[0.0, 0.25, 0.5, 1.0], [1.0, 0.5, 0.25, 1.0]]], dtype=np.float32)
+    expected = np.array(
+        [
+            [
+                [0.05, 0.06, 0.07, 0.08],
+                [0.09, 0.10, 0.11, 0.12],
+                [0.13, 0.14, 0.15, 0.16],
+                [0.17, 0.18, 0.19, 0.20],
+                [0.21, 0.22, 0.23, 0.24],
+            ],
+            [
+                [0.25, 0.26, 0.27, 0.28],
+                [0.29, 0.30, 0.31, 0.32],
+                [0.77, 0.67, 0.57, 0.47],
+                [0.33, 0.34, 0.35, 0.36],
+                [0.37, 0.38, 0.39, 0.40],
+            ],
+            [
+                [0.41, 0.42, 0.43, 0.44],
+                [0.45, 0.46, 0.47, 0.48],
+                [0.49, 0.50, 0.51, 0.52],
+                [0.53, 0.54, 0.55, 0.56],
+                [0.91, 0.81, 0.71, 0.61],
+            ],
+        ],
+        dtype=np.float32,
+    )
     images_before = len(bpy.data.images)
+    blender_buffer = canonical_to_blender_pixels(expected)
+    assert blender_buffer.dtype == np.float32
+    assert blender_buffer.shape == (expected.size,)
+    np.testing.assert_array_equal(
+        blender_pixels_to_canonical(blender_buffer, width=5, height=3), expected
+    )
     image_settings = scene.render.image_settings
     render_settings_before = (
         image_settings.file_format,
@@ -767,7 +898,21 @@ def main() -> None:
         image_settings.color_depth,
         image_settings.exr_codec,
     )
-    image_io.write_rgba(image_path, expected)
+    zero_motion = np.zeros_like(expected)
+    full_matte = np.ones(expected.shape[:2], dtype=np.float32)
+    identity, _state = process_frame(
+        expected,
+        zero_motion,
+        full_matte,
+        None,
+        1,
+        FeedbackSettings(),
+        force_reset=True,
+    )
+    np.testing.assert_array_equal(identity, expected)
+    image_io.write_rgba(image_path, identity)
+    # OpenEXR scanline row zero is independently decoded as canonical displayed top.
+    np.testing.assert_allclose(read_full_float_rgba(image_path), expected, atol=1e-6)
     try:
         image_io.write_rgba(image_path, cast(Any, []))
     except TypeError as error:
@@ -798,6 +943,7 @@ def main() -> None:
     assert np.allclose(actual_mask, expected[..., 0], atol=1e-6)
     assert image_path.is_file()
     assert np.allclose(actual, expected, atol=1e-6), (actual, expected)
+    run_multilayer_orientation_smoke(expected, image_io)
     assert len(bpy.data.images) == images_before
     assert (
         image_settings.file_format,

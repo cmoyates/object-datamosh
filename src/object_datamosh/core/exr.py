@@ -22,9 +22,10 @@ class _Channel:
 def read_full_float_rgba(path: str | Path) -> np.ndarray:
     """Read a non-tiled, full-float RGBA OpenEXR using Blender's supported ZIP layouts.
 
-    Blender 5.0's compositor emits ``OPEN_EXR_MULTILAYER`` files that its Image API identifies but
-    does not expose through ``Image.pixels``. This decoder handles that narrow bundled-runtime
-    contract without adding a compiled image dependency.
+    Blender's compositor emits ``OPEN_EXR_MULTILAYER`` files that its Image API identifies but
+    does not expose through ``Image.pixels``. OpenEXR scanline Y increases from the displayed top,
+    so scanline ``dataWindow.min.y`` maps directly to canonical NumPy row zero (top-left origin).
+    This decoder handles that narrow bundled-runtime contract without a compiled dependency.
     """
     image_path = Path(path)
     data = image_path.read_bytes()

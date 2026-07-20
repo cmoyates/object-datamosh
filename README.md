@@ -220,7 +220,10 @@ contract for later rendering and processing services.
 Pure contracts live under `object_datamosh.core` and do not import `bpy`:
 
 - **Arrays:** images are NumPy `float32` arrays shaped `(height, width, 4)` in scene-linear RGBA;
-  mattes are `float32` arrays shaped `(height, width)`.
+  mattes are `float32` arrays shaped `(height, width)`. The canonical origin is the displayed
+  top-left: row zero is the top scanline, column zero is the leftmost pixel, array Y increases
+  downward, and array X increases rightward. Beauty, Vector, matte, history, and processed arrays
+  all use this same coordinate system.
 - **Feedback state:** `FeedbackState` carries RGBA history, selected-object matte history, and the
   frame number. It validates dtype, channel count, and matching dimensions.
 - **Sampling:** `bilinear_sample` samples scalar or channel images in pixel coordinates, returns an
@@ -241,13 +244,18 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   decoding remains experimental and is not part of the MVP.
 - **Image I/O:** `ImageSequenceIO` is the processing boundary. `BlenderImageIO` is its Blender
   implementation and reads/writes full-float RGBA OpenEXR using temporary `ODM_` Image
-  data-blocks. Blender 5.0 compositor multilayer pass files are decoded through the extension's
-  narrow NumPy/standard-library scanline ZIP reader because Blender identifies those files but
-  does not expose their pixels through `Image.pixels`. Matte files use scalar coverage from the
-  EXR red channel; `read_mask` returns that
-  channel as a contiguous `(height, width)` `float32` array. Modal processing binds image writes to
-  its initiating scene rather than the mutable active context. The implementation removes temporary
-  data-blocks and restores render image settings in `finally` paths.
+  data-blocks. Blender's `Image.pixels` buffer starts at the displayed bottom-left, so
+  `BlenderImageIO` performs one vertical row conversion when entering or leaving that buffer.
+  OpenEXR scanline Y starts at the displayed top, so the narrow NumPy/standard-library scanline ZIP
+  reader maps compositor multilayer scanlines directly to canonical rows. No orientation transform
+  occurs in the feedback core, and the Vector Y component is unchanged because beauty, Vector, and
+  matte receive the same pass-boundary row mapping. Matte files use scalar coverage from the EXR
+  red channel; `read_mask` returns that channel as a contiguous `(height, width)` `float32` array.
+  Modal processing binds image writes to its initiating scene rather than the mutable active
+  context. The implementation removes temporary data-blocks and restores render image settings in
+  `finally` paths. These boundaries were exercised in Blender 5.2.0 LTS with an asymmetric 5×3
+  fixture through `foreach_get`, `foreach_set`, `Image.save_render`, compositor File Output,
+  regular-EXR reopen, and the custom multilayer reader.
 - **Ownership:** extension-created data uses the `ODM_` prefix and the
   `object_datamosh_owned` custom-property tag. Helpers live in
   `object_datamosh.core.ownership`.
@@ -469,7 +477,10 @@ history frame. Resolution-policy resets likewise clear both color and effect cov
 To try Full Frame or new effect settings without rerendering the 3D scene, keep the retained raw
 beauty, vector, and matte passes, select **Reprocess**, enable **Overwrite Processed Frames**, and
 run **Process Existing Passes**. Changing History Source invalidates the old recovery manifest, so
-start a full reprocess; the raw inputs remain reusable. This workflow is supported only while the
+start a full reprocess; the raw inputs remain reusable. The canonical-orientation correction also
+uses recovery manifest schema 3 (`image_orientation: display_top_left_v1`): processed history from
+older manifests is intentionally incompatible and must be reprocessed, while retained raw passes
+remain reusable. This workflow is supported only while the
 retained passes still satisfy the documented paths, frame range, dimensions, and matte contract.
 
 Motion channels contain a forward displacement `(x, y)` from a history pixel to its location in
