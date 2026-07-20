@@ -12,7 +12,7 @@ from typing import Protocol, cast
 
 import numpy as np
 
-from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState
+from .core.contracts import FeedbackMode, FeedbackSettings, FeedbackState, HistorySource
 from .core.feedback import process_frame
 from .core.image_io import ImageSequenceIO
 from .core.mattes import MatteProvider
@@ -55,7 +55,7 @@ class ProcessingProgress(Protocol):
     def end(self) -> None: ...
 
 
-_MANIFEST_VERSION = 1
+_MANIFEST_VERSION = 2
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 
 
@@ -164,6 +164,7 @@ class ProcessingSession:
                 frame_start=frame_start,
                 frame_end=frame_end,
                 fingerprint=fingerprint,
+                history_source=settings.history_source,
                 reset_frames=reset_frames,
                 resolution_change=resolution_change,
             )
@@ -220,6 +221,7 @@ class ProcessingSession:
                         frame_start,
                         frame_end,
                         fingerprint,
+                        settings.history_source,
                         reset_frames,
                         resolution_change,
                         completed,
@@ -243,6 +245,7 @@ class ProcessingSession:
                     frame_start,
                     frame_end,
                     fingerprint,
+                    settings.history_source,
                     reset_frames,
                     resolution_change,
                     completed,
@@ -331,6 +334,7 @@ class ProcessingSession:
                 settings=self.settings,
                 image_io=self.image_io,
                 reset_frames=self.reset_frames,
+                resolution_change=self.resolution_change,
             )
             _validate_history_state(self._state)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
@@ -351,6 +355,7 @@ class ProcessingSession:
                     self.frame_start,
                     self.frame_end,
                     self.settings_fingerprint,
+                    self.settings.history_source,
                     self.reset_frames,
                     self.resolution_change,
                     self._completed_numbers,
@@ -427,6 +432,7 @@ class ProcessingSession:
                 self.frame_start,
                 self.frame_end,
                 self.settings_fingerprint,
+                self.settings.history_source,
                 self.reset_frames,
                 self.resolution_change,
                 committed_numbers,
@@ -554,12 +560,19 @@ def _restore_trail_frame(
     settings: FeedbackSettings,
     image_io: ImageSequenceIO,
     reset_frames: frozenset[int],
+    resolution_change: ResolutionChangePolicy,
 ) -> FeedbackState:
     """Rebuild one frame of trail coverage while trusting processed color as history."""
     frame = paths.frame(frame_number)
     history = image_io.read_rgba(frame.processed)
     matte = image_io.read_mask(matte_provider.path_for_frame(frame_number, paths))
-    reset = state is None or frame_number in reset_frames or state.history.shape != history.shape
+    dimensions_changed = state is not None and state.history.shape != history.shape
+    if dimensions_changed and resolution_change is ResolutionChangePolicy.ERROR:
+        raise ValueError(
+            f"Resolution changed in resume history at frame {frame_number}: "
+            f"{state.history.shape[:2]} -> {history.shape[:2]}"
+        )
+    reset = state is None or frame_number in reset_frames or dimensions_changed
     if reset:
         return FeedbackState(history, matte, frame_number)
     motion = image_io.read_rgba(frame.vector)
@@ -610,6 +623,7 @@ def _new_manifest(
     frame_start: int,
     frame_end: int,
     fingerprint: str,
+    history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
     completed: list[int],
@@ -618,6 +632,7 @@ def _new_manifest(
         "schema_version": _MANIFEST_VERSION,
         "frame_start": frame_start,
         "frame_end": frame_end,
+        "history_source": history_source.value,
         "settings_fingerprint": fingerprint,
         "reset_frames": sorted(reset_frames),
         "resolution_change": resolution_change.value,
@@ -650,6 +665,7 @@ def _validate_manifest(
     frame_start: int,
     frame_end: int,
     fingerprint: str,
+    history_source: HistorySource,
     reset_frames: frozenset[int],
     resolution_change: ResolutionChangePolicy,
 ) -> None:
@@ -657,6 +673,7 @@ def _validate_manifest(
         "schema_version": _MANIFEST_VERSION,
         "frame_start": frame_start,
         "frame_end": frame_end,
+        "history_source": history_source.value,
         "settings_fingerprint": fingerprint,
         "reset_frames": sorted(reset_frames),
         "resolution_change": resolution_change.value,

@@ -200,6 +200,7 @@ def main() -> None:
         "matte_source",
         "external_matte_directory",
         "feedback_mode",
+        "history_source",
         "trail_decay",
         "persistence",
         "block_size",

@@ -34,10 +34,9 @@ The sidebar currently provides:
   overwrite toggle, **Render Raw Passes**, **Render and Process**, reset/recovery policy, and
   **Process Existing Passes**;
 - Object Index, External Matte, and experimental Cryptomatte source choices;
-- Hard Localized / Trail mode, trail decay, persistence, block size,
-  motion-channel/direction/axis/gain/clamp/quantization, diffusion, refresh-probability, and
-  deterministic-seed controls (the stored History Source setting is intentionally not exposed in
-  this normal sidebar yet); and
+- Hard Localized / Trail mode, Target Only / Full Frame history source, trail decay, persistence,
+  block size, motion-channel/direction/axis/gain/clamp/quantization, diffusion,
+  refresh-probability, and deterministic-seed controls; and
 - a status field and an explicit warning when the blend file has not been saved.
 
 The target assignment operator has a useful poll: it is available only when an active object
@@ -367,16 +366,17 @@ default) or performs a documented clean reset, according to **Resolution Change*
 Each result is written to `processed/ODM_processed_<frame>.exr` as scene-linear, ZIP-compressed,
 full-float RGBA OpenEXR. Processing also atomically updates
 `processed/ODM_sequence_manifest.json`. This compact JSON manifest records the frame range,
-ordered completed-frame prefix, explicit resets, resolution policy, and a SHA-256 fingerprint of
-feedback and matte-provider settings. It contains no image data. Output from different settings,
-a changed range, or discontinuous completion metadata is rejected rather than silently reused.
+ordered completed-frame prefix, explicit resets, resolution policy, History Source, and a SHA-256
+fingerprint of feedback and matte-provider settings. It contains no image data. Output from different
+settings, a changed range, or discontinuous completion metadata is rejected rather than silently reused.
 
 **Reprocess** starts from the configured first frame. Existing outputs stop it unless **Overwrite
 Processed Frames** is enabled; enabling overwrite is explicit permission to replace the complete
 range. If a reprocess is interrupted, old files later in the range remain on disk but stay pending
 in the manifest and are never trusted as current output. **Resume** requires a compatible
-manifest, reconstructs state only from its last contiguous completed output and selected-object
-matte, and continues with pending frames. Existing pending files are replaced. If recorded history
+manifest, trusts complete processed output for color history, restores Hard coverage from the raw
+target matte, and deterministically replays Trail effect-mask coverage across reset segments before
+continuing with pending frames. Existing pending files are replaced. If recorded history
 is missing, unreadable, has invalid dimensions, or otherwise violates the state contract,
 **Missing History: Stop** fails without processing; **Reset** rolls the recoverable boundary back
 and reprocesses from that frame with clean history. Resume never skips a gap.
@@ -441,8 +441,9 @@ next state stores the complete processed output as color history and the combine
 mask history.
 
 First frames and resets initialize complete color history from current beauty and mask history from
-the current target matte. Full Frame remains stored on the Blender scene but deliberately has no
-normal-sidebar selector until sequence recovery supports its Trail mask semantics safely.
+the current target matte. **History Source** is available in the sidebar; changing it invalidates a
+processed recovery manifest but leaves retained raw beauty, vector, and matte passes reusable for a
+new reprocess run.
 
 **Trail** with Target Only advects selected-object history with the same motion field, multiplies
 warped history coverage by **Trail Decay**, and combines that coverage with the current matte for
@@ -615,8 +616,6 @@ remain explicit interactive checks; they were not claimed by the background gate
 - Resume is deliberately range-based and sequential. It does not splice arbitrary processed
   fragments, migrate old manifest schemas, or delete stale files; incompatible or discontinuous
   runs require explicit full-range reprocessing.
-- Full Frame history supports both feedback modes but is intentionally stored without a normal
-  sidebar selector until Full Frame Trail resume/recovery is safe.
 - Trail mode follows only the available matte and vector information. Occlusions, disocclusions,
   inaccurate vectors, and low-resolution mattes can shorten or distort trails; it does not infer
   hidden geometry. Target Only trails cannot admit unrelated-object/background history, while Full
