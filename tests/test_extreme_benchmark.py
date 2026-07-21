@@ -108,10 +108,86 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert "summarize_processing_reports" in script
     assert 'output.format.file_format = "OPEN_EXR_MULTILAYER"' in script
     assert 'read_full_float_rgba(read_fixtures["beauty"])' in script
+    release_script = Path("scripts/benchmark_release_workloads.py").read_text(encoding="utf-8")
+    for workload in (
+        "extreme_full_frame_trail",
+        "extreme_hard",
+        "target_only",
+        "background_only_pre_roll",
+        "nonzero_refresh",
+        "invalid_resumed_history",
+    ):
+        assert workload in release_script
+    assert "expected_rejection_end_to_end" in release_script
+    assert "harness_sha256" in release_script
+    assert "process_peak_rss_bytes" in release_script
     benchmark_command = (
         '"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py'
     )
     assert benchmark_command in readme
+
+
+def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None:
+    baseline = json.loads(Path("docs/evidence/issue-79-workloads-baseline.json").read_text())
+    final = json.loads(Path("docs/evidence/issue-79-workloads-final.json").read_text())
+
+    assert baseline["revision"]["commit"].startswith("0b19e06")
+    assert final["revision"]["commit"].startswith("5ca5134")
+    assert baseline["fixture"] == final["fixture"]
+    assert baseline["methodology"] == final["methodology"]
+    assert baseline["environment"] == final["environment"]
+    assert baseline["comparability"]["harness_sha256"] == final["comparability"]["harness_sha256"]
+    assert (
+        baseline["memory"]["representative_live_array_bytes"]
+        == final["memory"]["representative_live_array_bytes"]
+    )
+    assert baseline["memory"]["process_peak_rss_bytes"] > 0
+    assert final["memory"]["process_peak_rss_bytes"] > 0
+
+    for workload in baseline["fixture"]["workload_order"]:
+        before = baseline["workloads"][workload]
+        after = final["workloads"][workload]
+        assert before["definition"] == after["definition"]
+        if workload == "invalid_resumed_history":
+            result_names = ("expected_rejection_end_to_end",)
+        else:
+            stage_names = {
+                "beauty_read",
+                "vector_read",
+                "matte_read",
+                "total_input_read",
+                "core_processing",
+                "processed_exr_write",
+                "manifest_commit",
+                "diagnostics_report_commit",
+                "complete_frame",
+            }
+            assert set(before["exr_io_and_release_stages_non_reset_frame"]) == stage_names
+            assert set(after["exr_io_and_release_stages_non_reset_frame"]) == stage_names
+            for stage_name in stage_names:
+                for evidence in (before, after):
+                    stage = evidence["exr_io_and_release_stages_non_reset_frame"][stage_name]
+                    assert stage["warmup_count"] == 1
+                    assert stage["measured_count"] == 3
+                    assert len(stage["samples_ns"]) == stage["measured_count"]
+                    assert stage["minimum_ns"] == min(stage["samples_ns"])
+                    assert stage["maximum_ns"] == max(stage["samples_ns"])
+                    assert stage["minimum_ns"] <= stage["median_ns"] <= stage["maximum_ns"]
+                    assert stage["extrapolated_147_frames_ns"] > 0
+            result_names = (
+                "pure_core_non_reset_frame",
+                "end_to_end_two_frame_sequence",
+            )
+        for result_name in result_names:
+            for evidence in (before, after):
+                result = evidence[result_name]
+                assert result["warmup_count"] == 1
+                assert result["measured_count"] == 3
+                assert len(result["samples_ns"]) == result["measured_count"]
+                assert result["minimum_ns"] == min(result["samples_ns"])
+                assert result["maximum_ns"] == max(result["samples_ns"])
+                assert result["minimum_ns"] <= result["median_ns"] <= result["maximum_ns"]
+                assert result["extrapolated_147_frames_ns"] > 0
 
 
 def test_issue_73_evidence_reports_decode_throughput_before_and_after() -> None:
