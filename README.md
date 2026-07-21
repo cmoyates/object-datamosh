@@ -852,14 +852,15 @@ The reusable-bilinear-plan prototype was benchmarked in clean detached worktrees
 ```
 
 On the recorded Apple M3 Max environment, reusing one frame-local plan for RGBA history and scalar
-Trail coverage increased the two-sample median from 175.87 ms to 211.80 ms (20.43% slower), while
-the complete 1080p Extreme feedback median increased from 290.05 ms to 309.90 ms (6.84% slower).
-The plan retained 85,017,600 bytes, and measured process peak RSS grew by 85.30 MiB. Sampled RGBA,
-sampled scalar coverage, validity, feedback output, next state, effect coverage, and diagnostics
-were all bit-identical (maximum error 0). The roadmap decision is to reject the plan: it was slower,
-increased memory use, and did not justify production complexity. No plan abstraction remains in the
-processing core. Full stage distributions, environment, provenance, allocation proxy, prototype
-contract-test receipt, and decision are in
+Trail coverage increased the two-sample median from 167.78 ms to 174.68 ms (4.11% slower). The
+complete 1080p Extreme feedback median decreased from 292.21 ms to 284.07 ms (a modest 2.79% gain),
+while the plan retained 85,017,600 bytes and measured process peak RSS grew by 98.77 MiB. Sampled
+RGBA, sampled scalar coverage, validity, feedback output, next state, effect coverage, and
+diagnostics were all bit-identical (maximum error 0). The roadmap decision is to reject the plan:
+the reusable sampling work itself was slower, and the small full-feedback result did not justify the
+memory cost or production complexity. No plan abstraction remains in the processing core. Full
+stage distributions, environment, provenance, allocation proxy, prototype contract-test receipt,
+and decision are in
 [`docs/evidence/issue-78-bilinear-plans.json`](docs/evidence/issue-78-bilinear-plans.json).
 These developer measurements are not timing gates or performance claims for another machine.
 

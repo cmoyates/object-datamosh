@@ -2,117 +2,117 @@
   "benchmarks": {
     "before": {
       "full_feedback": {
-        "maximum_ns": 303824875,
+        "maximum_ns": 303702041,
         "measured_count": 5,
-        "median_ns": 290052833,
-        "minimum_ns": 284063917
+        "median_ns": 292214750,
+        "minimum_ns": 290041958
       },
       "memory": {
         "practical_allocation_proxy": {
           "coordinate_inputs_bytes": 16588800,
           "retained_plan_bytes": 0
         },
-        "process_peak_rss_mib": 846.671875
+        "process_peak_rss_mib": 707.828125
       },
       "stages": {
         "repeated_rgba": {
-          "maximum_ns": 154786208,
+          "maximum_ns": 171629541,
           "measured_count": 5,
-          "median_ns": 143034125,
-          "minimum_ns": 121406959
+          "median_ns": 158999541,
+          "minimum_ns": 128692750
         },
         "repeated_scalar": {
-          "maximum_ns": 39571791,
+          "maximum_ns": 40176917,
           "measured_count": 5,
-          "median_ns": 39273791,
-          "minimum_ns": 38871125
+          "median_ns": 39488333,
+          "minimum_ns": 39054417
         },
         "repeated_total": {
-          "maximum_ns": 192257208,
+          "maximum_ns": 169788000,
           "measured_count": 5,
-          "median_ns": 175872458,
-          "minimum_ns": 159704291
+          "median_ns": 167780709,
+          "minimum_ns": 158262458
         }
       }
     },
     "prototype": {
       "full_feedback": {
-        "maximum_ns": 323659833,
+        "maximum_ns": 302358042,
         "measured_count": 5,
-        "median_ns": 309895583,
-        "minimum_ns": 276289917
+        "median_ns": 284065250,
+        "minimum_ns": 280374875
       },
       "memory": {
         "practical_allocation_proxy": {
           "coordinate_inputs_bytes": 16588800,
           "retained_plan_bytes": 85017600
         },
-        "process_peak_rss_mib": 931.96875
+        "process_peak_rss_mib": 806.59375
       },
       "stages": {
         "plan_construction": {
-          "maximum_ns": 11337958,
+          "maximum_ns": 11394000,
           "measured_count": 5,
-          "median_ns": 11039542,
-          "minimum_ns": 10732125
+          "median_ns": 10976125,
+          "minimum_ns": 10896084
         },
         "planned_rgba": {
-          "maximum_ns": 168687375,
+          "maximum_ns": 157606667,
           "measured_count": 5,
-          "median_ns": 156352000,
-          "minimum_ns": 150666541
+          "median_ns": 139690292,
+          "minimum_ns": 120019458
         },
         "planned_scalar": {
-          "maximum_ns": 28381750,
+          "maximum_ns": 28544625,
           "measured_count": 5,
-          "median_ns": 28166500,
-          "minimum_ns": 27854083
+          "median_ns": 28141458,
+          "minimum_ns": 27784458
         },
         "planned_total": {
-          "maximum_ns": 220623291,
+          "maximum_ns": 199787958,
           "measured_count": 5,
-          "median_ns": 211804458,
-          "minimum_ns": 173267541
+          "median_ns": 174679042,
+          "minimum_ns": 158352375
         },
         "repeated_rgba": {
-          "maximum_ns": 169024416,
+          "maximum_ns": 145922041,
           "measured_count": 5,
-          "median_ns": 151515750,
-          "minimum_ns": 128209375
+          "median_ns": 134564750,
+          "minimum_ns": 128954416
         },
         "repeated_scalar": {
-          "maximum_ns": 40107584,
+          "maximum_ns": 40640792,
           "measured_count": 5,
-          "median_ns": 39619708,
-          "minimum_ns": 38691125
+          "median_ns": 39899958,
+          "minimum_ns": 38741375
         },
         "repeated_total": {
-          "maximum_ns": 220996500,
+          "maximum_ns": 189482958,
           "measured_count": 5,
-          "median_ns": 203169334,
-          "minimum_ns": 190145084
+          "median_ns": 171978708,
+          "minimum_ns": 165639500
         }
       }
     }
   },
   "comparison": {
     "complete_feedback": {
-      "after_median_ns": 309895583,
-      "before_median_ns": 290052833,
-      "reduction_percent": -6.8410812591511565,
-      "speedup": 0.9359695617216978
+      "after_median_ns": 284065250,
+      "before_median_ns": 292214750,
+      "reduction_percent": 2.7888735938209828,
+      "speedup": 1.0286888311752318
     },
-    "peak_rss_growth_mib": 85.296875,
+    "peak_rss_growth_mib": 98.765625,
     "repeated_vs_planned_two_samples": {
-      "after_median_ns": 211804458,
-      "before_median_ns": 175872458,
-      "reduction_percent": -20.43071462616392,
-      "speedup": 0.8303529569712834
+      "after_median_ns": 174679042,
+      "before_median_ns": 167780709,
+      "reduction_percent": -4.1115173735497805,
+      "speedup": 0.9605085251154515
     },
     "retained_plan_bytes": 85017600
   },
   "decision": "reject",
-  "decision_reason": "The plan increased the complete 1080p Extreme feedback median by 6.84%, required an 85,017,600-byte frame-local plan, and increased measured process peak RSS by 85.30 MiB. It was slower, increased memory use, and did not justify additional production abstraction.",
+  "decision_reason": "The plan made construction plus both planned samples 4.11% slower and retained 85,017,600 bytes. The complete 1080p Extreme feedback median improved by only 2.79% while measured process peak RSS increased by 98.77 MiB, so the small timing result did not justify the memory cost or additional production abstraction.",
   "environment": {
     "blender": "5.2.0 LTS",
     "cpu": "Apple M3 Max",
@@ -151,6 +151,7 @@
     "One warm-up preceded five measured iterations for every independently measured stage.",
     "The repeated baseline was measured in both runs; the cross-revision comparison uses the pinned base revision.",
     "Planned total includes plan construction plus both planned samples; construction, RGBA, and scalar samples were also measured separately.",
+    "Benchmark-only plans and sampled outputs were released before complete-feedback timing, so no unrelated retained plan inflated that stage.",
     "Peak RSS is process-wide; retained plan bytes are the exact NumPy nbytes allocation proxy.",
     "Plans were frame-local and were not retained between frames.",
     "Sampling outputs, sampling validity, feedback output, next state, effect coverage, and diagnostics had matching SHA-256 digests.",
@@ -180,14 +181,14 @@
   "revisions": {
     "before": {
       "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
-      "runner_blob": "a96aa0e23cea58f7cb022eac28c26e3bb7edbf33",
-      "runner_sha": "9aad7d44bed937958ec1294abaf3b39320ba3342",
+      "runner_blob": "b49848cee4a490d24d692035f99bceefc5ccbd16",
+      "runner_sha": "b0c006766a094ffcb03f00eedf2ef2b5f4042750",
       "sha": "b0f20d49cde073cc0d125121c36e23ec71218a47"
     },
     "prototype": {
       "feedback_blob": "b792af0d8aeeeddc3217e6be181147dcd6e2a7ff",
-      "runner_blob": "a96aa0e23cea58f7cb022eac28c26e3bb7edbf33",
-      "runner_sha": "9aad7d44bed937958ec1294abaf3b39320ba3342",
+      "runner_blob": "b49848cee4a490d24d692035f99bceefc5ccbd16",
+      "runner_sha": "b0c006766a094ffcb03f00eedf2ef2b5f4042750",
       "sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da"
     }
   },
