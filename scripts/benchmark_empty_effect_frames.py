@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +21,11 @@ import numpy as np
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 REVISION_SHAS = {
     "before": "ad39b77625741399730ce78678b64d7b24eee64f",
-    "after": "d18e48aa9283a2039d87a7f2f4e21ac5b304d715",
+    "after": "f033acf155bdbb898c6912293d58645aed406cbc",
 }
 CORE_BLOBS = {
     "before": "1db7511dbba9922aa651a17fb3b6afe223f99807",
-    "after": "6aa5bc09896dda8011b9ca319208822977686b85",
+    "after": "461e40863c1db167d1627b05e12cd366962a4b78",
 }
 WIDTH = 1920
 HEIGHT = 1080
@@ -48,6 +48,7 @@ if str(SRC) not in sys.path:
 from object_datamosh.benchmarking import summarize_samples  # noqa: E402
 from object_datamosh.core.contracts import (  # noqa: E402
     FeedbackMode,
+    FeedbackSettings,
     FeedbackState,
 )
 from object_datamosh.core.feedback import process_frame_with_diagnostics  # noqa: E402
@@ -157,9 +158,8 @@ def _fixtures() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return beauty, history, motion, empty
 
 
-def _settings(mode: FeedbackMode) -> Any:
-    settings = extreme_full_frame_feedback_settings()
-    return type(settings)(**{**asdict(settings), "mode": mode})
+def _settings(mode: FeedbackMode) -> FeedbackSettings:
+    return replace(extreme_full_frame_feedback_settings(), mode=mode)
 
 
 def _run_core(
@@ -197,19 +197,23 @@ class _BenchmarkImageIO:
         self.motion = motion
         self.matte = matte
 
-    def read_rgba(self, path: Path) -> np.ndarray:
+    def read_rgba(self, path: str | Path) -> np.ndarray:
+        path = Path(path)
         if path.parent.name == "beauty":
             return self.beauty.copy()
         if path.parent.name == "vector":
             return self.motion.copy()
         raise AssertionError(f"unexpected RGBA read: {path}")
 
-    def read_mask(self, path: Path) -> np.ndarray:
+    def read_mask(self, path: str | Path) -> np.ndarray:
+        path = Path(path)
         if path.parent.name != "matte":
             raise AssertionError(f"unexpected mask read: {path}")
         return self.matte.copy()
 
-    def write_rgba(self, path: Path, _pixels: np.ndarray) -> None:
+    def write_rgba(self, path: str | Path, pixels: np.ndarray) -> None:
+        del pixels
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
 
