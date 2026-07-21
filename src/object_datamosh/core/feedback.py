@@ -83,6 +83,24 @@ def _validate_inputs(
         raise ValueError("previous state dimensions must match the current frame")
 
 
+def _can_skip_empty_effect_work(
+    matte: FloatMask,
+    previous_state: FeedbackState | None,
+    mode: FeedbackMode,
+    reset: bool,
+) -> bool:
+    """Return whether a non-reset frame cannot contain current or historical effect."""
+    if reset or np.any(matte > 0.0):
+        return False
+    if mode is FeedbackMode.HARD_LOCALIZED:
+        return True
+    if previous_state is None:
+        return False
+    prior_coverage = previous_state.history_matte
+    valid = np.isfinite(prior_coverage) & (prior_coverage >= 0.0) & (prior_coverage <= 1.0)
+    return bool(np.all(valid) and not np.any(prior_coverage > 0.0))
+
+
 def process_frame(
     beauty: FloatImage,
     motion: FloatImage,
@@ -123,6 +141,7 @@ def process_frame_with_diagnostics(
         raise TypeError("force_reset must be a boolean")
     _validate_inputs(beauty, motion, matte, previous_state)
     reset = previous_state is None or force_reset
+    empty_effect = _can_skip_empty_effect_work(matte, previous_state, settings.mode, reset)
     primary_attempt = np.zeros(matte.shape, dtype=bool)
     primary_valid = np.zeros(matte.shape, dtype=bool)
     fallback_attempt = np.zeros(matte.shape, dtype=bool)
@@ -130,7 +149,7 @@ def process_frame_with_diagnostics(
     blend = np.zeros((*matte.shape, 1), dtype=np.float32)
     refresh_pixels = 0
     refresh_blocks = 0
-    if reset:
+    if reset or empty_effect:
         output = beauty.copy()
         next_matte = matte
         localized_history = matte
