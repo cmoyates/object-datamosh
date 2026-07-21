@@ -814,6 +814,30 @@ uses deterministic 1920×1080 float32 Extreme input. Median total core processin
 were bit-identical. Stage figures are developer evidence, not CI timing gates or claims about other
 machines.
 
+The empty-effect fast path benchmark uses the same provenance-checked worktree pattern:
+
+```bash
+UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py \
+  --revision before --source-root /tmp/odm-issue77-before --warmups 1 --measured 3 \
+  --output /tmp/issue77-before.json
+UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py \
+  --revision after --source-root /tmp/odm-issue77-after --warmups 1 --measured 3 \
+  --output /tmp/issue77-after.json
+UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py \
+  --compare-before /tmp/issue77-before.json --compare-after /tmp/issue77-after.json \
+  --output /tmp/issue77-comparison.json
+```
+
+On the recorded Apple M3 Max environment, median 60-frame background-only Trail core time fell
+from 20.140 s to 2.855 s (85.83%, 7.06×), and its complete in-memory sequence-processing time fell
+from 21.354 s to 3.021 s (85.85%, 7.07×). Empty Hard and Trail core frames improved by 84.86% and
+86.51%. The nonempty mixed PERF-1 core median varied by -2.63%, showing no supported fast-path gain
+outside eligible empty frames. Processed RGBA, next state, effect coverage, and diagnostics were
+bit-identical (maximum error 0). The end-to-end fixture includes manifest/report commits but
+intentionally excludes EXR codec cost; full commands and distributions are in
+[`docs/evidence/issue-77-empty-effect-frames.json`](docs/evidence/issue-77-empty-effect-frames.json).
+These developer measurements are not timing gates or performance claims for another machine.
+
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
 (89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
 143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.

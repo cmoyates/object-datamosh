@@ -1,0 +1,262 @@
+{
+  "benchmarks": {
+    "after": {
+      "empty_hard_core": {
+        "extrapolated_147_frames_ns": 6923926674,
+        "maximum_ns": 47608375,
+        "measured_count": 3,
+        "median_ns": 47101542,
+        "minimum_ns": 46187916
+      },
+      "empty_hard_end_to_end": {
+        "extrapolated_147_frames_ns": 14501966451,
+        "maximum_ns": 101011167,
+        "measured_count": 3,
+        "median_ns": 98652833,
+        "minimum_ns": 96779250
+      },
+      "empty_trail_core": {
+        "extrapolated_147_frames_ns": 6958569576,
+        "maximum_ns": 47754625,
+        "measured_count": 3,
+        "median_ns": 47337208,
+        "minimum_ns": 47162834
+      },
+      "empty_trail_end_to_end": {
+        "extrapolated_147_frames_ns": 14611659174,
+        "maximum_ns": 99949667,
+        "measured_count": 3,
+        "median_ns": 99399042,
+        "minimum_ns": 98924958
+      },
+      "mixed_perf_1_core": {
+        "extrapolated_147_frames_ns": 149830601424,
+        "maximum_ns": 1036584958,
+        "measured_count": 3,
+        "median_ns": 1019255792,
+        "minimum_ns": 970572208
+      },
+      "mixed_perf_1_end_to_end": {
+        "extrapolated_147_frames_ns": 107129759625,
+        "maximum_ns": 748189083,
+        "measured_count": 3,
+        "median_ns": 728773875,
+        "minimum_ns": 708570459
+      },
+      "preroll_30_core": {
+        "extrapolated_147_frames_ns": 208589196375,
+        "maximum_ns": 1419974375,
+        "measured_count": 3,
+        "median_ns": 1418974125,
+        "minimum_ns": 1407129500
+      },
+      "preroll_30_end_to_end": {
+        "extrapolated_147_frames_ns": 225618705375,
+        "maximum_ns": 1540639417,
+        "measured_count": 3,
+        "median_ns": 1534821125,
+        "minimum_ns": 1533757083
+      },
+      "preroll_60_core": {
+        "extrapolated_147_frames_ns": 419624632098,
+        "maximum_ns": 2855658917,
+        "measured_count": 3,
+        "median_ns": 2854589334,
+        "minimum_ns": 2811847250
+      },
+      "preroll_60_end_to_end": {
+        "extrapolated_147_frames_ns": 444115867125,
+        "maximum_ns": 3049734959,
+        "measured_count": 3,
+        "median_ns": 3021196375,
+        "minimum_ns": 2990613625
+      }
+    },
+    "before": {
+      "empty_hard_core": {
+        "extrapolated_147_frames_ns": 45725777223,
+        "maximum_ns": 315553542,
+        "measured_count": 3,
+        "median_ns": 311059709,
+        "minimum_ns": 287791417
+      },
+      "empty_hard_end_to_end": {
+        "extrapolated_147_frames_ns": 52578090201,
+        "maximum_ns": 364885084,
+        "measured_count": 3,
+        "median_ns": 357674083,
+        "minimum_ns": 350528667
+      },
+      "empty_trail_core": {
+        "extrapolated_147_frames_ns": 51572010000,
+        "maximum_ns": 351331458,
+        "measured_count": 3,
+        "median_ns": 350830000,
+        "minimum_ns": 347663125
+      },
+      "empty_trail_end_to_end": {
+        "extrapolated_147_frames_ns": 58035777576,
+        "maximum_ns": 395218958,
+        "measured_count": 3,
+        "median_ns": 394801208,
+        "minimum_ns": 373973041
+      },
+      "mixed_perf_1_core": {
+        "extrapolated_147_frames_ns": 145996326924,
+        "maximum_ns": 1018929375,
+        "measured_count": 3,
+        "median_ns": 993172292,
+        "minimum_ns": 968465625
+      },
+      "mixed_perf_1_end_to_end": {
+        "extrapolated_147_frames_ns": 110298730500,
+        "maximum_ns": 785445584,
+        "measured_count": 3,
+        "median_ns": 750331500,
+        "minimum_ns": 746452208
+      },
+      "preroll_30_core": {
+        "extrapolated_147_frames_ns": 1484942997174,
+        "maximum_ns": 10237145667,
+        "measured_count": 3,
+        "median_ns": 10101653042,
+        "minimum_ns": 10088643541
+      },
+      "preroll_30_end_to_end": {
+        "extrapolated_147_frames_ns": 1525672446375,
+        "maximum_ns": 10529159666,
+        "measured_count": 3,
+        "median_ns": 10378724125,
+        "minimum_ns": 10245997167
+      },
+      "preroll_60_core": {
+        "extrapolated_147_frames_ns": 2960619003951,
+        "maximum_ns": 20324990250,
+        "measured_count": 3,
+        "median_ns": 20140265333,
+        "minimum_ns": 20078973833
+      },
+      "preroll_60_end_to_end": {
+        "extrapolated_147_frames_ns": 3139105148424,
+        "maximum_ns": 21476070417,
+        "measured_count": 3,
+        "median_ns": 21354456792,
+        "minimum_ns": 21234653125
+      }
+    }
+  },
+  "commands": {
+    "after_core": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py --revision after --source-root /tmp/odm-issue77-after --suite core --warmups 1 --measured 3 --output /tmp/issue77-after-core-final.json",
+    "after_end_to_end": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py --revision after --source-root /tmp/odm-issue77-after --suite end-to-end --warmups 1 --measured 3 --output /tmp/issue77-after-e2e-final.json",
+    "before_core": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py --revision before --source-root /tmp/odm-issue77-before --suite core --warmups 1 --measured 3 --output /tmp/issue77-before-core-final.json",
+    "before_end_to_end": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py --revision before --source-root /tmp/odm-issue77-before --suite end-to-end --warmups 1 --measured 3 --output /tmp/issue77-before-e2e-final.json",
+    "comparison": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_empty_effect_frames.py --compare-before /tmp/issue77-before-final.json --compare-after /tmp/issue77-after-final.json --output /tmp/issue77-comparison-final.json"
+  },
+  "comparisons": {
+    "empty_hard_core": {
+      "median_reduction_percent": 84.86,
+      "speedup_multiple": 6.6
+    },
+    "empty_hard_end_to_end": {
+      "median_reduction_percent": 72.42,
+      "speedup_multiple": 3.63
+    },
+    "empty_trail_core": {
+      "median_reduction_percent": 86.51,
+      "speedup_multiple": 7.41
+    },
+    "empty_trail_end_to_end": {
+      "median_reduction_percent": 74.82,
+      "speedup_multiple": 3.97
+    },
+    "mixed_perf_1_core": {
+      "median_reduction_percent": -2.63,
+      "speedup_multiple": 0.97
+    },
+    "mixed_perf_1_end_to_end": {
+      "median_reduction_percent": 2.87,
+      "speedup_multiple": 1.03
+    },
+    "preroll_30_core": {
+      "median_reduction_percent": 85.95,
+      "speedup_multiple": 7.12
+    },
+    "preroll_30_end_to_end": {
+      "median_reduction_percent": 85.21,
+      "speedup_multiple": 6.76
+    },
+    "preroll_60_core": {
+      "median_reduction_percent": 85.83,
+      "speedup_multiple": 7.06
+    },
+    "preroll_60_end_to_end": {
+      "median_reduction_percent": 85.85,
+      "speedup_multiple": 7.07
+    }
+  },
+  "environment": {
+    "blender": "Blender 5.2.0 LTS",
+    "cpu": "Apple M3 Max",
+    "numpy": "2.5.1",
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.8"
+  },
+  "fixture": {
+    "deterministic_seed": 77077,
+    "dtype": "float32",
+    "preset": "extreme_full_frame_feedback_settings",
+    "shape": [
+      1080,
+      1920,
+      4
+    ]
+  },
+  "issue": 77,
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "measured_count": 3,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "warmup_count": 1
+  },
+  "notes": [
+    "Before and after used separate clean worktrees on the same machine and one committed runner.",
+    "Core and end-to-end suites were run sequentially; their JSON benchmark maps were combined without altering samples before comparison.",
+    "Core workloads begin from non-reset history; end-to-end workloads include one reset frame plus the named eligible frames.",
+    "End-to-end measurements use process_sequence with deterministic in-memory pass reads and marker-only writes, including recovery/report commits but excluding EXR codec cost.",
+    "mixed_perf_1 uses the three-frame canonical 1080p Extreme core shape with nonempty target coverage.",
+    "Benchmarks are developer evidence, not CI timing gates."
+  ],
+  "revisions": {
+    "after": {
+      "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
+      "sha": "f033acf155bdbb898c6912293d58645aed406cbc"
+    },
+    "before": {
+      "feedback_blob": "1db7511dbba9922aa651a17fb3b6afe223f99807",
+      "sha": "ad39b77625741399730ce78678b64d7b24eee64f"
+    }
+  },
+  "schema_version": 1,
+  "semantic_comparison": {
+    "bit_equal": true,
+    "digests": {
+      "empty_hard": "8489291fa4f9ce66984a1108ea6727a721620760caeb9ea5c9f1ae0a0d3b7255",
+      "empty_trail": "8489291fa4f9ce66984a1108ea6727a721620760caeb9ea5c9f1ae0a0d3b7255",
+      "mixed_perf_1": "44a2dc69f0a53ffd252df40efc5fd2ee50e9b9b67a4e5160c68f98c6de854375",
+      "preroll_30": "486c4dcfde836c06c4687cab4765c0bf2ecf96ae7ca328700379e19e45620cc0",
+      "preroll_60": "d4f2327edcfbb2b5022120236b6f6ab26a7ef30fc8e6dcacae3eafd1e108af07"
+    },
+    "maximum_absolute_error": 0.0,
+    "scope": [
+      "processed RGBA",
+      "next history",
+      "next effect coverage",
+      "FrameDiagnostics"
+    ]
+  }
+}
