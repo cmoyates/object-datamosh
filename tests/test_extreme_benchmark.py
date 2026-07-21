@@ -25,6 +25,9 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert "extreme_full_frame_feedback_settings" in script
     assert "TemporaryDirectory" in script
     assert "process_frame_with_diagnostics" in script
+    assert '"zip_predictor_reversal"' in script
+    assert '"all_three"' in script
+    assert '"bytes_per_second"' in script
     benchmark_command = (
         '"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py'
     )

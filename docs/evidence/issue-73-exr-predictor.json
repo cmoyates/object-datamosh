@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "issue": 73,
+  "decision": "keep vectorized NumPy predictor reversal",
+  "environment": {
+    "python": "3.13.13",
+    "numpy": "2.3.4",
+    "blender": "5.2.0 LTS",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "cpu": "arm"
+  },
+  "predictor_reversal": {
+    "environment": {
+      "python": "3.13.13",
+      "numpy": "2.3.4",
+      "blender": "5.2.0 LTS",
+      "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+      "cpu": "arm"
+    },
+    "methodology": {
+      "warmups": 1,
+      "measured": 3,
+      "bytes_per_sample": 491520,
+      "fixture": "deterministic random full-float 16-scanline 1920px RGBA ZIP block"
+    },
+    "before": {
+      "samples_ns": [
+        32473750,
+        33012083,
+        31230500
+      ],
+      "median_ns": 32473750,
+      "bytes_per_second": 15135917
+    },
+    "after": {
+      "samples_ns": [
+        1403416,
+        1262208,
+        1234000
+      ],
+      "median_ns": 1262208,
+      "bytes_per_second": 389412838
+    }
+  },
+  "full_float_zip_decode": {
+    "methodology": {
+      "warmups": 1,
+      "measured": 3,
+      "width": 1920,
+      "height": 1080,
+      "dtype": "float32 RGBA",
+      "compression": "Blender ZIP",
+      "seed": 73073
+    },
+    "before": {
+      "beauty": {
+        "samples_ns": [
+          2041482250,
+          2041755459,
+          2032796458
+        ],
+        "minimum_ns": 2032796458,
+        "median_ns": 2041482250,
+        "maximum_ns": 2041755459
+      },
+      "vector": {
+        "samples_ns": [
+          1828800000,
+          1833245625,
+          1849768667
+        ],
+        "minimum_ns": 1828800000,
+        "median_ns": 1833245625,
+        "maximum_ns": 1849768667
+      },
+      "matte": {
+        "samples_ns": [
+          1800527541,
+          1803112417,
+          1802571500
+        ],
+        "minimum_ns": 1800527541,
+        "median_ns": 1802571500,
+        "maximum_ns": 1803112417
+      },
+      "all_three": {
+        "samples_ns": [
+          5713063416,
+          5705311792,
+          5721746875
+        ],
+        "minimum_ns": 5705311792,
+        "median_ns": 5713063416,
+        "maximum_ns": 5721746875
+      }
+    },
+    "after": {
+      "beauty": {
+        "samples_ns": [
+          167200834,
+          168557583,
+          170781250
+        ],
+        "minimum_ns": 167200834,
+        "median_ns": 168557583,
+        "maximum_ns": 170781250
+      },
+      "vector": {
+        "samples_ns": [
+          129589833,
+          131177125,
+          130970667
+        ],
+        "minimum_ns": 129589833,
+        "median_ns": 130970667,
+        "maximum_ns": 131177125
+      },
+      "matte": {
+        "samples_ns": [
+          105809583,
+          109845291,
+          112718541
+        ],
+        "minimum_ns": 105809583,
+        "median_ns": 109845291,
+        "maximum_ns": 112718541
+      },
+      "all_three": {
+        "samples_ns": [
+          406391583,
+          405286584,
+          411929792
+        ],
+        "minimum_ns": 405286584,
+        "median_ns": 406391583,
+        "maximum_ns": 411929792
+      }
+    }
+  },
+  "extreme_benchmark_after": {
+    "methodology": {
+      "clock": "perf_counter_ns",
+      "extrapolation_frames": 147,
+      "measured_count": 3,
+      "statistics": [
+        "median",
+        "minimum",
+        "maximum"
+      ],
+      "threshold": null,
+      "warmup_count": 1
+    },
+    "exr_reads": {
+      "all_three": {
+        "extrapolated_147_frames_ns": 2219271201,
+        "maximum_ns": 15378500,
+        "measured_count": 3,
+        "median_ns": 15097083,
+        "minimum_ns": 14980625
+      },
+      "beauty": {
+        "extrapolated_147_frames_ns": 1200567375,
+        "maximum_ns": 8311791,
+        "measured_count": 3,
+        "median_ns": 8167125,
+        "minimum_ns": 7886750
+      },
+      "matte": {
+        "extrapolated_147_frames_ns": 555323076,
+        "maximum_ns": 4362541,
+        "measured_count": 3,
+        "median_ns": 3777708,
+        "minimum_ns": 3765334
+      },
+      "vector": {
+        "extrapolated_147_frames_ns": 521360049,
+        "maximum_ns": 3608417,
+        "measured_count": 3,
+        "median_ns": 3546667,
+        "minimum_ns": 3381750
+      }
+    },
+    "zip_predictor_reversal": {
+      "bytes_per_sample": 491520,
+      "bytes_per_second": 411184774,
+      "extrapolated_147_frames_ns": 175720125,
+      "maximum_ns": 1201000,
+      "measured_count": 3,
+      "median_ns": 1195375,
+      "minimum_ns": 1191750
+    }
+  },
+  "equivalence": {
+    "predictor_bytes": "bit-identical against scalar reference for benchmark fixture and tests",
+    "decoded_arrays": "predictor byte equality makes decoded float32 arrays bit-identical; Blender smoke independently validates generated multilayer pass arrays"
+  }
+}

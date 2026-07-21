@@ -145,11 +145,19 @@ def _read_c_string(data: bytes, position: int) -> tuple[str, int]:
 
 
 def _undo_zip_preprocessing(value: bytes) -> bytes:
-    predicted = bytearray(value)
-    for index in range(1, len(predicted)):
-        predicted[index] = (predicted[index - 1] + predicted[index] - 128) & 0xFF
-    half = (len(predicted) + 1) // 2
-    restored = bytearray(len(predicted))
+    """Reverse OpenEXR ZIP prediction and byte reordering."""
+    if not value:
+        return b""
+
+    encoded = np.frombuffer(value, dtype=np.uint8)
+    predicted = np.empty(encoded.size, dtype=np.uint8)
+    predicted[0] = encoded[0]
+    if encoded.size > 1:
+        deltas = encoded[1:].astype(np.int64) - 128
+        predicted[1:] = encoded[0].astype(np.int64) + np.cumsum(deltas, dtype=np.int64)
+
+    half = (predicted.size + 1) // 2
+    restored = np.empty_like(predicted)
     restored[0::2] = predicted[:half]
     restored[1::2] = predicted[half:]
-    return bytes(restored)
+    return restored.tobytes()

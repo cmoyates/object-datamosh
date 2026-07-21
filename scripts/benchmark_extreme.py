@@ -24,6 +24,7 @@ from object_datamosh.benchmarking import summarize_samples  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.core.block_preparation import prepare_blocks  # noqa: E402
 from object_datamosh.core.contracts import FeedbackState  # noqa: E402
+from object_datamosh.core.exr import _undo_zip_preprocessing  # noqa: E402
 from object_datamosh.core.feedback import (  # noqa: E402
     _apply_refresh,
     process_frame_with_diagnostics,
@@ -136,6 +137,15 @@ def main() -> None:
         args.warmups,
         args.measured,
     )
+    predictor_bytes = WIDTH * min(16, HEIGHT) * 4 * np.dtype(np.float32).itemsize
+    predictor_fixture = (
+        np.random.default_rng(SEED + 1)
+        .integers(0, 256, size=predictor_bytes, dtype=np.uint8)
+        .tobytes()
+    )
+    predictor_samples = _measure(
+        lambda: _undo_zip_preprocessing(predictor_fixture), args.warmups, args.measured
+    )
     with tempfile.TemporaryDirectory(prefix="ODM_extreme_benchmark_") as temporary:
         paths = SequencePaths(Path(temporary))
         image_io = BlenderImageIO(bpy.context.scene)
@@ -149,6 +159,15 @@ def main() -> None:
                 lambda: image_io.read_rgba(frame.vector), args.warmups, args.measured
             ),
             "matte": _measure(lambda: image_io.read_mask(frame.matte), args.warmups, args.measured),
+            "all_three": _measure(
+                lambda: (
+                    image_io.read_rgba(frame.beauty),
+                    image_io.read_rgba(frame.vector),
+                    image_io.read_mask(frame.matte),
+                ),
+                args.warmups,
+                args.measured,
+            ),
         }
         write_samples = _measure(
             lambda: image_io.write_rgba(frame.processed, beauty),
@@ -170,7 +189,13 @@ def main() -> None:
         end_to_end_samples = _measure(complete_sequence, args.warmups, args.measured)
         processing_report = json.loads(processing_report_path(paths).read_text(encoding="utf-8"))
 
+    predictor_summary = summarize_samples(predictor_samples)
+    predictor_summary["bytes_per_second"] = int(
+        predictor_bytes * 1_000_000_000 / predictor_summary["median_ns"]
+    )
+    predictor_summary["bytes_per_sample"] = predictor_bytes
     benchmarks: dict[str, Any] = {
+        "zip_predictor_reversal": predictor_summary,
         "block_preparation": summarize_samples(block_preparation_samples),
         "refresh_diagnostics": summarize_samples(refresh_diagnostics_samples),
         "pure_core_non_reset_frame": summarize_samples(core_samples),
