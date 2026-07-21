@@ -8,7 +8,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from object_datamosh.core.exr import _undo_zip_preprocessing, read_full_float_rgba
+from object_datamosh.core.exr import (
+    InvalidOpenEXRError,
+    UnsupportedOpenEXRError,
+    _undo_zip_preprocessing,
+    read_full_float_rgba,
+)
 
 
 def _reference_undo_zip_preprocessing(value: bytes) -> bytes:
@@ -45,13 +50,24 @@ def _attribute(name: str, attribute_type: str, value: bytes) -> bytes:
     )
 
 
-def _small_multilayer_exr(pixels: np.ndarray, *, compression: int) -> bytes:
-    """Construct a deterministic subset of Blender's full-float multilayer EXR layout."""
+def _small_multilayer_exr(
+    pixels: np.ndarray,
+    *,
+    compression: int,
+    pixel_type: int = 2,
+    channel_components: tuple[tuple[str, int], ...] = (
+        ("Image.A", 3),
+        ("Image.B", 2),
+        ("Image.G", 1),
+        ("Image.R", 0),
+    ),
+    version_flags: int = 0,
+) -> bytes:
+    """Construct a deterministic subset of Blender's scanline EXR layout."""
     height, width, _components = pixels.shape
-    channel_components = (("Image.A", 3), ("Image.B", 2), ("Image.G", 1), ("Image.R", 0))
     channel_list = (
         b"".join(
-            name.encode("ascii") + b"\0" + struct.pack("<iB3xii", 2, 0, 1, 1)
+            name.encode("ascii") + b"\0" + struct.pack("<iB3xii", pixel_type, 0, 1, 1)
             for name, _component in channel_components
         )
         + b"\0"
@@ -59,7 +75,7 @@ def _small_multilayer_exr(pixels: np.ndarray, *, compression: int) -> bytes:
     data_window = struct.pack("<4i", 0, 0, width - 1, height - 1)
     header = (
         b"v/1\x01"
-        + struct.pack("<I", 2)
+        + struct.pack("<I", 2 | version_flags)
         + _attribute("channels", "chlist", channel_list)
         + _attribute("compression", "compression", bytes([compression]))
         + _attribute("dataWindow", "box2i", data_window)
@@ -70,7 +86,7 @@ def _small_multilayer_exr(pixels: np.ndarray, *, compression: int) -> bytes:
         + _attribute("screenWindowWidth", "float", struct.pack("<f", 1.0))
         + b"\0"
     )
-    lines_per_block = {2: 1, 3: 16}[compression]
+    lines_per_block = {2: 1, 3: 16}.get(compression, 1)
     blocks: list[bytes] = []
     for first_y in range(0, height, lines_per_block):
         line_count = min(lines_per_block, height - first_y)
@@ -91,6 +107,16 @@ def _small_multilayer_exr(pixels: np.ndarray, *, compression: int) -> bytes:
         offsets.append(next_offset)
         next_offset += len(block)
     return header + struct.pack(f"<{len(offsets)}Q", *offsets) + b"".join(blocks)
+
+
+def _exr_header_end(fixture: bytes) -> int:
+    position = 8
+    while fixture[position] != 0:
+        position = fixture.index(0, position) + 1
+        position = fixture.index(0, position) + 1
+        size = struct.unpack_from("<I", fixture, position)[0]
+        position += 4 + size
+    return position + 1
 
 
 def _representable_pass_pixels(pass_name: str, *, height: int = 17, width: int = 32) -> np.ndarray:
@@ -144,6 +170,20 @@ def test_read_full_float_rgba_decodes_reference_zip_layout_bit_identically(
     np.testing.assert_array_equal(read_full_float_rgba(path), expected)
 
 
+def test_read_full_float_rgba_decodes_regular_zip_rgba_bit_identically(tmp_path: Path) -> None:
+    expected = _representable_pass_pixels("beauty")
+    path = tmp_path / "regular_rgba_zip.exr"
+    path.write_bytes(
+        _small_multilayer_exr(
+            expected,
+            compression=3,
+            channel_components=(("A", 3), ("B", 2), ("G", 1), ("R", 0)),
+        )
+    )
+
+    np.testing.assert_array_equal(read_full_float_rgba(path), expected)
+
+
 def test_read_full_float_rgba_decodes_reference_zips_layout_bit_identically(
     tmp_path: Path,
 ) -> None:
@@ -164,12 +204,78 @@ def test_read_full_float_rgba_decodes_reference_matte_bit_identically(tmp_path: 
     np.testing.assert_array_equal(read_full_float_rgba(path), expected)
 
 
+@pytest.mark.parametrize(
+    ("compression", "pixel_type", "channels", "version_flags", "message"),
+    [
+        (0, 2, None, 0, "compression 0"),
+        (4, 2, None, 0, "compression 4"),
+        (3, 1, None, 0, "full-float"),
+        (3, 2, (("R", 0), ("G", 1), ("B", 2)), 0, "RGBA"),
+        (3, 2, None, 0x00000200, "Tiled"),
+    ],
+)
+def test_read_full_float_rgba_classifies_valid_unsupported_variants(
+    tmp_path: Path,
+    compression: int,
+    pixel_type: int,
+    channels: tuple[tuple[str, int], ...] | None,
+    version_flags: int,
+    message: str,
+) -> None:
+    path = tmp_path / "unsupported.exr"
+    default_channels = (("Image.A", 3), ("Image.B", 2), ("Image.G", 1), ("Image.R", 0))
+    path.write_bytes(
+        _small_multilayer_exr(
+            _representable_pass_pixels("beauty"),
+            compression=compression,
+            pixel_type=pixel_type,
+            channel_components=channels or default_channels,
+            version_flags=version_flags,
+        )
+    )
+
+    with pytest.raises(UnsupportedOpenEXRError, match=message):
+        read_full_float_rgba(path)
+
+
+@pytest.mark.parametrize("version_flags", [0, 0x00000200])
+def test_read_full_float_rgba_classifies_corrupt_header(tmp_path: Path, version_flags: int) -> None:
+    path = tmp_path / "corrupt_header.exr"
+    path.write_bytes(b"v/1\x01" + struct.pack("<I", 2 | version_flags) + b"channels\0chlist\0")
+
+    with pytest.raises(InvalidOpenEXRError, match="header"):
+        read_full_float_rgba(path)
+
+
+def test_read_full_float_rgba_classifies_truncated_attribute_value(tmp_path: Path) -> None:
+    path = tmp_path / "truncated_attribute.exr"
+    path.write_bytes(
+        b"v/1\x01"
+        + struct.pack("<I", 2)
+        + b"channels\0chlist\0"
+        + struct.pack("<I", 128)
+        + b"short"
+    )
+
+    with pytest.raises(InvalidOpenEXRError, match="header"):
+        read_full_float_rgba(path)
+
+
+def test_read_full_float_rgba_classifies_truncated_scanline_table(tmp_path: Path) -> None:
+    path = tmp_path / "truncated_table.exr"
+    fixture = _small_multilayer_exr(_representable_pass_pixels("beauty"), compression=3)
+    path.write_bytes(fixture[: _exr_header_end(fixture) + 1])
+
+    with pytest.raises(InvalidOpenEXRError, match="scanline table is truncated"):
+        read_full_float_rgba(path)
+
+
 def test_read_full_float_rgba_rejects_truncated_zip_data_clearly(tmp_path: Path) -> None:
     path = tmp_path / "truncated_zip.exr"
     fixture = _small_multilayer_exr(_representable_pass_pixels("beauty"), compression=3)
     path.write_bytes(fixture[:-1])
 
-    with pytest.raises(ValueError, match="OpenEXR scanline block is invalid"):
+    with pytest.raises(InvalidOpenEXRError, match="OpenEXR scanline block is invalid"):
         read_full_float_rgba(path)
 
 
@@ -179,5 +285,5 @@ def test_read_full_float_rgba_rejects_corrupt_zip_data_clearly(tmp_path: Path) -
     fixture[-1] ^= 0xFF  # Corrupt the final compressed block's Adler-32 checksum.
     path.write_bytes(fixture)
 
-    with pytest.raises(ValueError, match="OpenEXR ZIP block is invalid"):
+    with pytest.raises(InvalidOpenEXRError, match="OpenEXR ZIP block is invalid"):
         read_full_float_rgba(path)

@@ -161,15 +161,72 @@ def main() -> None:
         image_io = BlenderImageIO(bpy.context.scene)
         _write_fixture_sequence(paths, image_io, beauty, motion, matte)
         frame = paths.frame(1)
-        read_samples = {
+
+        def custom_matte() -> np.ndarray:
+            return np.ascontiguousarray(image_io.read_rgba(frame.matte)[..., 0])
+
+        def blender_probe_then_bundled(path: Path) -> np.ndarray:
+            image = bpy.data.images.load(str(path), check_existing=False)
+            try:
+                image.reload()
+            finally:
+                bpy.data.images.remove(image)
+            return read_full_float_rgba(path)
+
+        def blender_matte() -> np.ndarray:
+            return np.ascontiguousarray(blender_probe_then_bundled(frame.matte)[..., 0])
+
+        images_before_reads = len(bpy.data.images)
+        custom_reader_samples = {
             "beauty": _measure(
                 lambda: image_io.read_rgba(frame.beauty), args.warmups, args.measured
             ),
             "vector": _measure(
                 lambda: image_io.read_rgba(frame.vector), args.warmups, args.measured
             ),
-            "matte": _measure(lambda: image_io.read_mask(frame.matte), args.warmups, args.measured),
+            "matte": _measure(custom_matte, args.warmups, args.measured),
+            "all_three": _measure(
+                lambda: (
+                    image_io.read_rgba(frame.beauty),
+                    image_io.read_rgba(frame.vector),
+                    custom_matte(),
+                ),
+                args.warmups,
+                args.measured,
+            ),
         }
+        regular_blender_samples = {
+            "beauty": _measure(
+                lambda: image_io._read_with_blender(frame.beauty), args.warmups, args.measured
+            ),
+            "vector": _measure(
+                lambda: image_io._read_with_blender(frame.vector), args.warmups, args.measured
+            ),
+            "matte": _measure(
+                lambda: np.ascontiguousarray(image_io._read_with_blender(frame.matte)[..., 0]),
+                args.warmups,
+                args.measured,
+            ),
+        }
+        blender_probe_samples = {
+            "beauty": _measure(
+                lambda: blender_probe_then_bundled(frame.beauty), args.warmups, args.measured
+            ),
+            "vector": _measure(
+                lambda: blender_probe_then_bundled(frame.vector), args.warmups, args.measured
+            ),
+            "matte": _measure(blender_matte, args.warmups, args.measured),
+            "all_three": _measure(
+                lambda: (
+                    blender_probe_then_bundled(frame.beauty),
+                    blender_probe_then_bundled(frame.vector),
+                    blender_matte(),
+                ),
+                args.warmups,
+                args.measured,
+            ),
+        }
+        assert len(bpy.data.images) == images_before_reads
 
         def decode_matte() -> np.ndarray:
             return np.ascontiguousarray(read_full_float_rgba(frame.matte)[..., 0])
@@ -224,7 +281,30 @@ def main() -> None:
         "block_preparation": summarize_samples(block_preparation_samples),
         "refresh_diagnostics": summarize_samples(refresh_diagnostics_samples),
         "pure_core_non_reset_frame": summarize_samples(core_samples),
-        "exr_reads": {name: summarize_samples(samples) for name, samples in read_samples.items()},
+        "exr_reads": {
+            "custom_reader_first": {
+                name: summarize_samples(samples) for name, samples in custom_reader_samples.items()
+            },
+            "blender_probe_first": {
+                name: summarize_samples(samples) for name, samples in blender_probe_samples.items()
+            },
+            "regular_blender_image": {
+                name: summarize_samples(samples)
+                for name, samples in regular_blender_samples.items()
+            },
+            "blender_data_block_overhead_ns": {
+                name: (
+                    summarize_samples(blender_probe_samples[name])["median_ns"]
+                    - summarize_samples(custom_reader_samples[name])["median_ns"]
+                )
+                for name in custom_reader_samples
+            },
+            "temporary_data_block_count": {
+                "custom_reader_first": 0,
+                "blender_probe_first": 1,
+                "regular_blender_image": 1,
+            },
+        },
         "bundled_exr_decodes": {
             name: _summarize_throughput(samples, bundled_decode_bytes[name])
             for name, samples in bundled_decode_samples.items()
@@ -238,9 +318,9 @@ def main() -> None:
         "block_preparation": benchmarks["block_preparation"]["median_ns"],
         "refresh_diagnostics": benchmarks["refresh_diagnostics"]["median_ns"],
         "pure_core_non_reset_frame": benchmarks["pure_core_non_reset_frame"]["median_ns"],
-        "beauty_read": benchmarks["exr_reads"]["beauty"]["median_ns"],
-        "vector_read": benchmarks["exr_reads"]["vector"]["median_ns"],
-        "matte_read": benchmarks["exr_reads"]["matte"]["median_ns"],
+        "beauty_read": benchmarks["exr_reads"]["custom_reader_first"]["beauty"]["median_ns"],
+        "vector_read": benchmarks["exr_reads"]["custom_reader_first"]["vector"]["median_ns"],
+        "matte_read": benchmarks["exr_reads"]["custom_reader_first"]["matte"]["median_ns"],
         "processed_exr_write": benchmarks["processed_exr_write"]["median_ns"],
         "complete_sequential_processing_per_frame": (
             benchmarks["complete_sequential_processing"]["median_ns"] // SEQUENCE_FRAMES

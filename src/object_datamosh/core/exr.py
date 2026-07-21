@@ -11,6 +11,18 @@ from pathlib import Path
 import numpy as np
 
 
+class OpenEXRError(ValueError):
+    """Base error for EXR files rejected by the bundled decoder."""
+
+
+class UnsupportedOpenEXRError(OpenEXRError):
+    """A valid EXR uses a feature outside the bundled decoder contract."""
+
+
+class InvalidOpenEXRError(OpenEXRError):
+    """An EXR is malformed, truncated, or contains invalid sample data."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Channel:
     name: str
@@ -31,83 +43,95 @@ def read_full_float_rgba(path: str | Path) -> np.ndarray:
     data = image_path.read_bytes()
     attributes, position = _read_header(data, image_path)
     channels = _read_channels(attributes.get("channels", b""), image_path)
+    try:
+        minimum_x, minimum_y, maximum_x, maximum_y = struct.unpack("<4i", attributes["dataWindow"])
+        compression = attributes["compression"][0]
+    except (KeyError, IndexError, struct.error) as error:
+        raise InvalidOpenEXRError(f"OpenEXR header is incomplete: {image_path}") from error
+    width = maximum_x - minimum_x + 1
+    height = maximum_y - minimum_y + 1
+    if width <= 0 or height <= 0:
+        raise InvalidOpenEXRError(f"OpenEXR data window is invalid: {image_path}")
+
     if len(channels) != 4 or {channel.name.rsplit(".", 1)[-1] for channel in channels} != {
         "R",
         "G",
         "B",
         "A",
     }:
-        raise ValueError(f"Expected an RGBA image at {image_path}, found {len(channels)} channels")
+        raise UnsupportedOpenEXRError(
+            f"Expected an RGBA image at {image_path}, found {len(channels)} channels"
+        )
     if any(
         channel.pixel_type != 2 or channel.x_sampling != 1 or channel.y_sampling != 1
         for channel in channels
     ):
-        raise ValueError(f"Expected a floating-point OpenEXR image at {image_path}")
+        raise UnsupportedOpenEXRError(f"Expected full-float OpenEXR channels at {image_path}")
 
-    try:
-        minimum_x, minimum_y, maximum_x, maximum_y = struct.unpack("<4i", attributes["dataWindow"])
-        compression = attributes["compression"][0]
-    except (KeyError, IndexError, struct.error) as error:
-        raise ValueError(f"OpenEXR header is incomplete: {image_path}") from error
-    width = maximum_x - minimum_x + 1
-    height = maximum_y - minimum_y + 1
-    if width <= 0 or height <= 0:
-        raise ValueError(f"OpenEXR data window is invalid: {image_path}")
-    lines_per_block = {0: 1, 2: 1, 3: 16}.get(compression)
+    lines_per_block = {2: 1, 3: 16}.get(compression)
     if lines_per_block is None:
-        raise ValueError(f"Unsupported OpenEXR compression {compression} at {image_path}")
+        raise UnsupportedOpenEXRError(
+            f"Unsupported OpenEXR compression {compression} at {image_path}"
+        )
 
     block_count = math.ceil(height / lines_per_block)
     offset_table_end = position + block_count * 8
     if offset_table_end > len(data):
-        raise ValueError(f"OpenEXR scanline table is truncated: {image_path}")
+        raise InvalidOpenEXRError(f"OpenEXR scanline table is truncated: {image_path}")
     offsets = struct.unpack_from(f"<{block_count}Q", data, position)
     result = np.empty((height, width, 4), dtype=np.float32)
     component_for_name = {"R": 0, "G": 1, "B": 2, "A": 3}
+    channel_components = np.asarray(
+        [component_for_name[channel.name.rsplit(".", 1)[-1]] for channel in channels]
+    )
+    rgba_channel_order = np.argsort(channel_components)
+    populated_rows = np.zeros(height, dtype=bool)
 
     for offset in offsets:
         try:
             y_coordinate, packed_size = struct.unpack_from("<iI", data, offset)
         except struct.error as error:
-            raise ValueError(f"OpenEXR scanline block is truncated: {image_path}") from error
+            raise InvalidOpenEXRError(
+                f"OpenEXR scanline block is truncated: {image_path}"
+            ) from error
         packed_start = offset + 8
         packed = data[packed_start : packed_start + packed_size]
         line_count = min(lines_per_block, maximum_y - y_coordinate + 1)
         expected_size = line_count * width * len(channels) * 4
         if len(packed) != packed_size or line_count <= 0:
-            raise ValueError(f"OpenEXR scanline block is invalid: {image_path}")
-        if compression == 0 or packed_size == expected_size:
+            raise InvalidOpenEXRError(f"OpenEXR scanline block is invalid: {image_path}")
+        if packed_size == expected_size:
             unpacked = packed
         else:
             try:
                 unpacked = _undo_zip_preprocessing(zlib.decompress(packed))
             except zlib.error as error:
-                raise ValueError(f"OpenEXR ZIP block is invalid: {image_path}") from error
+                raise InvalidOpenEXRError(f"OpenEXR ZIP block is invalid: {image_path}") from error
         if len(unpacked) != expected_size:
-            raise ValueError(f"OpenEXR scanline block has an invalid size: {image_path}")
+            raise InvalidOpenEXRError(f"OpenEXR scanline block has an invalid size: {image_path}")
 
-        byte_position = 0
-        for line_offset in range(line_count):
-            row = y_coordinate - minimum_y + line_offset
-            if not 0 <= row < height:
-                raise ValueError(f"OpenEXR scanline is outside its data window: {image_path}")
-            for channel in channels:
-                byte_end = byte_position + width * 4
-                values = np.frombuffer(unpacked[byte_position:byte_end], dtype="<f4")
-                component = component_for_name[channel.name.rsplit(".", 1)[-1]]
-                result[row, :, component] = values
-                byte_position = byte_end
+        first_row = y_coordinate - minimum_y
+        last_row = first_row + line_count
+        if first_row < 0 or last_row > height or np.any(populated_rows[first_row:last_row]):
+            raise InvalidOpenEXRError(
+                f"OpenEXR scanline is outside or duplicated in its data window: {image_path}"
+            )
+        block_values = np.frombuffer(unpacked, dtype="<f4").reshape(
+            line_count, len(channels), width
+        )
+        result[first_row:last_row] = block_values.transpose(0, 2, 1)[..., rgba_channel_order]
+        populated_rows[first_row:last_row] = True
+    if not np.all(populated_rows):
+        raise InvalidOpenEXRError(f"OpenEXR scanline data is incomplete: {image_path}")
     if not np.all(np.isfinite(result)):
-        raise ValueError(f"OpenEXR image contains non-finite values: {image_path}")
+        raise InvalidOpenEXRError(f"OpenEXR image contains non-finite values: {image_path}")
     return np.ascontiguousarray(result, dtype=np.float32)
 
 
 def _read_header(data: bytes, path: Path) -> tuple[dict[str, bytes], int]:
     if data[:4] != b"v/1\x01" or len(data) < 9:
-        raise ValueError(f"Expected an OpenEXR image at {path}")
+        raise InvalidOpenEXRError(f"Expected an OpenEXR image at {path}")
     version = struct.unpack_from("<I", data, 4)[0]
-    if version & 0x00000200:
-        raise ValueError(f"Tiled OpenEXR images are not supported: {path}")
     position = 8
     attributes: dict[str, bytes] = {}
     try:
@@ -116,11 +140,20 @@ def _read_header(data: bytes, path: Path) -> tuple[dict[str, bytes], int]:
             _attribute_type, position = _read_c_string(data, position)
             size = struct.unpack_from("<I", data, position)[0]
             position += 4
-            attributes[name] = data[position : position + size]
-            position += size
+            attribute_end = position + size
+            if attribute_end > len(data):
+                raise InvalidOpenEXRError(f"OpenEXR header is truncated: {path}")
+            attributes[name] = data[position:attribute_end]
+            position = attribute_end
         position += 1
     except (IndexError, struct.error, UnicodeDecodeError, ValueError) as error:
-        raise ValueError(f"OpenEXR header is invalid: {path}") from error
+        raise InvalidOpenEXRError(f"OpenEXR header is invalid: {path}") from error
+    if version & 0x00000200:
+        raise UnsupportedOpenEXRError(f"Tiled OpenEXR images are not supported: {path}")
+    if version & (0x00000800 | 0x00001000):
+        raise UnsupportedOpenEXRError(f"Deep or multipart OpenEXR images are not supported: {path}")
+    if version & 0xFF != 2:
+        raise UnsupportedOpenEXRError(f"OpenEXR version {version & 0xFF} is not supported: {path}")
     return attributes, position
 
 
@@ -135,7 +168,7 @@ def _read_channels(value: bytes, path: Path) -> tuple[_Channel, ...]:
             position += 16
             channels.append(_Channel(name, pixel_type, x_sampling, y_sampling))
     except (IndexError, struct.error, UnicodeDecodeError, ValueError) as error:
-        raise ValueError(f"OpenEXR channel list is invalid: {path}") from error
+        raise InvalidOpenEXRError(f"OpenEXR channel list is invalid: {path}") from error
     return tuple(channels)
 
 
