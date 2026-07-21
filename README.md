@@ -402,9 +402,20 @@ and semantic-settings reference, manifest fingerprint agreement, completed prefi
 reset count, and actual per-frame processing decisions. Counters cover matte/effect coverage, primary
 and same-pixel history sampling, final beauty fallback, refresh restoration, historical blending, and
 finite scene-linear RGB change versus current beauty. Totals exclude reset frames; detailed telemetry
-is limited to the latest 96 frames and contains no image data. Success, cancellation, and processing
-failure each retain the truthful completed prefix. If an older run has no report, diagnostics are
-unavailable; do not infer or fabricate them from its processed EXRs.
+is limited to the latest 96 frames and contains no image data. The recovery manifest still commits
+after every completed frame, while an active diagnostics report checkpoints every 10 output frames
+and may therefore lag that manifest. The report names `manifest_completed_prefix` separately from
+`diagnostics_completed_prefix` and records the checkpoint interval, manifest-observation lag
+separately from the diagnostics-availability gap, and each maximum while the report remains active.
+Session start, first actionable near-no-op
+evidence, success, cancellation, and processing failure always write a report; the first actionable
+warning is logged once rather than repeated at later checkpoints, and every terminal report includes
+all in-memory completed diagnostics. If terminal report persistence fails, the Blender operation's
+terminal status names that report-write failure instead of silently presenting the prior checkpoint
+as terminal truth. Diagnostics from a prior session are not reconstructed
+on resume: the report marks that historical gap as partial or unavailable and does not claim terminal
+agreement with the manifest. If an older run has no report, do not infer or fabricate diagnostics
+from its processed EXRs.
 
 A report warning is advisory and never blocks output. Efficacy assessment begins only after two
 non-reset frames with non-empty target mattes. A likely near-no-op requires both actual historical
@@ -756,6 +767,32 @@ records environment metadata, warm-up and measured counts, median/minimum/maximu
 stages, and a median-based 147-frame extrapolation. Results are observational developer evidence,
 not a production threshold. The current baseline is committed at
 [`docs/evidence/extreme-benchmark-baseline.json`](docs/evidence/extreme-benchmark-baseline.json).
+
+Benchmark the separate diagnostics checkpoint policy with:
+
+```bash
+uv run python scripts/benchmark_diagnostics_reports.py --warmups 1 --measured 3 \
+  --output docs/evidence/issue-74-diagnostics-checkpoint.json
+```
+
+The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
+(89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
+143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.
+The benchmark uses temporary outputs and does not alter the unchanged per-frame recovery-manifest
+cadence. See
+[`docs/evidence/issue-74-diagnostics-checkpoint.json`](docs/evidence/issue-74-diagnostics-checkpoint.json).
+The PERF-1 benchmark was also rerun with the production-shaped Blender command:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py -- \
+  --warmups 1 --measured 3 --output docs/evidence/issue-74-extreme-rerun.json
+```
+
+On the same machine and methodology as the committed PERF-1 baseline (one warm-up, three
+measurements), median complete sequential processing was
+1.433 s for its three-frame fixture versus 4.271 s in the original baseline (66.45% cumulative
+improvement across the performance roadmap). This short run is a rerunability check, not an isolated
+measurement of checkpointing; the 147-frame synthetic benchmark above isolates report cadence.
 
 Each processing report also has a schema-v1 `performance` section. It records nanosecond timings for
 beauty, Vector, and matte reads; core processing; processed EXR write; atomic manifest commit;

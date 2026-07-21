@@ -62,6 +62,9 @@ _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 _REPORT_FILENAME = "ODM_processing_report.json"
 MAX_REPORTED_TIMING_FRAMES = 96
+# Diagnostics are observational; recovery remains atomically committed every frame. Keeping this
+# cadence internal avoids changing artistic settings or resume fingerprints.
+_REPORT_CHECKPOINT_INTERVAL_FRAMES = 10
 
 
 @dataclass(slots=True)
@@ -169,6 +172,7 @@ class ProcessingSession:
     _trail_recovery_index: int = 0
     _is_finished: bool = False
     _terminal_error: Exception | None = None
+    _near_no_op_reported: bool = False
 
     @classmethod
     def create(
@@ -354,7 +358,12 @@ class ProcessingSession:
             _trail_recovery_frames=trail_recovery_frames,
             _is_finished=first_frame > frame_end and not trail_recovery_frames,
         )
-        session._write_report("SUCCESS" if session._is_finished else "RUNNING")
+        try:
+            session._write_report("SUCCESS" if session._is_finished else "RUNNING")
+        except Exception as error:
+            raise RuntimeError(
+                f"Diagnostics report write failed during session initialization: {error}"
+            ) from error
         return session
 
     @property
@@ -447,6 +456,8 @@ class ProcessingSession:
                 raise SequenceProcessingCancelled(self.completed_frames)
             if self.recovery_frame is not None:
                 self._restore_next_trail_frame()
+                if self._is_finished:
+                    self._write_report("SUCCESS")
             else:
                 self._process_current_frame()
         except Exception as error:
@@ -632,11 +643,45 @@ class ProcessingSession:
         if frame_number == self.frame_end:
             self._is_finished = True
             self._commit_frame_report("SUCCESS")
-            for warning in self.advisory_warnings:
-                logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
+            self._log_new_actionable_warning()
         else:
             self.current_frame += 1
-            self._commit_frame_report("RUNNING")
+            assessment = assess_near_no_op(
+                ProcessingDiagnostics.from_frames(tuple(self._frame_diagnostics)), self.settings
+            )
+            warning_became_actionable = (
+                assessment.likely_near_no_op and not self._near_no_op_reported
+            )
+            reached_checkpoint = (
+                len(self._completed_numbers) % _REPORT_CHECKPOINT_INTERVAL_FRAMES == 0
+            )
+            if reached_checkpoint or warning_became_actionable:
+                self._commit_frame_report("RUNNING")
+                if warning_became_actionable:
+                    self._log_new_actionable_warning()
+            else:
+                self._finish_frame_timing_without_report("RUNNING")
+
+    def _log_new_actionable_warning(self) -> None:
+        """Log an efficacy warning once, at the first boundary where it is actionable."""
+        if self._near_no_op_reported:
+            return
+        warnings = self.advisory_warnings
+        if not any(warning.startswith("Likely ineffective feedback:") for warning in warnings):
+            return
+        for warning in warnings:
+            logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
+        self._near_no_op_reported = True
+
+    def _finish_frame_timing_without_report(self, outcome: Literal["RUNNING"]) -> None:
+        """Finalize timing for a frame whose observational report is intentionally deferred."""
+        timing = self._active_timing
+        if timing is None:
+            return
+        timing.total_frame_ns = self._timer_ns() - timing.started_ns
+        timing.outcome = outcome
+        self._frame_timings.append(timing)
+        self._active_timing = None
 
     def _commit_frame_report(
         self,
@@ -684,6 +729,8 @@ class ProcessingSession:
             settings_fingerprint=self.settings_fingerprint,
             warnings=self.advisory_warnings,
             failure=failure,
+            checkpoint_interval_frames=_REPORT_CHECKPOINT_INTERVAL_FRAMES,
+            active_report_may_lag_manifest=outcome == "RUNNING",
         )
         payload["performance"] = self.performance_timings
         _write_json_atomic(self.report_path, payload, compact=True)
@@ -735,6 +782,13 @@ def process_sequence(
             raise
         raise frame_error_factory(frame_start, error) from error
 
+    def write_external_failure_report(error: Exception) -> None:
+        """Record orchestration failures that occur outside ``process_next_frame``."""
+        try:
+            session.write_terminal_report("FAILURE", failure=str(error))
+        except Exception as report_error:
+            error.add_note(f"Processing report also failed: {report_error}")
+
     progress_started = False
     try:
         # Synchronous callers historically restored Resume history before opening output progress.
@@ -754,6 +808,7 @@ def process_sequence(
             try:
                 progress.begin(remaining)
             except Exception as error:
+                write_external_failure_report(error)
                 if frame_error_factory is None:
                     raise
                 raise frame_error_factory(session.current_frame, error) from error
@@ -773,6 +828,7 @@ def process_sequence(
                 try:
                     progress.update(len(session.completed_frames))
                 except Exception as error:
+                    write_external_failure_report(error)
                     if frame_error_factory is None:
                         raise
                     raise frame_error_factory(frame_number, error) from error
@@ -793,6 +849,7 @@ def process_sequence(
         try:
             progress.end()
         except Exception as error:
+            write_external_failure_report(error)
             if frame_error_factory is None:
                 raise
             raise frame_error_factory(session.current_frame, error) from error

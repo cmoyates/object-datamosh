@@ -133,6 +133,8 @@ class ProcessingDiagnostics:
         settings_fingerprint: str,
         warnings: tuple[str, ...] = (),
         failure: str | None = None,
+        checkpoint_interval_frames: int | None = None,
+        active_report_may_lag_manifest: bool = False,
     ) -> dict[str, object]:
         detailed = self.frames[-MAX_REPORTED_FRAMES:]
         prefix = {
@@ -152,14 +154,55 @@ class ProcessingDiagnostics:
             availability = "UNAVAILABLE"
         else:
             availability = "PARTIAL"
+        diagnostics_lag = max(0, len(completed_frames) - len(diagnostic_frames))
+        prospective_manifest_lag = (
+            max(0, checkpoint_interval_frames - 1)
+            if active_report_may_lag_manifest and checkpoint_interval_frames is not None
+            else 0
+        )
+        if diagnostics_lag:
+            lag_policy = (
+                "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
+                if active_report_may_lag_manifest
+                else (
+                    "terminal_report_contains_all_in_memory_diagnostics_but_"
+                    "prior_resume_diagnostics_are_unavailable"
+                )
+            )
+        elif active_report_may_lag_manifest:
+            lag_policy = "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames"
+        else:
+            lag_policy = "terminal_report_does_not_lag_manifest"
         return {
             "schema_version": 1,
             "manifest_schema_version": 5,
             "terminal_outcome": outcome,
             "frame_range": {"start": frame_start, "end": frame_end},
+            # ``completed_prefix`` remains as a compatibility alias. The explicit name keeps
+            # recovery truth distinct from observational diagnostics when an active report lags.
             "completed_prefix": prefix,
+            "manifest_completed_prefix": prefix,
             "diagnostics_completed_prefix": diagnostic_prefix,
             "diagnostics_availability": availability,
+            "checkpoint_interval_frames": checkpoint_interval_frames,
+            "active_report_may_lag_manifest": active_report_may_lag_manifest,
+            "report_lag": {
+                "manifest_prefix_observed_at_report_write": prefix,
+                "diagnostics_prefix_in_report": diagnostic_prefix,
+                "manifest_is_authoritative": True,
+                "policy": lag_policy,
+                # A report is built from the current in-memory manifest prefix, so observation lag
+                # is zero at its atomic write. Only an active persisted report can subsequently lag
+                # recovery truth while waiting for the next checkpoint.
+                "manifest_observation_lag_at_report_write": 0,
+                "maximum_manifest_observation_lag_while_active": prospective_manifest_lag,
+                # Resume diagnostics are intentionally not reconstructed. Keep that historical
+                # availability gap separate from report-versus-manifest checkpoint lag.
+                "diagnostics_lag_at_report_write": diagnostics_lag,
+                "maximum_diagnostics_lag_while_active": (
+                    diagnostics_lag + prospective_manifest_lag
+                ),
+            },
             "configuration": configuration,
             "settings_fingerprint": settings_fingerprint,
             "agreement": {

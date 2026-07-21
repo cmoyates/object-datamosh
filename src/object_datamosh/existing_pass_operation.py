@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
 from .sequence_processing import ProcessingSession, SequenceProcessingCancelled
@@ -44,6 +44,7 @@ class ExistingPassModalController:
         self._session: ProcessingSession | None = None
         self._cancel_requested = False
         self._finalized = False
+        self._initialization_report_error: Exception | None = None
         self._lifecycle = ModalOperationLifecycle(
             operator,
             runtime,
@@ -54,12 +55,23 @@ class ExistingPassModalController:
         """Install modal resources and publish the session's initial work boundary."""
         self._session = session
         total_work = session.frame_end - session.frame_start + 1
-        self._lifecycle.begin(
-            context,
-            frame_start=session.frame_start,
-            frame_end=session.frame_end,
-            total_work=total_work,
-        )
+        try:
+            self._lifecycle.begin(
+                context,
+                frame_start=session.frame_start,
+                frame_end=session.frame_end,
+                total_work=total_work,
+            )
+        except Exception as error:
+            # Lifecycle setup failure finalizes cleanup before returning control, so retain the
+            # local session long enough to persist terminal diagnostics at this boundary.
+            writer = getattr(session, "write_terminal_report", None)
+            if callable(writer):
+                try:
+                    writer("FAILURE", failure=str(error))
+                except Exception as report_error:
+                    self._initialization_report_error = report_error
+            raise
         recovery_frame = session.recovery_frame
         current_frame = session.current_frame if recovery_frame is None else recovery_frame
         if session.is_finished:
@@ -114,15 +126,31 @@ class ExistingPassModalController:
 
     def cancel(self) -> None:
         """Release resources when Blender cancels the operator externally."""
-        message = "Cancelled by Blender"
-        if not self.finalize(OperationPhase.CANCELLED, message):
-            self._operator.report({"ERROR"}, self._visible_status(message))
+        if self._finalized:
+            return
+        completed_frames = getattr(self._session, "completed_frames", ())
+        self._finish_cancelled(len(completed_frames))
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Publish an initialization error through the same lifecycle finalizer."""
         message = f"Processing failed during initialization at frame {frame_number}: {error}"
+        report_error = self._initialization_report_error
+        self._initialization_report_error = None
+        if report_error is None and self._session is not None:
+            report_error = self._write_terminal_report("FAILURE", failure=str(error))
+        if report_error is not None:
+            # Lifecycle setup can fail after it has already published and finalized its own status.
+            # Preserve that more specific message while making the report failure visible.
+            message = self._visible_status(message)
+            message += f"; diagnostics report write failed: {report_error}"
         self.finalize(OperationPhase.FAILED, message)
-        self._operator.report({"ERROR"}, self._visible_status(message))
+        if report_error is not None:
+            with suppress(Exception):
+                self._runtime.status = message
+            self._set_status(message)
+            self._operator.report({"ERROR"}, message)
+        else:
+            self._operator.report({"ERROR"}, self._visible_status(message))
 
     def finalize(self, phase: OperationPhase, status: str) -> bool:
         """Finalize idempotently and return whether cleanup reached the requested outcome."""
@@ -195,10 +223,10 @@ class ExistingPassModalController:
         return {"FINISHED"}
 
     def _finish_cancelled(self, completed_count: int) -> set[Any]:
-        if self._session is not None:
-            with suppress(Exception):
-                self._session.write_terminal_report("CANCELLED")
+        report_error = self._write_terminal_report("CANCELLED")
         message = f"Cancelled after {completed_count} frame(s)"
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
         report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
         self._operator.report(report_level, self._visible_status(message))
@@ -221,8 +249,9 @@ class ExistingPassModalController:
         completed_work = 0
         if session is not None:
             completed_work = len(session.retained_frames)
-            with suppress(Exception):
-                session.write_terminal_report("FAILURE", failure=str(error))
+        report_error = self._write_terminal_report("FAILURE", failure=str(error))
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         with suppress(Exception):
             self._lifecycle.update(
                 phase=OperationPhase.FAILED,
@@ -233,6 +262,21 @@ class ExistingPassModalController:
         self.finalize(OperationPhase.FAILED, message)
         self._operator.report({"ERROR"}, self._visible_status(message))
         return {"CANCELLED"}
+
+    def _write_terminal_report(
+        self, outcome: Literal["CANCELLED", "FAILURE"], *, failure: str | None = None
+    ) -> Exception | None:
+        """Write terminal diagnostics and return any observational persistence failure."""
+        if self._session is None:
+            return None
+        writer = getattr(self._session, "write_terminal_report", None)
+        if not callable(writer):
+            return None
+        try:
+            writer(outcome, failure=failure)
+        except Exception as error:
+            return error
+        return None
 
     def _set_status(self, status: str) -> None:
         with suppress(Exception):

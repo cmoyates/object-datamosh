@@ -1,0 +1,281 @@
+{
+  "benchmarks": {
+    "block_preparation": {
+      "extrapolated_147_frames_ns": 2428850424,
+      "maximum_ns": 16657667,
+      "measured_count": 3,
+      "median_ns": 16522792,
+      "minimum_ns": 16313625
+    },
+    "bundled_exr_decodes": {
+      "all_three": {
+        "bytes_per_sample": 99532800,
+        "bytes_per_second": 251022247,
+        "extrapolated_147_frames_ns": 58286951625,
+        "maximum_ns": 398763709,
+        "measured_count": 3,
+        "median_ns": 396509875,
+        "minimum_ns": 394001167
+      },
+      "beauty": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 204585521,
+        "extrapolated_147_frames_ns": 23838965598,
+        "maximum_ns": 162358500,
+        "measured_count": 3,
+        "median_ns": 162169834,
+        "minimum_ns": 160982167
+      },
+      "matte": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 304257201,
+        "extrapolated_147_frames_ns": 16029553848,
+        "maximum_ns": 109669917,
+        "measured_count": 3,
+        "median_ns": 109044584,
+        "minimum_ns": 105557334
+      },
+      "vector": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 267887508,
+        "extrapolated_147_frames_ns": 18205803000,
+        "maximum_ns": 124949875,
+        "measured_count": 3,
+        "median_ns": 123849000,
+        "minimum_ns": 122166917
+      }
+    },
+    "complete_sequential_processing": {
+      "extrapolated_147_frames_ns": 70210186942,
+      "maximum_ns": 1462131708,
+      "measured_count": 3,
+      "median_ns": 1432860958,
+      "minimum_ns": 1428859250
+    },
+    "exr_reads": {
+      "beauty": {
+        "extrapolated_147_frames_ns": 1207237500,
+        "maximum_ns": 8252458,
+        "measured_count": 3,
+        "median_ns": 8212500,
+        "minimum_ns": 7810167
+      },
+      "matte": {
+        "extrapolated_147_frames_ns": 570280326,
+        "maximum_ns": 3942083,
+        "measured_count": 3,
+        "median_ns": 3879458,
+        "minimum_ns": 3803542
+      },
+      "vector": {
+        "extrapolated_147_frames_ns": 499303875,
+        "maximum_ns": 3399459,
+        "measured_count": 3,
+        "median_ns": 3396625,
+        "minimum_ns": 3389500
+      }
+    },
+    "processed_exr_write": {
+      "extrapolated_147_frames_ns": 9331443576,
+      "maximum_ns": 73757334,
+      "measured_count": 3,
+      "median_ns": 63479208,
+      "minimum_ns": 58608833
+    },
+    "pure_core_non_reset_frame": {
+      "extrapolated_147_frames_ns": 84435244299,
+      "maximum_ns": 619746458,
+      "measured_count": 3,
+      "median_ns": 574389417,
+      "minimum_ns": 569429875
+    },
+    "refresh_diagnostics": {
+      "extrapolated_147_frames_ns": 130431924,
+      "maximum_ns": 1024292,
+      "measured_count": 3,
+      "median_ns": 887292,
+      "minimum_ns": 882958
+    },
+    "zip_predictor_reversal": {
+      "bytes_per_sample": 491520,
+      "bytes_per_second": 443310033,
+      "extrapolated_147_frames_ns": 162986250,
+      "maximum_ns": 1193666,
+      "measured_count": 3,
+      "median_ns": 1108750,
+      "minimum_ns": 1106208
+    }
+  },
+  "environment": {
+    "blender": "5.2.0 LTS",
+    "cpu": "arm",
+    "numpy": "2.3.4",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "fixture": {
+    "channels": "RGBA",
+    "deterministic_seed": 71071,
+    "dtype": "float32",
+    "height": 1080,
+    "preset": "extreme_full_frame_feedback_settings",
+    "sequence_frames": 3,
+    "width": 1920
+  },
+  "largest_measured_stages": [
+    {
+      "median_ns": 574389417,
+      "stage": "pure_core_non_reset_frame"
+    },
+    {
+      "median_ns": 477620319,
+      "stage": "complete_sequential_processing_per_frame"
+    },
+    {
+      "median_ns": 63479208,
+      "stage": "processed_exr_write"
+    },
+    {
+      "median_ns": 16522792,
+      "stage": "block_preparation"
+    },
+    {
+      "median_ns": 8212500,
+      "stage": "beauty_read"
+    },
+    {
+      "median_ns": 3879458,
+      "stage": "matte_read"
+    },
+    {
+      "median_ns": 3396625,
+      "stage": "vector_read"
+    },
+    {
+      "median_ns": 887292,
+      "stage": "refresh_diagnostics"
+    }
+  ],
+  "latest_processing_report_performance": {
+    "clock": "perf_counter_ns",
+    "frames": [
+      {
+        "frame_number": 1,
+        "outcome": "RUNNING",
+        "reset": true,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 8009458,
+          "core_processing": 46569250,
+          "manifest_commit": 409833,
+          "matte_read": 3908958,
+          "processed_exr_write": 56347125,
+          "vector_read": 3610500
+        },
+        "total_frame_ns": 118938250
+      },
+      {
+        "frame_number": 2,
+        "outcome": "RUNNING",
+        "reset": false,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 8310084,
+          "core_processing": 641838833,
+          "manifest_commit": 429458,
+          "matte_read": 3680833,
+          "processed_exr_write": 29009292,
+          "vector_read": 3195459
+        },
+        "total_frame_ns": 686552750
+      },
+      {
+        "frame_number": 3,
+        "outcome": "SUCCESS",
+        "reset": false,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit",
+          "diagnostics_report_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 8208542,
+          "core_processing": 572479583,
+          "diagnostics_report_commit": 384500,
+          "manifest_commit": 399667,
+          "matte_read": 3667333,
+          "processed_exr_write": 37973000,
+          "vector_read": 3320791
+        },
+        "total_frame_ns": 626502250
+      }
+    ],
+    "frames_omitted": 0,
+    "history_limit": 96,
+    "largest_stages": [
+      {
+        "duration_ns": 1260887666,
+        "stage": "core_processing"
+      },
+      {
+        "duration_ns": 123329417,
+        "stage": "processed_exr_write"
+      },
+      {
+        "duration_ns": 24528084,
+        "stage": "beauty_read"
+      },
+      {
+        "duration_ns": 11257124,
+        "stage": "matte_read"
+      },
+      {
+        "duration_ns": 10126750,
+        "stage": "vector_read"
+      },
+      {
+        "duration_ns": 1238958,
+        "stage": "manifest_commit"
+      },
+      {
+        "duration_ns": 384500,
+        "stage": "diagnostics_report_commit"
+      }
+    ],
+    "observational_only": true,
+    "schema_version": 1,
+    "unit": "nanoseconds"
+  },
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "measured_count": 3,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "threshold": null,
+    "warmup_count": 1
+  },
+  "schema_version": 1,
+  "semantic_result": "timing instrumentation is observational; correctness is gated by tests"
+}

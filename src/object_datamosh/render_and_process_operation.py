@@ -7,7 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from .core.paths import FramePaths
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
@@ -400,30 +400,41 @@ class RenderAndProcessModalController:
 
     def _finish_cancelled(self) -> set[Any]:
         state = self._require_state()
-        if self._processing_session is not None:
-            writer = getattr(self._processing_session, "write_terminal_report", None)
-            if callable(writer):
-                with suppress(Exception):
-                    writer("CANCELLED")
+        report_error = self._write_processing_terminal_report("CANCELLED")
         state.cancel()
         message = (
             f"Render and Process cancelled after {state.completed_work} of {state.total_work} steps"
         )
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         return self._finalize(OperationPhase.CANCELLED, message, {"CANCELLED"}, {"WARNING"})
 
     def _fail_rendering(self, frame_number: int, error: Exception) -> set[Any]:
         return self._fail("rendering", frame_number, error)
 
     def _fail(self, phase: str, frame_number: int, error: Exception) -> set[Any]:
-        if self._processing_session is not None:
-            writer = getattr(self._processing_session, "write_terminal_report", None)
-            if callable(writer):
-                with suppress(Exception):
-                    writer("FAILURE", failure=str(error))
+        report_error = self._write_processing_terminal_report("FAILURE", failure=str(error))
         if self._state is not None:
             self._state.fail()
         message = f"Render and Process failed during {phase} at frame {frame_number}: {error}"
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         return self._finalize(OperationPhase.FAILED, message, {"CANCELLED"}, {"ERROR"})
+
+    def _write_processing_terminal_report(
+        self, outcome: Literal["CANCELLED", "FAILURE"], *, failure: str | None = None
+    ) -> Exception | None:
+        """Write processing diagnostics and preserve failures for the visible terminal status."""
+        if self._processing_session is None:
+            return None
+        writer = getattr(self._processing_session, "write_terminal_report", None)
+        if not callable(writer):
+            return None
+        try:
+            writer(outcome, failure=failure)
+        except Exception as error:
+            return error
+        return None
 
     def _finalize(
         self,
