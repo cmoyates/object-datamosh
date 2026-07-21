@@ -405,8 +405,9 @@ finite scene-linear RGB change versus current beauty. Totals exclude reset frame
 is limited to the latest 96 frames and contains no image data. The recovery manifest still commits
 after every completed frame, while an active diagnostics report checkpoints every 10 output frames
 and may therefore lag that manifest. The report names `manifest_completed_prefix` separately from
-`diagnostics_completed_prefix` and records the checkpoint interval, the diagnostics gap observed at
-report write, and the maximum active checkpoint lag. Session start, first actionable near-no-op
+`diagnostics_completed_prefix` and records the checkpoint interval, manifest-observation lag
+separately from the diagnostics-availability gap, and each maximum while the report remains active.
+Session start, first actionable near-no-op
 evidence, success, cancellation, and processing failure always write a report; every terminal report
 includes all in-memory completed diagnostics. Diagnostics from a prior session are not reconstructed
 on resume: the report marks that historical gap as partial or unavailable and does not claim terminal

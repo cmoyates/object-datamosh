@@ -146,8 +146,10 @@ def test_running_report_checkpoints_every_ten_completed_frames(tmp_path: Path) -
         "diagnostics_prefix_in_report": {"count": 0, "start": None, "end": None},
         "manifest_is_authoritative": True,
         "policy": "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames",
-        "completed_frame_lag_at_report_write": 0,
-        "maximum_completed_frame_lag": 9,
+        "manifest_observation_lag_at_report_write": 0,
+        "maximum_manifest_observation_lag_while_active": 9,
+        "diagnostics_lag_at_report_write": 0,
+        "maximum_diagnostics_lag_while_active": 9,
     }
 
     session.process_next_frame()
@@ -273,8 +275,10 @@ def test_resume_without_an_older_report_marks_diagnostics_unavailable(tmp_path: 
     assert report["completed_prefix"] == {"count": 20, "start": 1, "end": 20}
     assert report["diagnostics_availability"] == "UNAVAILABLE"
     assert report["diagnostics_completed_prefix"] == {"count": 0, "start": None, "end": None}
-    assert report["report_lag"]["completed_frame_lag_at_report_write"] == 20
-    assert report["report_lag"]["maximum_completed_frame_lag"] == 29
+    assert report["report_lag"]["manifest_observation_lag_at_report_write"] == 0
+    assert report["report_lag"]["maximum_manifest_observation_lag_while_active"] == 9
+    assert report["report_lag"]["diagnostics_lag_at_report_write"] == 20
+    assert report["report_lag"]["maximum_diagnostics_lag_while_active"] == 29
     assert report["report_lag"]["policy"] == (
         "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
     )
@@ -333,8 +337,10 @@ def test_resume_from_report_lag_preserves_exact_outputs_and_writes_complete_term
     assert report["diagnostics_availability"] == "PARTIAL"
     assert [frame["frame_number"] for frame in report["frames"]] == [10, 11, 12]
     assert report["active_report_may_lag_manifest"] is False
-    assert report["report_lag"]["completed_frame_lag_at_report_write"] == 9
-    assert report["report_lag"]["maximum_completed_frame_lag"] == 9
+    assert report["report_lag"]["manifest_observation_lag_at_report_write"] == 0
+    assert report["report_lag"]["maximum_manifest_observation_lag_while_active"] == 0
+    assert report["report_lag"]["diagnostics_lag_at_report_write"] == 9
+    assert report["report_lag"]["maximum_diagnostics_lag_while_active"] == 9
     assert report["report_lag"]["policy"] == (
         "terminal_report_contains_all_in_memory_diagnostics_but_prior_resume_diagnostics_are_unavailable"
     )

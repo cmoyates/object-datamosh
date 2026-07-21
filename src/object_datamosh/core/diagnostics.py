@@ -154,13 +154,13 @@ class ProcessingDiagnostics:
             availability = "UNAVAILABLE"
         else:
             availability = "PARTIAL"
-        missing_completed_diagnostics = max(0, len(completed_frames) - len(diagnostic_frames))
-        checkpoint_lag = (
+        diagnostics_lag = max(0, len(completed_frames) - len(diagnostic_frames))
+        prospective_manifest_lag = (
             max(0, checkpoint_interval_frames - 1)
             if active_report_may_lag_manifest and checkpoint_interval_frames is not None
             else 0
         )
-        if missing_completed_diagnostics:
+        if diagnostics_lag:
             lag_policy = (
                 "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
                 if active_report_may_lag_manifest
@@ -191,11 +191,17 @@ class ProcessingDiagnostics:
                 "diagnostics_prefix_in_report": diagnostic_prefix,
                 "manifest_is_authoritative": True,
                 "policy": lag_policy,
-                "completed_frame_lag_at_report_write": missing_completed_diagnostics,
-                # During an active run, this persisted report may remain in place until the next
-                # checkpoint. Historical gaps after resume and prospective checkpoint lag are
-                # additive; terminal reports have no prospective checkpoint lag.
-                "maximum_completed_frame_lag": missing_completed_diagnostics + checkpoint_lag,
+                # A report is built from the current in-memory manifest prefix, so observation lag
+                # is zero at its atomic write. Only an active persisted report can subsequently lag
+                # recovery truth while waiting for the next checkpoint.
+                "manifest_observation_lag_at_report_write": 0,
+                "maximum_manifest_observation_lag_while_active": prospective_manifest_lag,
+                # Resume diagnostics are intentionally not reconstructed. Keep that historical
+                # availability gap separate from report-versus-manifest checkpoint lag.
+                "diagnostics_lag_at_report_write": diagnostics_lag,
+                "maximum_diagnostics_lag_while_active": (
+                    diagnostics_lag + prospective_manifest_lag
+                ),
             },
             "configuration": configuration,
             "settings_fingerprint": settings_fingerprint,
