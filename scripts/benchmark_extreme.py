@@ -22,8 +22,12 @@ if str(SRC) not in sys.path:
 
 from object_datamosh.benchmarking import summarize_samples  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
+from object_datamosh.core.block_preparation import prepare_blocks  # noqa: E402
 from object_datamosh.core.contracts import FeedbackState  # noqa: E402
-from object_datamosh.core.feedback import process_frame_with_diagnostics  # noqa: E402
+from object_datamosh.core.feedback import (  # noqa: E402
+    _apply_refresh,
+    process_frame_with_diagnostics,
+)
 from object_datamosh.core.mattes import ObjectIndexMatteProvider  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
 from object_datamosh.core.presets import (  # noqa: E402
@@ -115,6 +119,23 @@ def main() -> None:
         )
 
     core_samples = _measure(pure_core, args.warmups, args.measured)
+    prepared_blocks = prepare_blocks(motion, matte, 2, settings)
+    candidate = matte > 0.0
+    covered = np.ones(matte.shape, dtype=bool)
+    block_preparation_samples = _measure(
+        lambda: prepare_blocks(motion, matte, 2, settings), args.warmups, args.measured
+    )
+    refresh_diagnostics_samples = _measure(
+        lambda: _apply_refresh(
+            prepared_blocks,
+            candidate,
+            covered,
+            matte,
+            settings.persistence,
+        ),
+        args.warmups,
+        args.measured,
+    )
     with tempfile.TemporaryDirectory(prefix="ODM_extreme_benchmark_") as temporary:
         paths = SequencePaths(Path(temporary))
         image_io = BlenderImageIO(bpy.context.scene)
@@ -150,6 +171,8 @@ def main() -> None:
         processing_report = json.loads(processing_report_path(paths).read_text(encoding="utf-8"))
 
     benchmarks: dict[str, Any] = {
+        "block_preparation": summarize_samples(block_preparation_samples),
+        "refresh_diagnostics": summarize_samples(refresh_diagnostics_samples),
         "pure_core_non_reset_frame": summarize_samples(core_samples),
         "exr_reads": {name: summarize_samples(samples) for name, samples in read_samples.items()},
         "processed_exr_write": summarize_samples(write_samples),
@@ -158,6 +181,8 @@ def main() -> None:
         ),
     }
     comparable = {
+        "block_preparation": benchmarks["block_preparation"]["median_ns"],
+        "refresh_diagnostics": benchmarks["refresh_diagnostics"]["median_ns"],
         "pure_core_non_reset_frame": benchmarks["pure_core_non_reset_frame"]["median_ns"],
         "beauty_read": benchmarks["exr_reads"]["beauty"]["median_ns"],
         "vector_read": benchmarks["exr_reads"]["vector"]["median_ns"],

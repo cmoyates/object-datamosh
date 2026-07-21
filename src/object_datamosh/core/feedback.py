@@ -5,7 +5,7 @@ from numbers import Integral
 import numpy as np
 from numpy.typing import NDArray
 
-from .block_preparation import prepare_blocks
+from .block_preparation import PreparedBlocks, prepare_blocks
 from .contracts import (
     FeedbackMode,
     FeedbackSettings,
@@ -24,6 +24,38 @@ def _expand_blocks(block_values: NDArray, block_size: int, height: int, width: i
     return np.repeat(np.repeat(block_values, block_size, axis=0), block_size, axis=1)[
         :height, :width
     ]
+
+
+def _apply_refresh(
+    prepared_blocks: PreparedBlocks,
+    candidate: NDArray[np.bool_],
+    covered: NDArray[np.bool_],
+    localized_history: FloatMask,
+    persistence: float,
+) -> tuple[NDArray[np.float32], NDArray[np.bool_], int]:
+    """Apply selected refresh blocks and return blend weights plus diagnostics."""
+    height, width = candidate.shape
+    unrefreshed_blend = persistence * localized_history * covered
+    if not np.any(prepared_blocks.refresh):
+        return (
+            unrefreshed_blend[..., None],
+            np.zeros(candidate.shape, dtype=bool),
+            0,
+        )
+
+    refreshed = _expand_blocks(
+        prepared_blocks.refresh, prepared_blocks.block_size, height, width
+    ).astype(bool, copy=False)
+    active_pixels = candidate & covered & (persistence > 0.0)
+    y_starts = np.arange(0, height, prepared_blocks.block_size)
+    x_starts = np.arange(0, width, prepared_blocks.block_size)
+    block_candidates = np.logical_or.reduceat(
+        np.logical_or.reduceat(active_pixels, y_starts, axis=0), x_starts, axis=1
+    )
+    refresh_blocks = int(np.count_nonzero(prepared_blocks.refresh & block_candidates))
+    refresh_restored = refreshed & (unrefreshed_blend > 0.0)
+    blend = (unrefreshed_blend * ~refreshed)[..., None]
+    return blend, refresh_restored, refresh_blocks
 
 
 def _validate_inputs(
@@ -99,7 +131,6 @@ def process_frame_with_diagnostics(
     primary_valid = np.zeros(matte.shape, dtype=bool)
     fallback_attempt = np.zeros(matte.shape, dtype=bool)
     fallback_valid = np.zeros(matte.shape, dtype=bool)
-    refreshed = np.zeros(matte.shape, dtype=bool)
     refresh_restored = np.zeros(matte.shape, dtype=bool)
     blend = np.zeros((*matte.shape, 1), dtype=np.float32)
     refresh_blocks = 0
@@ -217,26 +248,13 @@ def process_frame_with_diagnostics(
         primary_valid = candidate & primary_covered
         fallback_attempt = candidate & ~primary_covered
         fallback_valid = candidate & use_screen
-        refreshed = _expand_blocks(
-            prepared_blocks.refresh, prepared_blocks.block_size, height, width
-        ).astype(bool, copy=False)
-        block_candidates = np.zeros(prepared_blocks.refresh.shape, dtype=bool)
-        for block_y in range(block_candidates.shape[0]):
-            for block_x in range(block_candidates.shape[1]):
-                y0 = block_y * prepared_blocks.block_size
-                x0 = block_x * prepared_blocks.block_size
-                block_candidates[block_y, block_x] = bool(
-                    np.any(
-                        (candidate & covered & (settings.persistence > 0.0))[
-                            y0 : y0 + prepared_blocks.block_size,
-                            x0 : x0 + prepared_blocks.block_size,
-                        ]
-                    )
-                )
-        refresh_blocks = int(np.count_nonzero(prepared_blocks.refresh & block_candidates))
-        unrefreshed_blend = settings.persistence * localized_history * covered
-        refresh_restored = refreshed & (unrefreshed_blend > 0.0)
-        blend = (unrefreshed_blend * ~refreshed)[..., None]
+        blend, refresh_restored, refresh_blocks = _apply_refresh(
+            prepared_blocks,
+            candidate,
+            covered,
+            localized_history,
+            settings.persistence,
+        )
         output = (beauty * (1.0 - blend) + warped_history * blend).astype(np.float32, copy=False)
     state = FeedbackState(output.copy(), next_matte.copy(), frame_number)
     pixel_change = np.max(np.abs(output[..., :3] - beauty[..., :3]), axis=-1)

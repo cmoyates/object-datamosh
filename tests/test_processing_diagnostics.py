@@ -5,6 +5,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from object_datamosh.core import feedback
 from object_datamosh.core.contracts import (
     FeedbackSettings,
     FeedbackState,
@@ -175,6 +176,46 @@ def test_frame_diagnostics_count_current_beauty_fallback() -> None:
     assert diagnostic.historical_blend_pixels == 0
     assert diagnostic.changed_output_mean_absolute == 0.0
     assert diagnostic.changed_output_max_absolute == 0.0
+
+
+@pytest.mark.parametrize("refresh_probability", [0.0, 1e-12])
+def test_processing_skips_refresh_expansion_when_no_blocks_are_selected(
+    monkeypatch: pytest.MonkeyPatch, refresh_probability: float
+) -> None:
+    beauty = _rgba(1, 1, 0.25)
+    previous = FeedbackState(
+        history=_rgba(1, 1, 1.0),
+        history_matte=np.ones((1, 1), dtype=np.float32),
+        frame_number=1,
+    )
+    original_expand = feedback._expand_blocks
+
+    def reject_refresh_expansion(
+        block_values: np.ndarray, block_size: int, height: int, width: int
+    ) -> np.ndarray:
+        if block_values.dtype == np.bool_:
+            pytest.fail("an all-false refresh grid must not be expanded")
+        return original_expand(block_values, block_size, height, width)
+
+    monkeypatch.setattr(feedback, "_expand_blocks", reject_refresh_expansion)
+
+    output, _state, diagnostic = process_frame_with_diagnostics(
+        beauty,
+        _rgba(1, 1, 0.0),
+        np.ones((1, 1), dtype=np.float32),
+        previous,
+        2,
+        FeedbackSettings(
+            persistence=1.0,
+            refresh_probability=refresh_probability,
+            block_size=1,
+            seed=0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, _rgba(1, 1, 1.0))
+    assert diagnostic.refresh_restored_pixels == 0
+    assert diagnostic.refresh_restored_blocks == 0
 
 
 def test_frame_diagnostics_count_refresh_that_actually_restores_beauty() -> None:
