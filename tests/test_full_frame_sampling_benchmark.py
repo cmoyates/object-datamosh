@@ -64,6 +64,7 @@ def test_full_frame_sampling_benchmark_rejects_invalid_source_provenance() -> No
     assert result.returncode != 0
     assert (
         "source worktree must be clean" in result.stderr
+        or "requires source HEAD" in result.stderr
         or "requires feedback.py blob" in result.stderr
     )
 

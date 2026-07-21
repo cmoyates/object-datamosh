@@ -2,76 +2,76 @@
   "benchmarks": {
     "after": {
       "coordinate_grid_allocation": {
-        "extrapolated_147_frames_ns": 12348,
-        "maximum_ns": 1042,
+        "extrapolated_147_frames_ns": 12201,
+        "maximum_ns": 833,
         "measured_count": 5,
-        "median_ns": 84,
-        "minimum_ns": 41
+        "median_ns": 83,
+        "minimum_ns": 83
       },
       "primary_history_sampling": {
-        "extrapolated_147_frames_ns": 28765039527,
-        "maximum_ns": 207278875,
+        "extrapolated_147_frames_ns": 29754943848,
+        "maximum_ns": 215810917,
         "measured_count": 5,
-        "median_ns": 195680541,
-        "minimum_ns": 173653167
+        "median_ns": 202414584,
+        "minimum_ns": 158758291
       },
       "same_pixel_fallback": {
-        "extrapolated_147_frames_ns": 1568924973,
-        "maximum_ns": 11919500,
+        "extrapolated_147_frames_ns": 1612896348,
+        "maximum_ns": 11339167,
         "measured_count": 5,
-        "median_ns": 10672959,
-        "minimum_ns": 10659792
+        "median_ns": 10972084,
+        "minimum_ns": 10664167
       },
       "total_core_frame": {
-        "extrapolated_147_frames_ns": 49028597625,
-        "maximum_ns": 371176125,
+        "extrapolated_147_frames_ns": 48748483098,
+        "maximum_ns": 365291584,
         "measured_count": 5,
-        "median_ns": 333527875,
-        "minimum_ns": 320832167
+        "median_ns": 331622334,
+        "minimum_ns": 313874541
       },
       "trail_mask_sampling": {
-        "extrapolated_147_frames_ns": 5519433402,
-        "maximum_ns": 38370625,
+        "extrapolated_147_frames_ns": 5591916750,
+        "maximum_ns": 38958083,
         "measured_count": 5,
-        "median_ns": 37547166,
-        "minimum_ns": 36273333
+        "median_ns": 38040250,
+        "minimum_ns": 37330958
       }
     },
     "before": {
       "coordinate_grid_allocation": {
-        "extrapolated_147_frames_ns": 29742951,
-        "maximum_ns": 1094959,
+        "extrapolated_147_frames_ns": 24579723,
+        "maximum_ns": 686500,
         "measured_count": 5,
-        "median_ns": 202333,
-        "minimum_ns": 192000
+        "median_ns": 167209,
+        "minimum_ns": 164625
       },
       "primary_history_sampling": {
-        "extrapolated_147_frames_ns": 34061241375,
-        "maximum_ns": 241628167,
+        "extrapolated_147_frames_ns": 34545067473,
+        "maximum_ns": 258397875,
         "measured_count": 5,
-        "median_ns": 231709125,
-        "minimum_ns": 208136959
+        "median_ns": 235000459,
+        "minimum_ns": 223081459
       },
       "same_pixel_fallback": {
-        "extrapolated_147_frames_ns": 31487265201,
-        "maximum_ns": 228527000,
+        "extrapolated_147_frames_ns": 31061020326,
+        "maximum_ns": 227630041,
         "measured_count": 5,
-        "median_ns": 214199083,
-        "minimum_ns": 176507833
+        "median_ns": 211299458,
+        "minimum_ns": 202655709
       },
       "total_core_frame": {
-        "extrapolated_147_frames_ns": 99681239049,
-        "maximum_ns": 704907209,
+        "extrapolated_147_frames_ns": 98807783277,
+        "maximum_ns": 682278791,
         "measured_count": 5,
-        "median_ns": 678103667,
-        "minimum_ns": 648717250
+        "median_ns": 672161791,
+        "minimum_ns": 662749000
       },
       "trail_mask_sampling": {
-        "extrapolated_147_frames_ns": 10760442924,
-        "maximum_ns": 73658083,
+        "extrapolated_147_frames_ns": 11027131500,
+        "maximum_ns": 77915583,
         "measured_count": 5,
-        "median_ns": 73200292,
-        "minimum_ns": 71259000
+        "median_ns": 75014500,
+        "minimum_ns": 73509458
       }
     }
   },
@@ -82,24 +82,24 @@
   },
   "comparisons": {
     "coordinate_grid_allocation": {
-      "median_reduction_percent": 99.96,
-      "speedup_multiple": 2408.73
+      "median_reduction_percent": 99.95,
+      "speedup_multiple": 2014.57
     },
     "primary_history_sampling": {
-      "median_reduction_percent": 15.55,
-      "speedup_multiple": 1.18
+      "median_reduction_percent": 13.87,
+      "speedup_multiple": 1.16
     },
     "same_pixel_fallback": {
-      "median_reduction_percent": 95.02,
-      "speedup_multiple": 20.07
+      "median_reduction_percent": 94.81,
+      "speedup_multiple": 19.26
     },
     "total_core_frame": {
-      "median_reduction_percent": 50.81,
+      "median_reduction_percent": 50.66,
       "speedup_multiple": 2.03
     },
     "trail_mask_sampling": {
-      "median_reduction_percent": 48.71,
-      "speedup_multiple": 1.95
+      "median_reduction_percent": 49.29,
+      "speedup_multiple": 1.97
     }
   },
   "environment": {

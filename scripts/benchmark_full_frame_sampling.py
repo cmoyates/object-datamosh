@@ -244,7 +244,8 @@ def main() -> None:
     clean_valid = np.ones(matte.shape, dtype=bool)
     representative_primary_covered = clean_valid.copy()
     representative_primary_covered[:, ::8] = False
-    representative_warped_history = np.roll(state.history, shift=1, axis=1)
+    representative_warped_history = state.history.copy()
+    representative_warped_history[~representative_primary_covered] = 0.0
 
     def before_primary() -> object:
         valid = np.all(np.isfinite(state.history), axis=-1)
@@ -270,9 +271,15 @@ def main() -> None:
         return np.where(use_screen[..., None], state.history, representative_warped_history)
 
     def before_trail() -> object:
+        valid = (
+            np.isfinite(state.history_matte)
+            & (state.history_matte >= 0.0)
+            & (state.history_matte <= 1.0)
+        )
+        safe = np.where(valid, state.history_matte, 0.0).astype(np.float32, copy=False)
         return (
-            bilinear_sample(state.history_matte, sample_x, sample_y),
-            bilinear_sample((~clean_valid).astype(np.float32), sample_x, sample_y),
+            bilinear_sample(safe, sample_x, sample_y),
+            bilinear_sample((~valid).astype(np.float32), sample_x, sample_y),
         )
 
     def after_trail() -> object:
