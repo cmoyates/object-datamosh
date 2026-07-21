@@ -408,8 +408,11 @@ and may therefore lag that manifest. The report names `manifest_completed_prefix
 `diagnostics_completed_prefix` and records the checkpoint interval, manifest-observation lag
 separately from the diagnostics-availability gap, and each maximum while the report remains active.
 Session start, first actionable near-no-op
-evidence, success, cancellation, and processing failure always write a report; every terminal report
-includes all in-memory completed diagnostics. Diagnostics from a prior session are not reconstructed
+evidence, success, cancellation, and processing failure always write a report; the first actionable
+warning is logged once rather than repeated at later checkpoints, and every terminal report includes
+all in-memory completed diagnostics. If terminal report persistence fails, the Blender operation's
+terminal status names that report-write failure instead of silently presenting the prior checkpoint
+as terminal truth. Diagnostics from a prior session are not reconstructed
 on resume: the report marks that historical gap as partial or unavailable and does not claim terminal
 agreement with the manifest. If an older run has no report, do not infer or fabricate diagnostics
 from its processed EXRs.

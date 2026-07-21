@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -164,7 +165,7 @@ def test_running_report_checkpoints_every_ten_completed_frames(tmp_path: Path) -
 
 
 def test_first_actionable_near_no_op_warning_forces_an_early_checkpoint(
-    tmp_path: Path,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     paths = SequencePaths(tmp_path)
     inputs = _inputs(paths, 5)
@@ -183,16 +184,29 @@ def test_first_actionable_near_no_op_warning_forces_an_early_checkpoint(
     session.process_next_frame()
     assert _report(paths)["manifest_completed_prefix"]["count"] == 0
 
-    session.process_next_frame()
+    with caplog.at_level(logging.WARNING):
+        session.process_next_frame()
+        warning_report = _report(paths)
+        assert warning_report["manifest_completed_prefix"] == {
+            "count": 3,
+            "start": 1,
+            "end": 3,
+        }
+        while not session.is_finished:
+            session.process_next_frame()
 
-    warning_report = _report(paths)
-    assert warning_report["manifest_completed_prefix"] == {"count": 3, "start": 1, "end": 3}
-    assert warning_report["diagnostics_completed_prefix"] == {
-        "count": 3,
+    terminal_report = _report(paths)
+    assert terminal_report["manifest_completed_prefix"] == {"count": 5, "start": 1, "end": 5}
+    assert terminal_report["diagnostics_completed_prefix"] == {
+        "count": 5,
         "start": 1,
-        "end": 3,
+        "end": 5,
     }
-    assert warning_report["warnings"]
+    assert terminal_report["warnings"]
+    warning_records = [
+        record for record in caplog.records if "Likely ineffective feedback:" in record.message
+    ]
+    assert len(warning_records) == 1
 
 
 def test_cancelled_and_failed_reports_preserve_only_completed_prefix(tmp_path: Path) -> None:

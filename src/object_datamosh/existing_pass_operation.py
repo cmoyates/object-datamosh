@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from .modal_lifecycle import ModalOperationLifecycle, OperationPhase, RuntimeState
 from .sequence_processing import ProcessingSession, SequenceProcessingCancelled
@@ -195,10 +195,10 @@ class ExistingPassModalController:
         return {"FINISHED"}
 
     def _finish_cancelled(self, completed_count: int) -> set[Any]:
-        if self._session is not None:
-            with suppress(Exception):
-                self._session.write_terminal_report("CANCELLED")
+        report_error = self._write_terminal_report("CANCELLED")
         message = f"Cancelled after {completed_count} frame(s)"
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         cleanup_succeeded = self.finalize(OperationPhase.CANCELLED, message)
         report_level = {"WARNING"} if cleanup_succeeded else {"ERROR"}
         self._operator.report(report_level, self._visible_status(message))
@@ -221,8 +221,9 @@ class ExistingPassModalController:
         completed_work = 0
         if session is not None:
             completed_work = len(session.retained_frames)
-            with suppress(Exception):
-                session.write_terminal_report("FAILURE", failure=str(error))
+        report_error = self._write_terminal_report("FAILURE", failure=str(error))
+        if report_error is not None:
+            message += f"; diagnostics report write failed: {report_error}"
         with suppress(Exception):
             self._lifecycle.update(
                 phase=OperationPhase.FAILED,
@@ -233,6 +234,21 @@ class ExistingPassModalController:
         self.finalize(OperationPhase.FAILED, message)
         self._operator.report({"ERROR"}, self._visible_status(message))
         return {"CANCELLED"}
+
+    def _write_terminal_report(
+        self, outcome: Literal["CANCELLED", "FAILURE"], *, failure: str | None = None
+    ) -> Exception | None:
+        """Write terminal diagnostics and return any observational persistence failure."""
+        if self._session is None:
+            return None
+        writer = getattr(self._session, "write_terminal_report", None)
+        if not callable(writer):
+            return None
+        try:
+            writer(outcome, failure=failure)
+        except Exception as error:
+            return error
+        return None
 
     def _set_status(self, status: str) -> None:
         with suppress(Exception):

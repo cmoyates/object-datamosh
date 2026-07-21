@@ -638,8 +638,7 @@ class ProcessingSession:
         if frame_number == self.frame_end:
             self._is_finished = True
             self._commit_frame_report("SUCCESS")
-            for warning in self.advisory_warnings:
-                logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
+            self._log_new_actionable_warning()
         else:
             self.current_frame += 1
             assessment = assess_near_no_op(
@@ -653,9 +652,21 @@ class ProcessingSession:
             )
             if reached_checkpoint or warning_became_actionable:
                 self._commit_frame_report("RUNNING")
-                self._near_no_op_reported = self._near_no_op_reported or warning_became_actionable
+                if warning_became_actionable:
+                    self._log_new_actionable_warning()
             else:
                 self._finish_frame_timing_without_report("RUNNING")
+
+    def _log_new_actionable_warning(self) -> None:
+        """Log an efficacy warning once, at the first boundary where it is actionable."""
+        if self._near_no_op_reported:
+            return
+        warnings = self.advisory_warnings
+        if not any(warning.startswith("Likely ineffective feedback:") for warning in warnings):
+            return
+        for warning in warnings:
+            logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
+        self._near_no_op_reported = True
 
     def _finish_frame_timing_without_report(self, outcome: Literal["RUNNING"]) -> None:
         """Finalize timing for a frame whose observational report is intentionally deferred."""
