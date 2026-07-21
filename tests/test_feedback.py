@@ -66,7 +66,7 @@ def test_empty_hard_frame_skips_motion_and_sampling(
         pytest.fail("empty Hard frames must not prepare motion or sample history")
 
     monkeypatch.setattr(feedback, "prepare_blocks", unexpected_call)
-    monkeypatch.setattr(feedback, "sample_with_plan", unexpected_call)
+    monkeypatch.setattr(feedback, "bilinear_sample", unexpected_call)
 
     output, state, diagnostics = feedback.process_frame_with_diagnostics(
         beauty=beauty,
@@ -115,7 +115,7 @@ def test_empty_trail_with_empty_valid_history_skips_motion_and_sampling(
         pytest.fail("eligible empty Trail frames must not prepare motion or sample history")
 
     monkeypatch.setattr(feedback, "prepare_blocks", unexpected_call)
-    monkeypatch.setattr(feedback, "sample_with_plan", unexpected_call)
+    monkeypatch.setattr(feedback, "bilinear_sample", unexpected_call)
 
     output, state, diagnostics = feedback.process_frame_with_diagnostics(
         beauty,
@@ -159,7 +159,7 @@ def test_empty_trail_does_not_skip_nonempty_or_invalid_history_coverage(
 ) -> None:
     calls = {"prepare": 0, "sample": 0}
     real_prepare = feedback.prepare_blocks
-    real_sample = feedback.sample_with_plan
+    real_sample = feedback.bilinear_sample
 
     def recording_prepare(
         motion: np.ndarray,
@@ -170,12 +170,12 @@ def test_empty_trail_does_not_skip_nonempty_or_invalid_history_coverage(
         calls["prepare"] += 1
         return real_prepare(motion, matte, frame_number, settings)
 
-    def recording_sample(image: np.ndarray, plan: object) -> object:
+    def recording_sample(image: np.ndarray, sample_x: np.ndarray, sample_y: np.ndarray) -> object:
         calls["sample"] += 1
-        return real_sample(image, plan)  # ty: ignore[invalid-argument-type]
+        return real_sample(image, sample_x, sample_y)
 
     monkeypatch.setattr(feedback, "prepare_blocks", recording_prepare)
-    monkeypatch.setattr(feedback, "sample_with_plan", recording_sample)
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
     beauty = _rgba(1, 1, 0.2)
 
     output, state, diagnostics = feedback.process_frame_with_diagnostics(
@@ -564,13 +564,15 @@ def test_clean_full_frame_trail_samples_only_primary_history_and_trail_mask(
     history_matte = np.array([[0.0, 0.5, 1.0], [1.0, 0.5, 0.0]], dtype=np.float32)
     previous = FeedbackState(history, history_matte, frame_number=1)
     sampled_images: list[np.ndarray] = []
-    real_sample = feedback.sample_with_plan
+    real_sample = feedback.bilinear_sample
 
-    def recording_sample(image: np.ndarray, plan: object) -> tuple[np.ndarray, np.ndarray]:
+    def recording_sample(
+        image: np.ndarray, sample_x: np.ndarray, sample_y: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         sampled_images.append(image)
-        return real_sample(image, plan)  # ty: ignore[invalid-argument-type]
+        return real_sample(image, sample_x, sample_y)
 
-    monkeypatch.setattr(feedback, "sample_with_plan", recording_sample)
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
 
     output, state = process_frame(
         beauty=_rgba(2, 3, 0.0),
@@ -600,15 +602,16 @@ def test_full_frame_same_pixel_fallback_does_not_identity_sample(
 ) -> None:
     history = _rgba(1, 2, 1.0)
     previous = FeedbackState(history, np.zeros((1, 2), dtype=np.float32), frame_number=1)
-    sampled_validity: list[np.ndarray] = []
-    real_sample = feedback.sample_with_plan
+    sampled_coordinates: list[tuple[np.ndarray, np.ndarray]] = []
+    real_sample = feedback.bilinear_sample
 
-    def recording_sample(image: np.ndarray, plan: object) -> tuple[np.ndarray, np.ndarray]:
-        result = real_sample(image, plan)  # ty: ignore[invalid-argument-type]
-        sampled_validity.append(result[1])
-        return result
+    def recording_sample(
+        image: np.ndarray, sample_x: np.ndarray, sample_y: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        sampled_coordinates.append((sample_x, sample_y))
+        return real_sample(image, sample_x, sample_y)
 
-    monkeypatch.setattr(feedback, "sample_with_plan", recording_sample)
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
     motion = _motion(1, 2)
     motion[0, 0, 0] = 1.0
 
@@ -627,8 +630,8 @@ def test_full_frame_same_pixel_fallback_does_not_identity_sample(
         ),
     )
 
-    assert len(sampled_validity) == 1
-    assert not sampled_validity[0][0, 0]
+    assert len(sampled_coordinates) == 1
+    assert sampled_coordinates[0][0][0, 0] == -1.0
     np.testing.assert_array_equal(output[0, 0], history[0, 0])
 
 

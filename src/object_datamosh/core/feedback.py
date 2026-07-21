@@ -16,7 +16,7 @@ from .contracts import (
     InvalidHistoryFallback,
 )
 from .diagnostics import CHANGE_EPSILON, FrameDiagnostics
-from .sampling import make_bilinear_plan, sample_with_plan
+from .sampling import bilinear_sample
 
 
 def _expand_blocks(block_values: NDArray, block_size: int, height: int, width: int) -> NDArray:
@@ -163,18 +163,17 @@ def process_frame_with_diagnostics(
         sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
         sample_x -= displacement[..., 0]
         sample_y -= displacement[..., 1]
-        sampling_plan = make_bilinear_plan(sample_x, sample_y, width, height)
         if settings.history_source is HistorySource.FULL_FRAME:
             history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
             clean_history = bool(np.all(history_color_valid))
             if clean_history:
                 safe_history = previous_state.history
-                warped_history, covered = sample_with_plan(safe_history, sampling_plan)
+                warped_history, covered = bilinear_sample(safe_history, sample_x, sample_y)
             else:
                 safe_history = np.where(history_color_valid[..., None], previous_state.history, 0.0)
-                warped_history, valid = sample_with_plan(safe_history, sampling_plan)
-                warped_invalid, _ = sample_with_plan(
-                    (~history_color_valid).astype(np.float32), sampling_plan
+                warped_history, valid = bilinear_sample(safe_history, sample_x, sample_y)
+                warped_invalid, _ = bilinear_sample(
+                    (~history_color_valid).astype(np.float32), sample_x, sample_y
                 )
                 covered = (
                     valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
@@ -198,18 +197,18 @@ def process_frame_with_diagnostics(
                 clean_history_matte = bool(np.all(history_matte_valid))
                 if clean_history_matte:
                     safe_history_matte = previous_state.history_matte
-                    warped_matte, effect_sample_valid = sample_with_plan(
-                        safe_history_matte, sampling_plan
+                    warped_matte, effect_sample_valid = bilinear_sample(
+                        safe_history_matte, sample_x, sample_y
                     )
                 else:
                     safe_history_matte = np.where(
                         history_matte_valid, previous_state.history_matte, 0.0
                     ).astype(np.float32, copy=False)
-                    warped_matte, matte_sample_valid = sample_with_plan(
-                        safe_history_matte, sampling_plan
+                    warped_matte, matte_sample_valid = bilinear_sample(
+                        safe_history_matte, sample_x, sample_y
                     )
-                    warped_matte_invalid, _ = sample_with_plan(
-                        (~history_matte_valid).astype(np.float32), sampling_plan
+                    warped_matte_invalid, _ = bilinear_sample(
+                        (~history_matte_valid).astype(np.float32), sample_x, sample_y
                     )
                     effect_sample_valid = (
                         matte_sample_valid
@@ -250,10 +249,10 @@ def process_frame_with_diagnostics(
             ).astype(np.float32, copy=False)
             safe_history = np.where(history_covered[..., None], previous_state.history, 0.0)
             premultiplied = safe_history * valid_history_matte[..., None]
-            warped_premultiplied, valid = sample_with_plan(premultiplied, sampling_plan)
-            warped_matte, _ = sample_with_plan(valid_history_matte, sampling_plan)
-            warped_invalid, _ = sample_with_plan(
-                invalid_covered_history.astype(np.float32), sampling_plan
+            warped_premultiplied, valid = bilinear_sample(premultiplied, sample_x, sample_y)
+            warped_matte, _ = bilinear_sample(valid_history_matte, sample_x, sample_y)
+            warped_invalid, _ = bilinear_sample(
+                invalid_covered_history.astype(np.float32), sample_x, sample_y
             )
             covered = valid & (warped_matte > 0.0) & (warped_invalid == 0.0)
             safe_matte = np.where(covered, warped_matte, 1.0)

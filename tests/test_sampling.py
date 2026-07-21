@@ -1,61 +1,7 @@
 import numpy as np
 import pytest
 
-from object_datamosh.core.sampling import (
-    bilinear_sample,
-    make_bilinear_plan,
-    sample_with_plan,
-)
-
-
-def test_bilinear_plan_reuses_coordinates_for_scalar_and_channel_images() -> None:
-    sample_x = np.array([[0.5, 1.0]], dtype=np.float32)
-    sample_y = np.array([[0.5, 0.0]], dtype=np.float32)
-    scalar = np.array([[0.0, 2.0], [4.0, 6.0]], dtype=np.float32)
-    rgba = np.repeat(scalar[..., None], 4, axis=-1)
-
-    plan = make_bilinear_plan(sample_x, sample_y, width=2, height=2)
-    sampled_scalar, scalar_valid = sample_with_plan(scalar, plan)
-    sampled_rgba, rgba_valid = sample_with_plan(rgba, plan)
-
-    np.testing.assert_array_equal(sampled_scalar, np.array([[3.0, 2.0]], dtype=np.float32))
-    np.testing.assert_array_equal(sampled_rgba, np.repeat(sampled_scalar[..., None], 4, axis=-1))
-    np.testing.assert_array_equal(scalar_valid, np.ones((1, 2), dtype=np.bool_))
-    np.testing.assert_array_equal(rgba_valid, scalar_valid)
-
-
-def test_bilinear_plan_matches_wrapper_for_odd_dimensions_and_invalid_coordinates() -> None:
-    image = np.arange(45, dtype=np.float32).reshape(3, 5, 3)
-    sample_x = np.array([[0.0, 1.5, 4.0, -0.01], [np.nan, np.inf, -np.inf, 2.25]], dtype=np.float32)
-    sample_y = np.array([[0.0, 1.25, 2.0, 1.0], [0.0, 1.0, 2.0, 2.01]], dtype=np.float32)
-
-    expected, expected_valid = bilinear_sample(image, sample_x, sample_y)
-    actual, actual_valid = sample_with_plan(
-        image, make_bilinear_plan(sample_x, sample_y, width=5, height=3)
-    )
-
-    np.testing.assert_array_equal(actual, expected)
-    np.testing.assert_array_equal(actual_valid, expected_valid)
-
-
-def test_bilinear_plan_handles_one_pixel_images() -> None:
-    coordinates = np.array([[0.0, 0.1]], dtype=np.float32)
-    image = np.array([[7.0]], dtype=np.float32)
-
-    sampled, valid = sample_with_plan(
-        image, make_bilinear_plan(coordinates, np.zeros_like(coordinates), width=1, height=1)
-    )
-
-    np.testing.assert_array_equal(sampled, np.array([[7.0, 0.0]], dtype=np.float32))
-    np.testing.assert_array_equal(valid, np.array([[True, False]]))
-
-
-def test_bilinear_plan_rejects_incompatible_image_dimensions() -> None:
-    coordinates = np.zeros((1, 1), dtype=np.float32)
-    plan = make_bilinear_plan(coordinates, coordinates, width=2, height=3)
-
-    with pytest.raises(ValueError, match="dimensions must match"):
-        sample_with_plan(np.zeros((3, 3), dtype=np.float32), plan)
+from object_datamosh.core.sampling import bilinear_sample
 
 
 def test_bilinear_sampling_at_pixel_centers_is_identity() -> None:
