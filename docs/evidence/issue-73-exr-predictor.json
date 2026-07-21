@@ -61,7 +61,9 @@
         ],
         "minimum_ns": 2032796458,
         "median_ns": 2041482250,
-        "maximum_ns": 2041755459
+        "maximum_ns": 2041755459,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 16251721
       },
       "vector": {
         "samples_ns": [
@@ -71,7 +73,9 @@
         ],
         "minimum_ns": 1828800000,
         "median_ns": 1833245625,
-        "maximum_ns": 1849768667
+        "maximum_ns": 1849768667,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 18097738
       },
       "matte": {
         "samples_ns": [
@@ -81,7 +85,9 @@
         ],
         "minimum_ns": 1800527541,
         "median_ns": 1802571500,
-        "maximum_ns": 1803112417
+        "maximum_ns": 1803112417,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 18405705
       },
       "all_three": {
         "samples_ns": [
@@ -91,7 +97,9 @@
         ],
         "minimum_ns": 5705311792,
         "median_ns": 5713063416,
-        "maximum_ns": 5721746875
+        "maximum_ns": 5721746875,
+        "bytes_per_sample": 99532800,
+        "bytes_per_second": 17421966
       }
     },
     "after": {
@@ -103,7 +111,9 @@
         ],
         "minimum_ns": 167200834,
         "median_ns": 168557583,
-        "maximum_ns": 170781250
+        "maximum_ns": 170781250,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 196832437
       },
       "vector": {
         "samples_ns": [
@@ -113,7 +123,9 @@
         ],
         "minimum_ns": 129589833,
         "median_ns": 130970667,
-        "maximum_ns": 131177125
+        "maximum_ns": 131177125,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 253320844
       },
       "matte": {
         "samples_ns": [
@@ -123,7 +135,9 @@
         ],
         "minimum_ns": 105809583,
         "median_ns": 109845291,
-        "maximum_ns": 112718541
+        "maximum_ns": 112718541,
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 302039347
       },
       "all_three": {
         "samples_ns": [
@@ -133,7 +147,9 @@
         ],
         "minimum_ns": 405286584,
         "median_ns": 406391583,
-        "maximum_ns": 411929792
+        "maximum_ns": 411929792,
+        "bytes_per_sample": 99532800,
+        "bytes_per_second": 244918458
       }
     }
   },

@@ -34,6 +34,17 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert benchmark_command in readme
 
 
+def test_issue_73_evidence_reports_decode_throughput_before_and_after() -> None:
+    evidence = json.loads(Path("docs/evidence/issue-73-exr-predictor.json").read_text())
+
+    for revision in ("before", "after"):
+        for pass_name in ("beauty", "vector", "matte", "all_three"):
+            result = evidence["full_float_zip_decode"][revision][pass_name]
+            assert result["bytes_per_sample"] > 0
+            assert result["bytes_per_second"] > 0
+            assert result["minimum_ns"] <= result["median_ns"] <= result["maximum_ns"]
+
+
 def test_committed_baseline_has_separate_core_io_and_end_to_end_evidence() -> None:
     evidence = json.loads(Path("docs/evidence/extreme-benchmark-baseline.json").read_text())
 
