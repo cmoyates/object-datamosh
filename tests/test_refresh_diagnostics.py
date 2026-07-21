@@ -11,7 +11,7 @@ def _reference_refresh(
     covered: np.ndarray,
     localized_history: np.ndarray,
     persistence: float,
-) -> tuple[np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, int, int]:
     """Retain the pre-optimization block-loop behavior as a correctness oracle."""
     height, width = candidate.shape
     refreshed = np.repeat(
@@ -34,10 +34,10 @@ def _reference_refresh(
                 )
             )
     unrefreshed_blend = persistence * localized_history * covered
-    refresh_restored = refreshed & (unrefreshed_blend > 0.0)
+    refresh_pixels = int(np.count_nonzero(refreshed & (unrefreshed_blend > 0.0)))
     blend = (unrefreshed_blend * ~refreshed)[..., None]
     refresh_blocks = int(np.count_nonzero(prepared.refresh & block_candidates))
-    return blend, refresh_restored, refresh_blocks
+    return blend, refresh_pixels, refresh_blocks
 
 
 @pytest.mark.parametrize(
@@ -71,5 +71,4 @@ def test_vectorized_refresh_diagnostics_match_block_loop_reference(
     expected = _reference_refresh(prepared, candidate, covered, localized_history, persistence)
 
     np.testing.assert_array_equal(actual[0], expected[0])
-    np.testing.assert_array_equal(actual[1], expected[1])
-    assert actual[2] == expected[2]
+    assert actual[1:] == expected[1:]

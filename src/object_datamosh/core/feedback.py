@@ -32,16 +32,12 @@ def _apply_refresh(
     covered: NDArray[np.bool_],
     localized_history: FloatMask,
     persistence: float,
-) -> tuple[NDArray[np.float32], NDArray[np.bool_], int]:
-    """Apply selected refresh blocks and return blend weights plus diagnostics."""
+) -> tuple[NDArray[np.float32], int, int]:
+    """Apply selected refresh blocks and return blend weights plus diagnostic counts."""
     height, width = candidate.shape
     unrefreshed_blend = persistence * localized_history * covered
     if not np.any(prepared_blocks.refresh):
-        return (
-            unrefreshed_blend[..., None],
-            np.zeros(candidate.shape, dtype=bool),
-            0,
-        )
+        return unrefreshed_blend[..., None], 0, 0
 
     refreshed = _expand_blocks(
         prepared_blocks.refresh, prepared_blocks.block_size, height, width
@@ -53,9 +49,9 @@ def _apply_refresh(
         np.logical_or.reduceat(active_pixels, y_starts, axis=0), x_starts, axis=1
     )
     refresh_blocks = int(np.count_nonzero(prepared_blocks.refresh & block_candidates))
-    refresh_restored = refreshed & (unrefreshed_blend > 0.0)
+    refresh_pixels = int(np.count_nonzero(refreshed & (unrefreshed_blend > 0.0)))
     blend = (unrefreshed_blend * ~refreshed)[..., None]
-    return blend, refresh_restored, refresh_blocks
+    return blend, refresh_pixels, refresh_blocks
 
 
 def _validate_inputs(
@@ -131,8 +127,8 @@ def process_frame_with_diagnostics(
     primary_valid = np.zeros(matte.shape, dtype=bool)
     fallback_attempt = np.zeros(matte.shape, dtype=bool)
     fallback_valid = np.zeros(matte.shape, dtype=bool)
-    refresh_restored = np.zeros(matte.shape, dtype=bool)
     blend = np.zeros((*matte.shape, 1), dtype=np.float32)
+    refresh_pixels = 0
     refresh_blocks = 0
     if reset:
         output = beauty.copy()
@@ -248,7 +244,7 @@ def process_frame_with_diagnostics(
         primary_valid = candidate & primary_covered
         fallback_attempt = candidate & ~primary_covered
         fallback_valid = candidate & use_screen
-        blend, refresh_restored, refresh_blocks = _apply_refresh(
+        blend, refresh_pixels, refresh_blocks = _apply_refresh(
             prepared_blocks,
             candidate,
             covered,
@@ -279,7 +275,7 @@ def process_frame_with_diagnostics(
         current_beauty_fallback_pixels=int(
             np.count_nonzero(primary_attempt & ~primary_valid & ~fallback_valid)
         ),
-        refresh_restored_pixels=int(np.count_nonzero(refresh_restored)),
+        refresh_restored_pixels=refresh_pixels,
         refresh_restored_blocks=refresh_blocks,
         historical_blend_pixels=int(np.count_nonzero(blend[..., 0] > 0.0)),
         historical_blend_weight=float(np.sum(blend[..., 0], dtype=np.float64)),
