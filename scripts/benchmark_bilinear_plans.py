@@ -217,6 +217,11 @@ def main() -> None:
         allocation_proxy["retained_plan_bytes"] = sum(
             getattr(plan, name).nbytes for name in ("valid", "x0", "x1", "y0", "y1", "wx", "wy")
         )
+        sampled_rgba, sampled_valid = sample_with_plan(history, plan)
+        sampled_scalar, _ = sample_with_plan(history_matte, plan)
+    else:
+        sampled_rgba, sampled_valid = bilinear_sample(history, sample_x, sample_y)
+        sampled_scalar, _ = bilinear_sample(history_matte, sample_x, sample_y)
 
     def process() -> tuple[Any, ...]:
         return process_frame_with_diagnostics(
@@ -249,6 +254,11 @@ def main() -> None:
         "memory": {
             "process_peak_rss_mib": _peak_rss_mib(),
             "practical_allocation_proxy": allocation_proxy,
+        },
+        "sampling_digest": {
+            "rgba": _digest_array(sampled_rgba),
+            "scalar": _digest_array(sampled_scalar),
+            "validity": _digest_array(sampled_valid),
         },
         "semantic_digest": {
             "output": _digest_array(output),
