@@ -50,7 +50,14 @@ def test_bilinear_plan_rejection_records_complete_benchmark_evidence() -> None:
     assert evidence["semantic_comparison"]["maximum_absolute_error"] == 0.0
     revision_digests = evidence["semantic_comparison"]["digests_by_revision"]
     assert revision_digests["before"] == revision_digests["prototype"]
-    assert evidence["comparison"]["complete_feedback"]["reduction_percent"] < 5.0
+    complete_feedback = evidence["comparison"]["complete_feedback"]
+    assert complete_feedback["reduction_percent"] < 5.0
+    assert complete_feedback["estimated_147_frame_before_seconds"] == (
+        complete_feedback["before_median_ns"] * 147 / 1_000_000_000
+    )
+    assert complete_feedback["estimated_147_frame_after_seconds"] == (
+        complete_feedback["after_median_ns"] * 147 / 1_000_000_000
+    )
     assert evidence["comparison"]["repeated_vs_planned_two_samples"]["reduction_percent"] < 0.0
     assert "planned samples 4.11% slower" in evidence["decision_reason"]
     assert "modest 2.79% gain" in readme

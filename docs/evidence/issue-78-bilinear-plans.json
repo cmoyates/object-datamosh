@@ -99,6 +99,8 @@
     "complete_feedback": {
       "after_median_ns": 284065250,
       "before_median_ns": 292214750,
+      "estimated_147_frame_after_seconds": 41.75759175,
+      "estimated_147_frame_before_seconds": 42.95556825,
       "reduction_percent": 2.7888735938209828,
       "speedup": 1.0286888311752318
     },
@@ -149,6 +151,7 @@
   "notes": [
     "Each revision ran in a clean detached worktree under the same Blender executable.",
     "One warm-up preceded five measured iterations for every independently measured stage.",
+    "The 147-frame estimates multiply each complete-feedback median by 147; they are extrapolations, not measured sequence timings.",
     "The repeated baseline was measured in both runs; the cross-revision comparison uses the pinned base revision.",
     "Planned total includes plan construction plus both planned samples; construction, RGBA, and scalar samples were also measured separately.",
     "Benchmark-only plans and sampled outputs were released before complete-feedback timing, so no unrelated retained plan inflated that stage.",
