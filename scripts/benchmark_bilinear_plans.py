@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+import importlib
 import json
 import platform
 import subprocess
@@ -186,7 +187,9 @@ def main() -> None:
         "retained_plan_bytes": 0,
     }
     if args.revision == "after":
-        from object_datamosh.core.sampling import make_bilinear_plan, sample_with_plan
+        prototype_sampling = importlib.import_module("object_datamosh.core.sampling")
+        make_bilinear_plan = vars(prototype_sampling)["make_bilinear_plan"]
+        sample_with_plan = vars(prototype_sampling)["sample_with_plan"]
 
         plan = make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT)
         stages.update(
