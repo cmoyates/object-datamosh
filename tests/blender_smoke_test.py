@@ -1190,6 +1190,10 @@ def main() -> None:
         actual = image_io.read_rgba(image_path)
     finally:
         BlenderImageIO._read_with_blender = original_blender_fallback
+    fallback_images_before = len(bpy.data.images)
+    previous_route_actual = image_io._read_with_blender(image_path)
+    np.testing.assert_array_equal(actual, previous_route_actual)
+    assert len(bpy.data.images) == fallback_images_before
 
     corrupt_path = Path(bpy.app.tempdir) / "ODM_corrupt_supported.exr"
     corrupt_path.write_bytes(image_path.read_bytes()[:-1])

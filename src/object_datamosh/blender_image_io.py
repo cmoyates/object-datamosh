@@ -7,6 +7,7 @@ narrowly ignored by the repository's external static checker.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -60,6 +61,8 @@ class BlenderImageIO:
 
     def _read_with_blender(self, image_path: Path) -> FloatImage:
         """Read a valid but unsupported EXR through a temporary owned Blender Image."""
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("Blender Image fallback must run on Blender's main thread")
         image = bpy.data.images.load(str(image_path), check_existing=False)
         try:
             image.reload()

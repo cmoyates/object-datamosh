@@ -773,7 +773,7 @@ not a production threshold. The current baseline is committed at
 
 The custom-reader-first routing comparison uses the same benchmark with two warm-ups and seven
 measurements. On Blender 5.2.0 LTS on arm64 macOS, removing the old Blender probe from the
-three-pass multilayer route reduced its median from 426.56 ms to 419.68 ms (1.61%, 1.016×), with
+three-pass multilayer route reduced its median from 434.34 ms to 416.74 ms (4.05%, 1.042×), with
 zero temporary Images on the supported path and bit-identical ZIP/ZIPS fixtures. The evidence also
 records the unfavorable regular-EXR comparison: Blender's native Image decoder is much faster than
 the narrow NumPy decoder on this machine. See

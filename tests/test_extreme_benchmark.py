@@ -33,7 +33,8 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert '"temporary_data_block_count"' in script
     assert '"all_three"' in script
     assert '"bytes_per_second"' in script
-    assert "read_full_float_rgba(frame.beauty)" in script
+    assert 'output.format.file_format = "OPEN_EXR_MULTILAYER"' in script
+    assert 'read_full_float_rgba(read_fixtures["beauty"])' in script
     benchmark_command = (
         '"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py'
     )

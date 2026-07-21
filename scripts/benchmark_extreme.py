@@ -10,7 +10,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import bpy
 import numpy as np
@@ -107,6 +107,70 @@ def _write_fixture_sequence(
         image_io.write_rgba(frame.matte, matte_rgba)
 
 
+def _write_multilayer_read_fixtures(
+    root: Path,
+    beauty: np.ndarray,
+    motion: np.ndarray,
+    matte: np.ndarray,
+) -> dict[str, Path]:
+    """Render production-shaped compositor multilayer EXRs for read-route measurements."""
+    scene = bpy.data.scenes.new("ODM_Benchmark_EXR_Reads")
+    camera_data = bpy.data.cameras.new("ODM_Benchmark_EXR_Reads_Camera")
+    camera = bpy.data.objects.new("ODM_Benchmark_EXR_Reads_Camera", camera_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+    tree = bpy.data.node_groups.new("ODM_Benchmark_EXR_Reads_Tree", "CompositorNodeTree")
+    scene.compositing_node_group = tree
+    matte_rgba = np.repeat(matte[..., None], 4, axis=2).astype(np.float32, copy=False)
+    fixtures = {"beauty": beauty, "vector": motion, "matte": matte_rgba}
+    images: list[Any] = []
+    try:
+        cast(Any, scene.render).engine = "BLENDER_WORKBENCH"
+        scene.render.resolution_x = WIDTH
+        scene.render.resolution_y = HEIGHT
+        scene.render.resolution_percentage = 100
+        for pass_name, pixels in fixtures.items():
+            image = bpy.data.images.new(
+                f"ODM_Benchmark_{pass_name}",
+                width=WIDTH,
+                height=HEIGHT,
+                alpha=True,
+                float_buffer=True,
+            )
+            images.append(image)
+            cast(Any, image.colorspace_settings).name = "Linear Rec.709"
+            cast(Any, image.pixels).foreach_set(np.ascontiguousarray(pixels[::-1]).ravel())
+            image_node = cast(Any, tree.nodes.new("CompositorNodeImage"))
+            image_node.image = image
+            output = cast(Any, tree.nodes.new("CompositorNodeOutputFile"))
+            output.directory = str(root)
+            output.file_name = f"ODM_{pass_name}_####"
+            output.format.file_format = "OPEN_EXR_MULTILAYER"
+            output.format.color_mode = "RGBA"
+            output.format.color_depth = "32"
+            output.format.exr_codec = "ZIP"
+            output.save_as_render = False
+            output.file_output_items.clear()
+            item = output.file_output_items.new("RGBA", "Image")
+            item.override_node_format = False
+            item.save_as_render = False
+            tree.links.new(image_node.outputs["Image"], output.inputs["Image"])
+        scene.frame_set(1)
+        bpy.ops.render.render(scene=scene.name)
+    finally:
+        scene.compositing_node_group = None
+        bpy.data.scenes.remove(scene)
+        bpy.data.node_groups.remove(tree)
+        for image in images:
+            bpy.data.images.remove(image)
+        bpy.data.objects.remove(camera)
+        bpy.data.cameras.remove(camera_data)
+    paths = {name: root / f"ODM_{name}_0001.exr" for name in fixtures}
+    if missing := [str(path) for path in paths.values() if not path.is_file()]:
+        raise RuntimeError(f"Compositor benchmark fixtures were not written: {missing}")
+    return paths
+
+
 def _environment() -> dict[str, str]:
     cpu = platform.processor() or platform.machine() or "unavailable"
     return {
@@ -161,34 +225,41 @@ def main() -> None:
         image_io = BlenderImageIO(bpy.context.scene)
         _write_fixture_sequence(paths, image_io, beauty, motion, matte)
         frame = paths.frame(1)
+        read_fixtures = _write_multilayer_read_fixtures(Path(temporary), beauty, motion, matte)
 
         def custom_matte() -> np.ndarray:
-            return np.ascontiguousarray(image_io.read_rgba(frame.matte)[..., 0])
+            return np.ascontiguousarray(image_io.read_rgba(read_fixtures["matte"])[..., 0])
 
         def blender_probe_then_bundled(path: Path) -> np.ndarray:
             image = bpy.data.images.load(str(path), check_existing=False)
             try:
                 image.reload()
+                if image.channels != 0 or image.type != "MULTILAYER":
+                    raise AssertionError(f"expected a compositor multilayer EXR: {path}")
+                return read_full_float_rgba(path)
             finally:
                 bpy.data.images.remove(image)
-            return read_full_float_rgba(path)
 
         def blender_matte() -> np.ndarray:
-            return np.ascontiguousarray(blender_probe_then_bundled(frame.matte)[..., 0])
+            return np.ascontiguousarray(blender_probe_then_bundled(read_fixtures["matte"])[..., 0])
 
         images_before_reads = len(bpy.data.images)
         custom_reader_samples = {
             "beauty": _measure(
-                lambda: image_io.read_rgba(frame.beauty), args.warmups, args.measured
+                lambda: image_io.read_rgba(read_fixtures["beauty"]),
+                args.warmups,
+                args.measured,
             ),
             "vector": _measure(
-                lambda: image_io.read_rgba(frame.vector), args.warmups, args.measured
+                lambda: image_io.read_rgba(read_fixtures["vector"]),
+                args.warmups,
+                args.measured,
             ),
             "matte": _measure(custom_matte, args.warmups, args.measured),
             "all_three": _measure(
                 lambda: (
-                    image_io.read_rgba(frame.beauty),
-                    image_io.read_rgba(frame.vector),
+                    image_io.read_rgba(read_fixtures["beauty"]),
+                    image_io.read_rgba(read_fixtures["vector"]),
                     custom_matte(),
                 ),
                 args.warmups,
@@ -210,16 +281,20 @@ def main() -> None:
         }
         blender_probe_samples = {
             "beauty": _measure(
-                lambda: blender_probe_then_bundled(frame.beauty), args.warmups, args.measured
+                lambda: blender_probe_then_bundled(read_fixtures["beauty"]),
+                args.warmups,
+                args.measured,
             ),
             "vector": _measure(
-                lambda: blender_probe_then_bundled(frame.vector), args.warmups, args.measured
+                lambda: blender_probe_then_bundled(read_fixtures["vector"]),
+                args.warmups,
+                args.measured,
             ),
             "matte": _measure(blender_matte, args.warmups, args.measured),
             "all_three": _measure(
                 lambda: (
-                    blender_probe_then_bundled(frame.beauty),
-                    blender_probe_then_bundled(frame.vector),
+                    blender_probe_then_bundled(read_fixtures["beauty"]),
+                    blender_probe_then_bundled(read_fixtures["vector"]),
                     blender_matte(),
                 ),
                 args.warmups,
@@ -229,20 +304,24 @@ def main() -> None:
         assert len(bpy.data.images) == images_before_reads
 
         def decode_matte() -> np.ndarray:
-            return np.ascontiguousarray(read_full_float_rgba(frame.matte)[..., 0])
+            return np.ascontiguousarray(read_full_float_rgba(read_fixtures["matte"])[..., 0])
 
         bundled_decode_samples = {
             "beauty": _measure(
-                lambda: read_full_float_rgba(frame.beauty), args.warmups, args.measured
+                lambda: read_full_float_rgba(read_fixtures["beauty"]),
+                args.warmups,
+                args.measured,
             ),
             "vector": _measure(
-                lambda: read_full_float_rgba(frame.vector), args.warmups, args.measured
+                lambda: read_full_float_rgba(read_fixtures["vector"]),
+                args.warmups,
+                args.measured,
             ),
             "matte": _measure(decode_matte, args.warmups, args.measured),
             "all_three": _measure(
                 lambda: (
-                    read_full_float_rgba(frame.beauty),
-                    read_full_float_rgba(frame.vector),
+                    read_full_float_rgba(read_fixtures["beauty"]),
+                    read_full_float_rgba(read_fixtures["vector"]),
                     decode_matte(),
                 ),
                 args.warmups,

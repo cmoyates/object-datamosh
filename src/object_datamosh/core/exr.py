@@ -42,7 +42,7 @@ def read_full_float_rgba(path: str | Path) -> np.ndarray:
     image_path = Path(path)
     data = image_path.read_bytes()
     attributes, position = _read_header(data, image_path)
-    channels = _read_channels(attributes.get("channels", b""), image_path)
+    channels = _read_channels(attributes["channels"], image_path)
     try:
         minimum_x, minimum_y, maximum_x, maximum_y = struct.unpack("<4i", attributes["dataWindow"])
         compression = attributes["compression"][0]
@@ -53,12 +53,19 @@ def read_full_float_rgba(path: str | Path) -> np.ndarray:
     if width <= 0 or height <= 0:
         raise InvalidOpenEXRError(f"OpenEXR data window is invalid: {image_path}")
 
-    if len(channels) != 4 or {channel.name.rsplit(".", 1)[-1] for channel in channels} != {
-        "R",
-        "G",
-        "B",
-        "A",
-    }:
+    if any(
+        channel.pixel_type not in {0, 1, 2} or channel.x_sampling <= 0 or channel.y_sampling <= 0
+        for channel in channels
+    ):
+        raise InvalidOpenEXRError(f"OpenEXR channel metadata is invalid: {image_path}")
+    channel_parts = [channel.name.rpartition(".") for channel in channels]
+    channel_layers = {prefix if separator else "" for prefix, separator, _suffix in channel_parts}
+    channel_components_found = {suffix for _prefix, _separator, suffix in channel_parts}
+    if (
+        len(channels) != 4
+        or channel_components_found != {"R", "G", "B", "A"}
+        or len(channel_layers) != 1
+    ):
         raise UnsupportedOpenEXRError(
             f"Expected an RGBA image at {image_path}, found {len(channels)} channels"
         )
@@ -88,9 +95,11 @@ def read_full_float_rgba(path: str | Path) -> np.ndarray:
     populated_rows = np.zeros(height, dtype=bool)
 
     for offset in offsets:
+        if offset > len(data) - 8:
+            raise InvalidOpenEXRError(f"OpenEXR scanline block is truncated: {image_path}")
         try:
             y_coordinate, packed_size = struct.unpack_from("<iI", data, offset)
-        except struct.error as error:
+        except (OverflowError, struct.error) as error:
             raise InvalidOpenEXRError(
                 f"OpenEXR scanline block is truncated: {image_path}"
             ) from error
@@ -134,21 +143,70 @@ def _read_header(data: bytes, path: Path) -> tuple[dict[str, bytes], int]:
     version = struct.unpack_from("<I", data, 4)[0]
     position = 8
     attributes: dict[str, bytes] = {}
+    attribute_types: dict[str, str] = {}
     try:
         while data[position] != 0:
             name, position = _read_c_string(data, position)
-            _attribute_type, position = _read_c_string(data, position)
+            attribute_type, position = _read_c_string(data, position)
             size = struct.unpack_from("<I", data, position)[0]
             position += 4
             attribute_end = position + size
             if attribute_end > len(data):
                 raise InvalidOpenEXRError(f"OpenEXR header is truncated: {path}")
+            if not name or name in attributes:
+                raise InvalidOpenEXRError(f"OpenEXR header has invalid attributes: {path}")
             attributes[name] = data[position:attribute_end]
+            attribute_types[name] = attribute_type
             position = attribute_end
         position += 1
     except (IndexError, struct.error, UnicodeDecodeError, ValueError) as error:
         raise InvalidOpenEXRError(f"OpenEXR header is invalid: {path}") from error
+
+    required_attributes = {
+        "channels": ("chlist", None),
+        "compression": ("compression", 1),
+        "dataWindow": ("box2i", 16),
+        "displayWindow": ("box2i", 16),
+        "lineOrder": ("lineOrder", 1),
+        "pixelAspectRatio": ("float", 4),
+        "screenWindowCenter": ("v2f", 8),
+        "screenWindowWidth": ("float", 4),
+    }
     if version & 0x00000200:
+        required_attributes["tiles"] = ("tiledesc", 9)
+    for name, (expected_type, expected_size) in required_attributes.items():
+        value = attributes.get(name)
+        if (
+            value is None
+            or attribute_types.get(name) != expected_type
+            or (expected_size is not None and len(value) != expected_size)
+        ):
+            raise InvalidOpenEXRError(f"OpenEXR header attribute {name!r} is invalid: {path}")
+    compression = attributes["compression"][0]
+    if compression > 9 or attributes["lineOrder"][0] > 2:
+        raise InvalidOpenEXRError(f"OpenEXR header contains an invalid enum value: {path}")
+    for window_name in ("dataWindow", "displayWindow"):
+        minimum_x, minimum_y, maximum_x, maximum_y = struct.unpack("<4i", attributes[window_name])
+        if maximum_x < minimum_x or maximum_y < minimum_y:
+            raise InvalidOpenEXRError(
+                f"OpenEXR header attribute {window_name!r} is invalid: {path}"
+            )
+    display_metadata = (
+        attributes["pixelAspectRatio"]
+        + attributes["screenWindowCenter"]
+        + attributes["screenWindowWidth"]
+    )
+    scalar_values = struct.unpack("<f2ff", display_metadata)
+    if (
+        not all(math.isfinite(value) for value in scalar_values)
+        or scalar_values[0] <= 0.0
+        or scalar_values[3] <= 0.0
+    ):
+        raise InvalidOpenEXRError(f"OpenEXR header contains invalid display metadata: {path}")
+    if version & 0x00000200:
+        tile_width, tile_height, tile_mode = struct.unpack("<IIB", attributes["tiles"])
+        if tile_width == 0 or tile_height == 0 or tile_mode & ~0x13 or (tile_mode & 0x0F) > 2:
+            raise InvalidOpenEXRError(f"OpenEXR tile description is invalid: {path}")
         raise UnsupportedOpenEXRError(f"Tiled OpenEXR images are not supported: {path}")
     if version & (0x00000800 | 0x00001000):
         raise UnsupportedOpenEXRError(f"Deep or multipart OpenEXR images are not supported: {path}")
@@ -163,10 +221,16 @@ def _read_channels(value: bytes, path: Path) -> tuple[_Channel, ...]:
     try:
         while value[position] != 0:
             name, position = _read_c_string(value, position)
-            pixel_type = struct.unpack_from("<i", value, position)[0]
-            x_sampling, y_sampling = struct.unpack_from("<ii", value, position + 8)
+            pixel_type, linear, reserved, x_sampling, y_sampling = struct.unpack_from(
+                "<iB3sii", value, position
+            )
             position += 16
+            if not name or linear not in {0, 1} or reserved != b"\0\0\0":
+                raise InvalidOpenEXRError(f"OpenEXR channel metadata is invalid: {path}")
             channels.append(_Channel(name, pixel_type, x_sampling, y_sampling))
+        position += 1
+        if position != len(value) or len({channel.name for channel in channels}) != len(channels):
+            raise InvalidOpenEXRError(f"OpenEXR channel list is invalid: {path}")
     except (IndexError, struct.error, UnicodeDecodeError, ValueError) as error:
         raise InvalidOpenEXRError(f"OpenEXR channel list is invalid: {path}") from error
     return tuple(channels)

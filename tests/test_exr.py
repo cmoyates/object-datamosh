@@ -84,6 +84,11 @@ def _small_multilayer_exr(
         + _attribute("pixelAspectRatio", "float", struct.pack("<f", 1.0))
         + _attribute("screenWindowCenter", "v2f", struct.pack("<2f", 0.0, 0.0))
         + _attribute("screenWindowWidth", "float", struct.pack("<f", 1.0))
+        + (
+            _attribute("tiles", "tiledesc", struct.pack("<IIB", width, height, 0))
+            if version_flags & 0x00000200
+            else b""
+        )
         + b"\0"
     )
     lines_per_block = {2: 1, 3: 16}.get(compression, 1)
@@ -109,7 +114,7 @@ def _small_multilayer_exr(
     return header + struct.pack(f"<{len(offsets)}Q", *offsets) + b"".join(blocks)
 
 
-def _exr_header_end(fixture: bytes) -> int:
+def _exr_header_end(fixture: bytes | bytearray) -> int:
     position = 8
     while fixture[position] != 0:
         position = fixture.index(0, position) + 1
@@ -247,6 +252,32 @@ def test_read_full_float_rgba_classifies_corrupt_header(tmp_path: Path, version_
         read_full_float_rgba(path)
 
 
+def test_read_full_float_rgba_rejects_mixed_multilayer_channels(tmp_path: Path) -> None:
+    path = tmp_path / "mixed_layers.exr"
+    path.write_bytes(
+        _small_multilayer_exr(
+            _representable_pass_pixels("beauty"),
+            compression=3,
+            channel_components=(
+                ("left.A", 3),
+                ("left.B", 2),
+                ("right.G", 1),
+                ("right.R", 0),
+            ),
+        )
+    )
+
+    with pytest.raises(UnsupportedOpenEXRError, match="RGBA"):
+        read_full_float_rgba(path)
+
+
+def test_read_full_float_rgba_preserves_ordinary_io_errors(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.exr"
+
+    with pytest.raises(FileNotFoundError):
+        read_full_float_rgba(missing)
+
+
 def test_read_full_float_rgba_classifies_truncated_attribute_value(tmp_path: Path) -> None:
     path = tmp_path / "truncated_attribute.exr"
     path.write_bytes(
@@ -267,6 +298,16 @@ def test_read_full_float_rgba_classifies_truncated_scanline_table(tmp_path: Path
     path.write_bytes(fixture[: _exr_header_end(fixture) + 1])
 
     with pytest.raises(InvalidOpenEXRError, match="scanline table is truncated"):
+        read_full_float_rgba(path)
+
+
+def test_read_full_float_rgba_rejects_out_of_range_scanline_offset(tmp_path: Path) -> None:
+    path = tmp_path / "invalid_offset.exr"
+    fixture = bytearray(_small_multilayer_exr(_representable_pass_pixels("beauty"), compression=3))
+    struct.pack_into("<Q", fixture, _exr_header_end(fixture), (1 << 64) - 1)
+    path.write_bytes(fixture)
+
+    with pytest.raises(InvalidOpenEXRError, match="scanline block is truncated"):
         read_full_float_rgba(path)
 
 
