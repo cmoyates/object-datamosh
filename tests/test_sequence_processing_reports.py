@@ -447,7 +447,13 @@ def test_initial_report_write_failure_leaves_the_atomic_empty_manifest(
         original_replace(source, destination)
 
     monkeypatch.setattr(sequence_processing.os, "replace", fail_initial_report)
-    with pytest.raises(OSError, match="initial report replace failed"):
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Diagnostics report write failed during session initialization: "
+            "initial report replace failed"
+        ),
+    ) as raised:
         ProcessingSession.create(
             paths,
             frame_start=1,
@@ -457,6 +463,7 @@ def test_initial_report_write_failure_leaves_the_atomic_empty_manifest(
             image_io=MemoryImageIO(_inputs(paths, 2)),
         )
 
+    assert isinstance(raised.value.__cause__, OSError)
     manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
     assert manifest["completed_frames"] == []
     assert not processing_report_path(paths).exists()

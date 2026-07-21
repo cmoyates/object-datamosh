@@ -358,7 +358,12 @@ class ProcessingSession:
             _trail_recovery_frames=trail_recovery_frames,
             _is_finished=first_frame > frame_end and not trail_recovery_frames,
         )
-        session._write_report("SUCCESS" if session._is_finished else "RUNNING")
+        try:
+            session._write_report("SUCCESS" if session._is_finished else "RUNNING")
+        except Exception as error:
+            raise RuntimeError(
+                f"Diagnostics report write failed during session initialization: {error}"
+            ) from error
         return session
 
     @property
