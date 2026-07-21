@@ -79,6 +79,44 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--compare-after requires --compare-before")
     if args.warmups < 1 or args.measured < 3:
         parser.error("--warmups must be positive and --measured must be at least 3")
+    runner_sha_result = subprocess.run(
+        ["git", "-C", str(SCRIPT_ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    runner_blob_result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(SCRIPT_ROOT),
+            "rev-parse",
+            "HEAD:scripts/benchmark_full_frame_sampling.py",
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    runner_disk_blob_result = subprocess.run(
+        ["git", "-C", str(SCRIPT_ROOT), "hash-object", str(Path(__file__).resolve())],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    runner_sha = runner_sha_result.stdout.strip()
+    runner_blob = runner_blob_result.stdout.strip()
+    if (
+        runner_sha_result.returncode != 0
+        or runner_blob_result.returncode != 0
+        or runner_disk_blob_result.returncode != 0
+        or runner_disk_blob_result.stdout.strip() != runner_blob
+    ):
+        parser.error("benchmark runner must match its committed Git blob")
+    args.runner_sha = runner_sha
+    args.runner_blob = runner_blob
     source_root = args.source_root.expanduser().resolve()
     result = subprocess.run(
         ["git", "-C", str(source_root), "rev-parse", "HEAD"],
@@ -214,12 +252,15 @@ def _compare_results(before_path: Path, after_path: Path, output_path: Path | No
         raise ValueError("comparison inputs must use identical fixtures")
     if before.get("environment") != after.get("environment"):
         raise ValueError("comparison inputs must come from the same environment")
+    if before.get("runner") != after.get("runner"):
+        raise ValueError("comparison inputs must use the same committed benchmark runner")
     before_digests = before["semantic_digest"]
     after_digests = after["semantic_digest"]
     bit_equal = before_digests == after_digests
     comparison = {
         "schema_version": 1,
         "sources": {"before": before["source"], "after": after["source"]},
+        "runner": before["runner"],
         "bit_equal": bit_equal,
         "maximum_absolute_error": 0.0 if bit_equal else None,
         "digests": after_digests
@@ -334,6 +375,7 @@ def main() -> None:
     payload: dict[str, Any] = {
         "schema_version": 1,
         "revision": args.revision,
+        "runner": {"sha": args.runner_sha, "blob": args.runner_blob},
         "source": {
             "root": str(args.source_root),
             "sha": args.source_sha,

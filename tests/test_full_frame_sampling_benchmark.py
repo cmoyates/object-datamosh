@@ -17,6 +17,7 @@ def test_full_frame_sampling_benchmark_records_required_before_after_evidence() 
     assert "state.history, fallback_sample_x, sample_y" in script
     assert "state.history, representative_warped_history" in script
     assert "benchmark_state = result[1]" in script
+    assert "benchmark runner must match its committed Git blob" in script
     assert evidence["schema_version"] == 1
     assert evidence["fixture"]["shape"] == [1080, 1920, 4]
     assert evidence["fixture"]["preset"] == "extreme_full_frame_feedback_settings"
@@ -65,7 +66,8 @@ def test_full_frame_sampling_benchmark_rejects_invalid_source_provenance() -> No
 
     assert result.returncode != 0
     assert (
-        "source worktree must be clean" in result.stderr
+        "benchmark runner must match its committed Git blob" in result.stderr
+        or "source worktree must be clean" in result.stderr
         or "requires source HEAD" in result.stderr
         or "requires feedback.py blob" in result.stderr
     )
@@ -89,6 +91,7 @@ def test_full_frame_sampling_benchmark_compares_exact_semantic_digests(
                 },
                 "fixture": fixture,
                 "environment": {"cpu": "test"},
+                "runner": {"sha": "runner", "blob": "runner-blob"},
                 "semantic_digest": digests,
             }
         )
@@ -103,6 +106,7 @@ def test_full_frame_sampling_benchmark_compares_exact_semantic_digests(
                 },
                 "fixture": fixture,
                 "environment": {"cpu": "test"},
+                "runner": {"sha": "runner", "blob": "runner-blob"},
                 "semantic_digest": digests,
             }
         )
