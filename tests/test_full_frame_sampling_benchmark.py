@@ -13,6 +13,8 @@ def test_full_frame_sampling_benchmark_records_required_before_after_evidence() 
     assert "WIDTH = 1920" in script
     assert "--source-root" in script
     assert "feedback.py blob" in script
+    assert "~representative_primary_covered & clean_valid" in script
+    assert "state.history, representative_warped_history" in script
     assert evidence["schema_version"] == 1
     assert evidence["fixture"]["shape"] == [1080, 1920, 4]
     assert evidence["fixture"]["preset"] == "extreme_full_frame_feedback_settings"

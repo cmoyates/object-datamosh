@@ -242,6 +242,9 @@ def main() -> None:
     settings = extreme_full_frame_feedback_settings()
     sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
     clean_valid = np.ones(matte.shape, dtype=bool)
+    representative_primary_covered = clean_valid.copy()
+    representative_primary_covered[:, ::8] = False
+    representative_warped_history = np.roll(state.history, shift=1, axis=1)
 
     def before_primary() -> object:
         valid = np.all(np.isfinite(state.history), axis=-1)
@@ -263,8 +266,8 @@ def main() -> None:
         )
 
     def after_fallback() -> object:
-        use_screen = ~clean_valid & clean_valid
-        return np.where(use_screen[..., None], state.history, state.history)
+        use_screen = ~representative_primary_covered & clean_valid
+        return np.where(use_screen[..., None], state.history, representative_warped_history)
 
     def before_trail() -> object:
         return (
