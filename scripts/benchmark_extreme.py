@@ -24,6 +24,10 @@ from object_datamosh.benchmarking import summarize_samples  # noqa: E402
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.core.block_preparation import prepare_blocks  # noqa: E402
 from object_datamosh.core.contracts import FeedbackState  # noqa: E402
+from object_datamosh.core.exr import (  # noqa: E402
+    _undo_zip_preprocessing,
+    read_full_float_rgba,
+)
 from object_datamosh.core.feedback import (  # noqa: E402
     _apply_refresh,
     process_frame_with_diagnostics,
@@ -78,6 +82,13 @@ def _measure(operation: Callable[[], object], warmups: int, measured: int) -> tu
         operation()
         samples.append(time.perf_counter_ns() - started)
     return tuple(samples)
+
+
+def _summarize_throughput(samples: tuple[int, ...], bytes_per_sample: int) -> dict[str, int]:
+    summary = summarize_samples(samples)
+    summary["bytes_per_sample"] = bytes_per_sample
+    summary["bytes_per_second"] = int(bytes_per_sample * 1_000_000_000 / summary["median_ns"])
+    return summary
 
 
 def _write_fixture_sequence(
@@ -136,6 +147,15 @@ def main() -> None:
         args.warmups,
         args.measured,
     )
+    predictor_bytes = WIDTH * min(16, HEIGHT) * 4 * np.dtype(np.float32).itemsize
+    predictor_fixture = (
+        np.random.default_rng(SEED + 1)
+        .integers(0, 256, size=predictor_bytes, dtype=np.uint8)
+        .tobytes()
+    )
+    predictor_samples = _measure(
+        lambda: _undo_zip_preprocessing(predictor_fixture), args.warmups, args.measured
+    )
     with tempfile.TemporaryDirectory(prefix="ODM_extreme_benchmark_") as temporary:
         paths = SequencePaths(Path(temporary))
         image_io = BlenderImageIO(bpy.context.scene)
@@ -149,6 +169,28 @@ def main() -> None:
                 lambda: image_io.read_rgba(frame.vector), args.warmups, args.measured
             ),
             "matte": _measure(lambda: image_io.read_mask(frame.matte), args.warmups, args.measured),
+        }
+
+        def decode_matte() -> np.ndarray:
+            return np.ascontiguousarray(read_full_float_rgba(frame.matte)[..., 0])
+
+        bundled_decode_samples = {
+            "beauty": _measure(
+                lambda: read_full_float_rgba(frame.beauty), args.warmups, args.measured
+            ),
+            "vector": _measure(
+                lambda: read_full_float_rgba(frame.vector), args.warmups, args.measured
+            ),
+            "matte": _measure(decode_matte, args.warmups, args.measured),
+            "all_three": _measure(
+                lambda: (
+                    read_full_float_rgba(frame.beauty),
+                    read_full_float_rgba(frame.vector),
+                    decode_matte(),
+                ),
+                args.warmups,
+                args.measured,
+            ),
         }
         write_samples = _measure(
             lambda: image_io.write_rgba(frame.processed, beauty),
@@ -170,11 +212,23 @@ def main() -> None:
         end_to_end_samples = _measure(complete_sequence, args.warmups, args.measured)
         processing_report = json.loads(processing_report_path(paths).read_text(encoding="utf-8"))
 
+    decoded_rgba_bytes = WIDTH * HEIGHT * 4 * np.dtype(np.float32).itemsize
+    bundled_decode_bytes = {
+        "beauty": decoded_rgba_bytes,
+        "vector": decoded_rgba_bytes,
+        "matte": decoded_rgba_bytes,
+        "all_three": decoded_rgba_bytes * 3,
+    }
     benchmarks: dict[str, Any] = {
+        "zip_predictor_reversal": _summarize_throughput(predictor_samples, predictor_bytes),
         "block_preparation": summarize_samples(block_preparation_samples),
         "refresh_diagnostics": summarize_samples(refresh_diagnostics_samples),
         "pure_core_non_reset_frame": summarize_samples(core_samples),
         "exr_reads": {name: summarize_samples(samples) for name, samples in read_samples.items()},
+        "bundled_exr_decodes": {
+            name: _summarize_throughput(samples, bundled_decode_bytes[name])
+            for name, samples in bundled_decode_samples.items()
+        },
         "processed_exr_write": summarize_samples(write_samples),
         "complete_sequential_processing": summarize_samples(
             end_to_end_samples, frames_per_sample=SEQUENCE_FRAMES

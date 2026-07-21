@@ -25,10 +25,26 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert "extreme_full_frame_feedback_settings" in script
     assert "TemporaryDirectory" in script
     assert "process_frame_with_diagnostics" in script
+    assert '"zip_predictor_reversal"' in script
+    assert '"bundled_exr_decodes"' in script
+    assert '"all_three"' in script
+    assert '"bytes_per_second"' in script
+    assert "read_full_float_rgba(frame.beauty)" in script
     benchmark_command = (
         '"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py'
     )
     assert benchmark_command in readme
+
+
+def test_issue_73_evidence_reports_decode_throughput_before_and_after() -> None:
+    evidence = json.loads(Path("docs/evidence/issue-73-exr-predictor.json").read_text())
+
+    for revision in ("before", "after"):
+        for pass_name in ("beauty", "vector", "matte", "all_three"):
+            result = evidence["full_float_zip_decode"][revision][pass_name]
+            assert result["bytes_per_sample"] > 0
+            assert result["bytes_per_second"] > 0
+            assert result["minimum_ns"] <= result["median_ns"] <= result["maximum_ns"]
 
 
 def test_committed_baseline_has_separate_core_io_and_end_to_end_evidence() -> None:

@@ -173,9 +173,9 @@ def run_multilayer_orientation_smoke(expected: np.ndarray, image_io: BlenderImag
                 path = root / f"ODM_{pass_name}_0001.exr"
                 assert path.is_file()
                 decoded[pass_name] = read_full_float_rgba(path)
-                np.testing.assert_allclose(decoded[pass_name], pixels, atol=1e-6)
-            np.testing.assert_allclose(
-                image_io.read_mask(root / "ODM_matte_0001.exr"), expected[..., 0], atol=1e-6
+                np.testing.assert_array_equal(decoded[pass_name], pixels)
+            np.testing.assert_array_equal(
+                image_io.read_mask(root / "ODM_matte_0001.exr"), expected[..., 0]
             )
             # Every asymmetric marker occupies the same X/Y in beauty, Vector, and matte.
             np.testing.assert_array_equal(decoded["beauty"][..., 0], decoded["matte"][..., 0])
