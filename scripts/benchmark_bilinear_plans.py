@@ -191,35 +191,38 @@ def main() -> None:
         make_bilinear_plan = vars(prototype_sampling)["make_bilinear_plan"]
         sample_with_plan = vars(prototype_sampling)["sample_with_plan"]
 
+        stages["plan_construction"] = _measure(
+            lambda: make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT),
+            args.warmups,
+            args.measured,
+        )
         plan = make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT)
         stages.update(
             {
-                "plan_construction": _measure(
-                    lambda: make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT),
-                    args.warmups,
-                    args.measured,
-                ),
                 "planned_rgba": _measure(
                     lambda: sample_with_plan(history, plan), args.warmups, args.measured
                 ),
                 "planned_scalar": _measure(
                     lambda: sample_with_plan(history_matte, plan), args.warmups, args.measured
                 ),
-                "planned_total": _measure(
-                    lambda: (
-                        lambda current: (
-                            sample_with_plan(history, current),
-                            sample_with_plan(history_matte, current),
-                        )
-                    )(make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT)),
-                    args.warmups,
-                    args.measured,
-                ),
             }
         )
         allocation_proxy["retained_plan_bytes"] = sum(
             getattr(plan, name).nbytes for name in ("valid", "x0", "x1", "y0", "y1", "wx", "wy")
         )
+        del plan
+        gc.collect()
+        stages["planned_total"] = _measure(
+            lambda: (
+                lambda current: (
+                    sample_with_plan(history, current),
+                    sample_with_plan(history_matte, current),
+                )
+            )(make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT)),
+            args.warmups,
+            args.measured,
+        )
+        plan = make_bilinear_plan(sample_x, sample_y, WIDTH, HEIGHT)
         sampled_rgba, sampled_valid = sample_with_plan(history, plan)
         sampled_scalar, _ = sample_with_plan(history_matte, plan)
     else:
@@ -230,6 +233,16 @@ def main() -> None:
         return process_frame_with_diagnostics(
             beauty, motion, matte, previous, frame_number=2, settings=settings
         )
+
+    sampling_digest = {
+        "rgba": _digest_array(sampled_rgba),
+        "scalar": _digest_array(sampled_scalar),
+        "validity": _digest_array(sampled_valid),
+    }
+    del sampled_rgba, sampled_scalar, sampled_valid
+    if args.revision == "after":
+        del plan
+    gc.collect()
 
     full_feedback = _measure(process, args.warmups, args.measured)
     output, state, diagnostics = process()
@@ -258,11 +271,7 @@ def main() -> None:
             "process_peak_rss_mib": _peak_rss_mib(),
             "practical_allocation_proxy": allocation_proxy,
         },
-        "sampling_digest": {
-            "rgba": _digest_array(sampled_rgba),
-            "scalar": _digest_array(sampled_scalar),
-            "validity": _digest_array(sampled_valid),
-        },
+        "sampling_digest": sampling_digest,
         "semantic_digest": {
             "output": _digest_array(output),
             "history": _digest_array(state.history),
