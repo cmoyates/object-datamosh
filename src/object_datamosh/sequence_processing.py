@@ -451,6 +451,8 @@ class ProcessingSession:
                 raise SequenceProcessingCancelled(self.completed_frames)
             if self.recovery_frame is not None:
                 self._restore_next_trail_frame()
+                if self._is_finished:
+                    self._write_report("SUCCESS")
             else:
                 self._process_current_frame()
         except Exception as error:

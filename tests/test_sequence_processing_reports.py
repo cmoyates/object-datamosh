@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import object_datamosh.sequence_processing as sequence_processing
-from object_datamosh.core.contracts import FeedbackSettings
+from object_datamosh.core.contracts import FeedbackMode, FeedbackSettings
 from object_datamosh.core.mattes import ObjectIndexMatteProvider
 from object_datamosh.core.paths import SequencePaths
 from object_datamosh.sequence_processing import (
@@ -281,6 +281,47 @@ def test_resume_without_an_older_report_marks_diagnostics_unavailable(tmp_path: 
     assert report["report_lag"]["maximum_diagnostics_lag_while_active"] == 29
     assert report["report_lag"]["policy"] == (
         "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
+    )
+
+
+def test_fully_completed_trail_resume_rewrites_running_report_as_terminal_success(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    settings = FeedbackSettings(mode=FeedbackMode.TRAIL, block_size=1)
+    image_io = MemoryImageIO(_inputs(paths, 3))
+    process_sequence(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=image_io,
+    )
+
+    resumed = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=image_io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+    assert _report(paths)["terminal_outcome"] == "RUNNING"
+
+    while not resumed.is_finished:
+        resumed.process_next_frame()
+
+    report = _report(paths)
+    assert resumed.result.frames == ()
+    assert report["terminal_outcome"] == "SUCCESS"
+    assert report["manifest_completed_prefix"] == {"count": 3, "start": 1, "end": 3}
+    assert report["diagnostics_availability"] == "UNAVAILABLE"
+    assert report["active_report_may_lag_manifest"] is False
+    assert report["report_lag"]["policy"] == (
+        "terminal_report_contains_all_in_memory_diagnostics_but_"
+        "prior_resume_diagnostics_are_unavailable"
     )
 
 
