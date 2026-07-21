@@ -76,8 +76,9 @@
     }
   },
   "commands": {
-    "after": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_full_frame_sampling.py --revision after --warmups 1 --measured 5 --output /tmp/issue75-after.json",
-    "before": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_full_frame_sampling.py --revision before --warmups 1 --measured 5 --output /tmp/issue75-before.json"
+    "after": "UV_FROZEN=1 uv run --frozen python $ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py --revision after --source-root $ISSUE75_HEAD --warmups 1 --measured 5 --output /tmp/issue75-after.json",
+    "before": "UV_FROZEN=1 uv run --frozen python $ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py --revision before --source-root $ISSUE75_BASE --warmups 1 --measured 5 --output /tmp/issue75-before.json",
+    "comparison": "uv run python scripts/benchmark_full_frame_sampling.py --compare-before /tmp/issue75-before.json --compare-after /tmp/issue75-after.json --output /tmp/issue75-comparison.json"
   },
   "comparisons": {
     "coordinate_grid_allocation": {
@@ -132,13 +133,21 @@
   },
   "notes": [
     "Before and after were measured on separate worktrees on the same machine using identical deterministic inputs.",
-    "Stage microbenchmarks isolate the removed identity-grid/sample work; total_core_frame measures the public processing seam.",
+    "Stage microbenchmarks isolate the removed identity-grid/sample work; total_core_frame measures the public processing seam imported from the requested source worktree.",
+    "The runner rejects dirty source worktrees and requires the exact recorded commit SHA plus matching committed and on-disk feedback.py Git blobs before measuring.",
+    "The comparison mode reproducibly verifies exact output, state coverage, and diagnostics digests from the two benchmark runs.",
     "The coordinate-grid after measurement is the eliminated-operation no-op overhead.",
     "Benchmarks are developer evidence and are not CI timing gates."
   ],
   "revisions": {
-    "after": "working tree for issue #75",
-    "before": "0d98fb67fffd9b24cdd32ac053541268d6a25511"
+    "after": {
+      "feedback_blob": "1db7511dbba9922aa651a17fb3b6afe223f99807",
+      "sha": "8220a56f4284969ca4f1270aad4fa64a76e926a5"
+    },
+    "before": {
+      "feedback_blob": "839dc8e98c4987309eae8330d85f2e4cc20fda93",
+      "sha": "0d98fb67fffd9b24cdd32ac053541268d6a25511"
+    }
   },
   "schema_version": 1,
   "semantic_comparison": {

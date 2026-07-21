@@ -775,11 +775,24 @@ uv run python scripts/benchmark_diagnostics_reports.py --warmups 1 --measured 3 
   --output docs/evidence/issue-74-diagnostics-checkpoint.json
 ```
 
-The Full Frame clean-history sampling optimization can be reproduced with:
+The Full Frame clean-history sampling optimization can be reproduced from separate base and head
+worktrees. The runner rejects a worktree whose `feedback.py` does not match the requested side:
 
 ```bash
-uv run python scripts/benchmark_full_frame_sampling.py --revision after \
-  --warmups 1 --measured 5 --output /tmp/issue75-after.json
+ISSUE75_RUNNER=$PWD
+ISSUE75_HEAD=/tmp/object-datamosh-issue75-head
+ISSUE75_BASE=/tmp/object-datamosh-issue75-base
+git worktree add --detach "$ISSUE75_HEAD" 8220a56f4284969ca4f1270aad4fa64a76e926a5
+git worktree add --detach "$ISSUE75_BASE" 0d98fb67fffd9b24cdd32ac053541268d6a25511
+UV_FROZEN=1 uv run --frozen python "$ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py" \
+  --revision after --source-root "$ISSUE75_HEAD" --warmups 1 --measured 5 \
+  --output /tmp/issue75-after.json
+UV_FROZEN=1 uv run --frozen python "$ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py" \
+  --revision before --source-root "$ISSUE75_BASE" --warmups 1 --measured 5 \
+  --output /tmp/issue75-before.json
+uv run python scripts/benchmark_full_frame_sampling.py \
+  --compare-before /tmp/issue75-before.json --compare-after /tmp/issue75-after.json \
+  --output /tmp/issue75-comparison.json
 ```
 
 The same-machine before/after evidence in
