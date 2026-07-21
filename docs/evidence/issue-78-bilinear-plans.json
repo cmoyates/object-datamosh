@@ -1,0 +1,233 @@
+{
+  "benchmarks": {
+    "before": {
+      "full_feedback": {
+        "maximum_ns": 303702041,
+        "measured_count": 5,
+        "median_ns": 292214750,
+        "minimum_ns": 290041958
+      },
+      "memory": {
+        "practical_allocation_proxy": {
+          "coordinate_inputs_bytes": 16588800,
+          "retained_plan_bytes": 0
+        },
+        "process_peak_rss_mib": 707.828125
+      },
+      "stages": {
+        "repeated_rgba": {
+          "maximum_ns": 171629541,
+          "measured_count": 5,
+          "median_ns": 158999541,
+          "minimum_ns": 128692750
+        },
+        "repeated_scalar": {
+          "maximum_ns": 40176917,
+          "measured_count": 5,
+          "median_ns": 39488333,
+          "minimum_ns": 39054417
+        },
+        "repeated_total": {
+          "maximum_ns": 169788000,
+          "measured_count": 5,
+          "median_ns": 167780709,
+          "minimum_ns": 158262458
+        }
+      }
+    },
+    "prototype": {
+      "full_feedback": {
+        "maximum_ns": 302358042,
+        "measured_count": 5,
+        "median_ns": 284065250,
+        "minimum_ns": 280374875
+      },
+      "memory": {
+        "practical_allocation_proxy": {
+          "coordinate_inputs_bytes": 16588800,
+          "retained_plan_bytes": 85017600
+        },
+        "process_peak_rss_mib": 806.59375
+      },
+      "stages": {
+        "plan_construction": {
+          "maximum_ns": 11394000,
+          "measured_count": 5,
+          "median_ns": 10976125,
+          "minimum_ns": 10896084
+        },
+        "planned_rgba": {
+          "maximum_ns": 157606667,
+          "measured_count": 5,
+          "median_ns": 139690292,
+          "minimum_ns": 120019458
+        },
+        "planned_scalar": {
+          "maximum_ns": 28544625,
+          "measured_count": 5,
+          "median_ns": 28141458,
+          "minimum_ns": 27784458
+        },
+        "planned_total": {
+          "maximum_ns": 199787958,
+          "measured_count": 5,
+          "median_ns": 174679042,
+          "minimum_ns": 158352375
+        },
+        "repeated_rgba": {
+          "maximum_ns": 145922041,
+          "measured_count": 5,
+          "median_ns": 134564750,
+          "minimum_ns": 128954416
+        },
+        "repeated_scalar": {
+          "maximum_ns": 40640792,
+          "measured_count": 5,
+          "median_ns": 39899958,
+          "minimum_ns": 38741375
+        },
+        "repeated_total": {
+          "maximum_ns": 189482958,
+          "measured_count": 5,
+          "median_ns": 171978708,
+          "minimum_ns": 165639500
+        }
+      }
+    }
+  },
+  "comparison": {
+    "complete_feedback": {
+      "after_median_ns": 284065250,
+      "before_median_ns": 292214750,
+      "estimated_147_frame_after_seconds": 41.75759175,
+      "estimated_147_frame_before_seconds": 42.95556825,
+      "reduction_percent": 2.7888735938209828,
+      "speedup": 1.0286888311752318
+    },
+    "peak_rss_growth_mib": 98.765625,
+    "repeated_vs_planned_two_samples": {
+      "after_median_ns": 174679042,
+      "before_median_ns": 167780709,
+      "reduction_percent": -4.1115173735497805,
+      "speedup": 0.9605085251154515
+    },
+    "retained_plan_bytes": 85017600
+  },
+  "decision": "reject",
+  "decision_reason": "The plan made construction plus both planned samples 4.11% slower and retained 85,017,600 bytes. The complete 1080p Extreme feedback median improved by only 2.79% while measured process peak RSS increased by 98.77 MiB, so the small timing result did not justify the memory cost or additional production abstraction.",
+  "environment": {
+    "blender": "5.2.0 LTS",
+    "cpu": "Apple M3 Max",
+    "numpy": "2.3.4",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "fixture": {
+    "deterministic_seed": 78078,
+    "dtype": "float32",
+    "planned_samples": [
+      "RGBA history",
+      "scalar Trail coverage"
+    ],
+    "preset": "extreme_full_frame_feedback_settings",
+    "shape": [
+      1080,
+      1920,
+      4
+    ]
+  },
+  "issue": 78,
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "measured_count": 5,
+    "note": "Developer evidence, not a CI timing gate or a claim about other hardware.",
+    "statistics": [
+      "minimum",
+      "median",
+      "maximum"
+    ],
+    "warmup_count": 1
+  },
+  "notes": [
+    "Each revision ran in a clean detached worktree under the same Blender executable.",
+    "One warm-up preceded five measured iterations for every independently measured stage.",
+    "The 147-frame estimates multiply each complete-feedback median by 147; they are extrapolations, not measured sequence timings.",
+    "The repeated baseline was measured in both runs; the cross-revision comparison uses the pinned base revision.",
+    "Planned total includes plan construction plus both planned samples; construction, RGBA, and scalar samples were also measured separately.",
+    "Benchmark-only plans and sampled outputs were released before complete-feedback timing, so no unrelated retained plan inflated that stage.",
+    "Peak RSS is process-wide; retained plan bytes are the exact NumPy nbytes allocation proxy.",
+    "Plans were frame-local and were not retained between frames.",
+    "Sampling outputs, sampling validity, feedback output, next state, effect coverage, and diagnostics had matching SHA-256 digests.",
+    "Developer evidence is not a CI timing gate or a performance claim about other hardware."
+  ],
+  "prototype_contract_verification": {
+    "command": "UV_FROZEN=1 uv run --frozen pytest -q tests/test_sampling.py tests/test_feedback.py",
+    "coverage": [
+      "compatibility wrapper",
+      "scalar 2D and channel 3D reuse",
+      "one-pixel image",
+      "odd dimensions",
+      "edge and fractional coordinates",
+      "out-of-bounds coordinates",
+      "NaN and infinite coordinates",
+      "incompatible-dimension rejection",
+      "feedback output, state, coverage, and diagnostics"
+    ],
+    "environment": {
+      "numpy": "2.5.1",
+      "python": "3.12.8"
+    },
+    "result": "151 passed in 3.57s",
+    "source_sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da",
+    "verified_at_utc": "2026-07-21T17:10:29Z"
+  },
+  "revisions": {
+    "before": {
+      "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
+      "runner_blob": "b49848cee4a490d24d692035f99bceefc5ccbd16",
+      "runner_sha": "b0c006766a094ffcb03f00eedf2ef2b5f4042750",
+      "sha": "b0f20d49cde073cc0d125121c36e23ec71218a47"
+    },
+    "prototype": {
+      "feedback_blob": "b792af0d8aeeeddc3217e6be181147dcd6e2a7ff",
+      "runner_blob": "b49848cee4a490d24d692035f99bceefc5ccbd16",
+      "runner_sha": "b0c006766a094ffcb03f00eedf2ef2b5f4042750",
+      "sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da"
+    }
+  },
+  "schema_version": 1,
+  "semantic_comparison": {
+    "bit_equal": true,
+    "digests_by_revision": {
+      "before": {
+        "feedback": {
+          "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
+          "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
+          "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
+          "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+        },
+        "sampling": {
+          "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
+          "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
+          "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
+        }
+      },
+      "prototype": {
+        "feedback": {
+          "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
+          "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
+          "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
+          "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+        },
+        "sampling": {
+          "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
+          "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
+          "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
+        }
+      }
+    },
+    "feedback_output_state_coverage_and_diagnostics_bit_equal": true,
+    "maximum_absolute_error": 0.0,
+    "sampling_outputs_and_validity_bit_equal": true
+  }
+}

@@ -838,6 +838,33 @@ intentionally excludes EXR codec cost; full commands and distributions are in
 [`docs/evidence/issue-77-empty-effect-frames.json`](docs/evidence/issue-77-empty-effect-frames.json).
 These developer measurements are not timing gates or performance claims for another machine.
 
+The reusable-bilinear-plan prototype was benchmarked in clean detached worktrees with Blender:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup \
+  --python scripts/benchmark_bilinear_plans.py -- \
+  --revision before --source-root /tmp/odm-78-before --warmups 1 --measured 5 \
+  --output /tmp/issue78-before.json
+"$BLENDER_BIN" --background --factory-startup \
+  --python scripts/benchmark_bilinear_plans.py -- \
+  --revision after --source-root /tmp/odm-78-after --warmups 1 --measured 5 \
+  --output /tmp/issue78-after.json
+```
+
+On the recorded Apple M3 Max environment, reusing one frame-local plan for RGBA history and scalar
+Trail coverage increased the two-sample median from 167.78 ms to 174.68 ms (4.11% slower). The
+complete 1080p Extreme feedback median decreased from 292.21 ms to 284.07 ms (a modest 2.79% gain),
+which extrapolates from 42.96 s to 41.76 s over 147 frames. The plan retained 85,017,600 bytes and
+measured process peak RSS grew by 98.77 MiB. Sampled
+RGBA, sampled scalar coverage, validity, feedback output, next state, effect coverage, and
+diagnostics were all bit-identical (maximum error 0). The roadmap decision is to reject the plan:
+the reusable sampling work itself was slower, and the small full-feedback result did not justify the
+memory cost or production complexity. No plan abstraction remains in the processing core. Full
+stage distributions, environment, provenance, allocation proxy, prototype contract-test receipt,
+and decision are in
+[`docs/evidence/issue-78-bilinear-plans.json`](docs/evidence/issue-78-bilinear-plans.json).
+These developer measurements are not timing gates or performance claims for another machine.
+
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
 (89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
 143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.
