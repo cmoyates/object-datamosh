@@ -1,0 +1,171 @@
+{
+  "benchmarks": {
+    "after": {
+      "coordinate_grid_allocation": {
+        "extrapolated_147_frames_ns": 12348,
+        "maximum_ns": 667,
+        "measured_count": 5,
+        "median_ns": 84,
+        "minimum_ns": 42
+      },
+      "primary_history_sampling": {
+        "extrapolated_147_frames_ns": 25853055375,
+        "maximum_ns": 208471041,
+        "measured_count": 5,
+        "median_ns": 175871125,
+        "minimum_ns": 156312792
+      },
+      "same_pixel_fallback": {
+        "extrapolated_147_frames_ns": 1705175451,
+        "maximum_ns": 11673792,
+        "measured_count": 5,
+        "median_ns": 11599833,
+        "minimum_ns": 10704625
+      },
+      "total_core_frame": {
+        "extrapolated_147_frames_ns": 49798167174,
+        "maximum_ns": 357195792,
+        "measured_count": 5,
+        "median_ns": 338763042,
+        "minimum_ns": 311828292
+      },
+      "trail_mask_sampling": {
+        "extrapolated_147_frames_ns": 5508359451,
+        "maximum_ns": 42332250,
+        "measured_count": 5,
+        "median_ns": 37471833,
+        "minimum_ns": 36580917
+      }
+    },
+    "before": {
+      "coordinate_grid_allocation": {
+        "extrapolated_147_frames_ns": 26539527,
+        "maximum_ns": 193750,
+        "measured_count": 5,
+        "median_ns": 180541,
+        "minimum_ns": 171125
+      },
+      "primary_history_sampling": {
+        "extrapolated_147_frames_ns": 35478174375,
+        "maximum_ns": 255627250,
+        "measured_count": 5,
+        "median_ns": 241348125,
+        "minimum_ns": 230750750
+      },
+      "same_pixel_fallback": {
+        "extrapolated_147_frames_ns": 31670182299,
+        "maximum_ns": 244046750,
+        "measured_count": 5,
+        "median_ns": 215443417,
+        "minimum_ns": 186418917
+      },
+      "total_core_frame": {
+        "extrapolated_147_frames_ns": 97805586375,
+        "maximum_ns": 702955834,
+        "measured_count": 5,
+        "median_ns": 665344125,
+        "minimum_ns": 633964667
+      },
+      "trail_mask_sampling": {
+        "extrapolated_147_frames_ns": 10923998652,
+        "maximum_ns": 76269083,
+        "measured_count": 5,
+        "median_ns": 74312916,
+        "minimum_ns": 73291167
+      }
+    }
+  },
+  "commands": {
+    "after": "UV_FROZEN=1 uv run --frozen python $ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py --revision after --source-root $ISSUE75_HEAD --warmups 1 --measured 5 --output /tmp/issue75-after.json",
+    "before": "UV_FROZEN=1 uv run --frozen python $ISSUE75_RUNNER/scripts/benchmark_full_frame_sampling.py --revision before --source-root $ISSUE75_BASE --warmups 1 --measured 5 --output /tmp/issue75-before.json",
+    "comparison": "uv run python scripts/benchmark_full_frame_sampling.py --compare-before /tmp/issue75-before.json --compare-after /tmp/issue75-after.json --output /tmp/issue75-comparison.json"
+  },
+  "comparisons": {
+    "coordinate_grid_allocation": {
+      "median_reduction_percent": 99.95,
+      "speedup_multiple": 2149.3
+    },
+    "primary_history_sampling": {
+      "median_reduction_percent": 27.13,
+      "speedup_multiple": 1.37
+    },
+    "same_pixel_fallback": {
+      "median_reduction_percent": 94.62,
+      "speedup_multiple": 18.57
+    },
+    "total_core_frame": {
+      "median_reduction_percent": 49.08,
+      "speedup_multiple": 1.96
+    },
+    "trail_mask_sampling": {
+      "median_reduction_percent": 49.58,
+      "speedup_multiple": 1.98
+    }
+  },
+  "environment": {
+    "blender": "Blender 5.2.0 LTS",
+    "cpu": "Apple M3 Max",
+    "numpy": "2.5.1",
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.8"
+  },
+  "fixture": {
+    "deterministic_seed": 75075,
+    "dtype": "float32",
+    "preset": "extreme_full_frame_feedback_settings",
+    "shape": [
+      1080,
+      1920,
+      4
+    ]
+  },
+  "issue": 75,
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "measured_count": 5,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "warmup_count": 1
+  },
+  "notes": [
+    "Before and after were measured on separate worktrees on the same machine using identical deterministic inputs.",
+    "Stage microbenchmarks isolate the removed identity-grid/sample work; total_core_frame measures the public processing seam imported from the requested source worktree.",
+    "The runner rejects dirty source worktrees and requires the exact recorded commit SHA plus matching committed and on-disk feedback.py Git blobs before measuring.",
+    "The comparison mode requires identical environment metadata and reproducibly verifies exact output, state coverage, and diagnostics digests across four recursive frames from the two benchmark runs.",
+    "Each measured total-core invocation advances the returned FeedbackState and frame number, preserving sequential recursive history across warm-ups and samples.",
+    "The same-pixel fallback microbenchmark derives warped history and coverage through bilinear_sample with every eighth sample column out of bounds, then measures the implementation's actual before/after operands.",
+    "The coordinate-grid after measurement is the eliminated-operation no-op overhead.",
+    "Benchmarks are developer evidence and are not CI timing gates."
+  ],
+  "revisions": {
+    "after": {
+      "feedback_blob": "1db7511dbba9922aa651a17fb3b6afe223f99807",
+      "sha": "8220a56f4284969ca4f1270aad4fa64a76e926a5"
+    },
+    "before": {
+      "feedback_blob": "839dc8e98c4987309eae8330d85f2e4cc20fda93",
+      "sha": "0d98fb67fffd9b24cdd32ac053541268d6a25511"
+    }
+  },
+  "schema_version": 1,
+  "semantic_comparison": {
+    "bit_equal": true,
+    "digests": {
+      "diagnostics": "cc8874a9160217b05b3d039a8de1c522bb7d282053f0350b52e7053f3f04137d",
+      "history": "4420192d96edb21c2a195a5f013cbad5390d6c1592fa466d4faa108be7ab2e75",
+      "history_matte": "e33c9b034cf3dbb4f5a2b3229cfd6a87abcda98344bf450a178cc5e6ef971c09",
+      "output": "4420192d96edb21c2a195a5f013cbad5390d6c1592fa466d4faa108be7ab2e75"
+    },
+    "maximum_absolute_error": 0.0,
+    "scope": [
+      "processed RGBA",
+      "next history",
+      "next effect coverage",
+      "FrameDiagnostics"
+    ]
+  }
+}

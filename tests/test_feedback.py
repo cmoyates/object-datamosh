@@ -3,6 +3,7 @@ import hashlib
 import numpy as np
 import pytest
 
+from object_datamosh.core import feedback
 from object_datamosh.core.contracts import (
     FeedbackMode,
     FeedbackSettings,
@@ -160,7 +161,7 @@ def test_full_frame_history_is_recursive_processed_output() -> None:
     np.testing.assert_array_equal(state.history_matte, matte)
 
 
-@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
 def test_full_frame_rejects_nonfinite_sample_and_preserves_clean_outside_matte(
     invalid_value: float,
 ) -> None:
@@ -256,6 +257,84 @@ def test_full_frame_entering_target_uses_selected_invalid_history_fallback(
     np.testing.assert_array_equal(output[:, 2], current_beauty[:, 2])
 
 
+def test_clean_full_frame_trail_samples_only_primary_history_and_trail_mask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history = _rgba(2, 3, 1.0)
+    history_matte = np.array([[0.0, 0.5, 1.0], [1.0, 0.5, 0.0]], dtype=np.float32)
+    previous = FeedbackState(history, history_matte, frame_number=1)
+    sampled_images: list[np.ndarray] = []
+    real_sample = feedback.bilinear_sample
+
+    def recording_sample(
+        image: np.ndarray, sample_x: np.ndarray, sample_y: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        sampled_images.append(image)
+        return real_sample(image, sample_x, sample_y)
+
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
+
+    output, state = process_frame(
+        beauty=_rgba(2, 3, 0.0),
+        motion=_motion(2, 3),
+        matte=np.ones((2, 3), dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=HistorySource.FULL_FRAME,
+            invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            persistence=1.0,
+            trail_decay=1.0,
+            block_size=1,
+        ),
+    )
+
+    assert len(sampled_images) == 2
+    assert sampled_images[0] is history
+    assert sampled_images[1] is history_matte
+    np.testing.assert_array_equal(output, history)
+    np.testing.assert_array_equal(state.history_matte, np.ones((2, 3), dtype=np.float32))
+
+
+def test_full_frame_same_pixel_fallback_does_not_identity_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history = _rgba(1, 2, 1.0)
+    previous = FeedbackState(history, np.zeros((1, 2), dtype=np.float32), frame_number=1)
+    sampled_coordinates: list[tuple[np.ndarray, np.ndarray]] = []
+    real_sample = feedback.bilinear_sample
+
+    def recording_sample(
+        image: np.ndarray, sample_x: np.ndarray, sample_y: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        sampled_coordinates.append((sample_x, sample_y))
+        return real_sample(image, sample_x, sample_y)
+
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
+    motion = _motion(1, 2)
+    motion[0, 0, 0] = 1.0
+
+    output, _state = process_frame(
+        beauty=_rgba(1, 2, 0.0),
+        motion=motion,
+        matte=np.array([[1.0, 0.0]], dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            history_source=HistorySource.FULL_FRAME,
+            invalid_history_fallback=InvalidHistoryFallback.SAME_PIXEL_HISTORY,
+            persistence=1.0,
+            block_size=1,
+            motion_quantization=0.0,
+        ),
+    )
+
+    assert len(sampled_coordinates) == 1
+    assert sampled_coordinates[0][0][0, 0] == -1.0
+    np.testing.assert_array_equal(output[0, 0], history[0, 0])
+
+
 def test_full_frame_same_pixel_fallback_replaces_only_invalid_warp_samples() -> None:
     red = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
     green = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32)
@@ -288,7 +367,7 @@ def test_full_frame_same_pixel_fallback_replaces_only_invalid_warp_samples() -> 
     np.testing.assert_array_equal(output[0, 2], blue)
 
 
-@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
 def test_full_frame_same_pixel_fallback_rejects_nonfinite_history(
     invalid_value: float,
 ) -> None:
@@ -1012,10 +1091,11 @@ def test_full_frame_trail_invalid_color_falls_back_without_erasing_effect_covera
     np.testing.assert_array_equal(state.history_matte, np.full((1, 1), 0.5, dtype=np.float32))
 
 
-def test_full_frame_trail_rejects_invalid_effect_mask_sample() -> None:
+@pytest.mark.parametrize("invalid_coverage", [np.nan, -0.1, 1.1])
+def test_full_frame_trail_rejects_invalid_effect_mask_sample(invalid_coverage: float) -> None:
     previous = FeedbackState(
         _rgba(1, 2, 1.0),
-        np.array([[np.nan, 1.0]], dtype=np.float32),
+        np.array([[invalid_coverage, 1.0]], dtype=np.float32),
         frame_number=1,
     )
     motion = _motion(1, 2)
