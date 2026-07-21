@@ -68,6 +68,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--source-root", type=Path, default=SCRIPT_ROOT)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--measured", type=int, default=3)
+    parser.add_argument("--suite", choices=("all", "core", "end-to-end"), default="all")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.compare_before is not None:
@@ -364,9 +365,16 @@ def main() -> None:
             2, FeedbackMode.TRAIL, beauty, motion, mixed
         ),
     }
+    selected_operations = {
+        name: operation
+        for name, operation in operations.items()
+        if args.suite == "all"
+        or (args.suite == "core" and name.endswith("_core"))
+        or (args.suite == "end-to-end" and name.endswith("_end_to_end"))
+    }
     benchmarks = {
         name: _measure(operation, args.warmups, args.measured)
-        for name, operation in operations.items()
+        for name, operation in selected_operations.items()
     }
     semantic_digests = {
         "empty_hard": _digest(
