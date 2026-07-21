@@ -112,7 +112,7 @@
     "retained_plan_bytes": 85017600
   },
   "decision": "reject",
-  "decision_reason": "The plan reduced the complete 1080p Extreme feedback median by -6.84%, but required an 85,017,600-byte frame-local plan and increased measured process peak RSS by 85.30 MiB. The modest end-to-end gain does not justify that memory growth and additional production abstraction.",
+  "decision_reason": "The plan increased the complete 1080p Extreme feedback median by 6.84%, required an 85,017,600-byte frame-local plan, and increased measured process peak RSS by 85.30 MiB. It was slower, increased memory use, and did not justify additional production abstraction.",
   "environment": {
     "blender": "5.2.0 LTS",
     "cpu": "Apple M3 Max",
@@ -156,6 +156,27 @@
     "Sampling outputs, sampling validity, feedback output, next state, effect coverage, and diagnostics had matching SHA-256 digests.",
     "Developer evidence is not a CI timing gate or a performance claim about other hardware."
   ],
+  "prototype_contract_verification": {
+    "command": "UV_FROZEN=1 uv run --frozen pytest -q tests/test_sampling.py tests/test_feedback.py",
+    "coverage": [
+      "compatibility wrapper",
+      "scalar 2D and channel 3D reuse",
+      "one-pixel image",
+      "odd dimensions",
+      "edge and fractional coordinates",
+      "out-of-bounds coordinates",
+      "NaN and infinite coordinates",
+      "incompatible-dimension rejection",
+      "feedback output, state, coverage, and diagnostics"
+    ],
+    "environment": {
+      "numpy": "2.5.1",
+      "python": "3.12.8"
+    },
+    "result": "151 passed in 3.57s",
+    "source_sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da",
+    "verified_at_utc": "2026-07-21T17:10:29Z"
+  },
   "revisions": {
     "before": {
       "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
@@ -173,19 +194,36 @@
   "schema_version": 1,
   "semantic_comparison": {
     "bit_equal": true,
-    "feedback_digests": {
-      "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
-      "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
-      "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
-      "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+    "digests_by_revision": {
+      "before": {
+        "feedback": {
+          "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
+          "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
+          "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
+          "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+        },
+        "sampling": {
+          "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
+          "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
+          "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
+        }
+      },
+      "prototype": {
+        "feedback": {
+          "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
+          "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
+          "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
+          "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+        },
+        "sampling": {
+          "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
+          "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
+          "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
+        }
+      }
     },
     "feedback_output_state_coverage_and_diagnostics_bit_equal": true,
     "maximum_absolute_error": 0.0,
-    "sampling_digests": {
-      "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
-      "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
-      "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
-    },
     "sampling_outputs_and_validity_bit_equal": true
   }
 }

@@ -48,8 +48,28 @@ def test_bilinear_plan_rejection_records_complete_benchmark_evidence() -> None:
         is True
     )
     assert evidence["semantic_comparison"]["maximum_absolute_error"] == 0.0
-    assert "does not justify" in evidence["decision_reason"]
+    revision_digests = evidence["semantic_comparison"]["digests_by_revision"]
+    assert revision_digests["before"] == revision_digests["prototype"]
+    assert evidence["comparison"]["complete_feedback"]["reduction_percent"] < 0.0
+    assert evidence["comparison"]["repeated_vs_planned_two_samples"]["reduction_percent"] < 0.0
+    assert "was slower" in evidence["decision_reason"]
+    assert "modest end-to-end gain" not in readme
     assert "roadmap decision is to reject" in readme
+
+    contract = evidence["prototype_contract_verification"]
+    assert contract["source_sha"] == evidence["revisions"]["prototype"]["sha"]
+    assert contract["result"].startswith("151 passed")
+    assert {
+        "compatibility wrapper",
+        "scalar 2D and channel 3D reuse",
+        "one-pixel image",
+        "odd dimensions",
+        "edge and fractional coordinates",
+        "out-of-bounds coordinates",
+        "NaN and infinite coordinates",
+        "incompatible-dimension rejection",
+        "feedback output, state, coverage, and diagnostics",
+    } == set(contract["coverage"])
 
 
 def test_rejected_bilinear_plan_does_not_leave_production_abstraction() -> None:
