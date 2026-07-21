@@ -139,12 +139,12 @@ def _benchmark_strategy(
 
     sequence_samples = _measure(sequence, warmups, measured)
     return {
-        "json_construction": summarize_samples(construction_samples),
+        "json_construction": summarize_samples(construction_samples, frames_per_sample=FRAME_COUNT),
         "atomic_report_writes": {
-            **summarize_samples(write_samples),
+            **summarize_samples(write_samples, frames_per_sample=FRAME_COUNT),
             "write_count": len(prefixes),
         },
-        "sequence_overhead": summarize_samples(sequence_samples),
+        "sequence_overhead": summarize_samples(sequence_samples, frames_per_sample=FRAME_COUNT),
     }
 
 

@@ -137,6 +137,17 @@ def test_running_report_checkpoints_every_ten_completed_frames(tmp_path: Path) -
     }
     assert active_report["active_report_may_lag_manifest"] is True
     assert active_report["checkpoint_interval_frames"] == 10
+    assert active_report["report_lag"] == {
+        "manifest_prefix_observed_at_report_write": {
+            "count": 0,
+            "start": None,
+            "end": None,
+        },
+        "diagnostics_prefix_in_report": {"count": 0, "start": None, "end": None},
+        "manifest_is_authoritative": True,
+        "policy": "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames",
+        "maximum_completed_frame_lag": 9,
+    }
 
     session.process_next_frame()
 
@@ -153,13 +164,16 @@ def test_first_actionable_near_no_op_warning_forces_an_early_checkpoint(
     tmp_path: Path,
 ) -> None:
     paths = SequencePaths(tmp_path)
+    inputs = _inputs(paths, 5)
+    for number in range(2, 6):
+        inputs[paths.frame(number).vector].fill(10_000.0)
     session = ProcessingSession.create(
         paths,
         frame_start=1,
         frame_end=5,
         matte_provider=ObjectIndexMatteProvider(),
-        settings=FeedbackSettings(block_size=1, persistence=0.0),
-        image_io=MemoryImageIO(_inputs(paths, 5)),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(inputs),
     )
 
     session.process_next_frame()
@@ -406,6 +420,45 @@ def test_explicit_terminal_report_flushes_all_diagnostics_since_the_last_checkpo
     assert report["diagnostics_completed_prefix"] == report["manifest_completed_prefix"]
     assert len(report["frames"]) == 8
     assert report["active_report_may_lag_manifest"] is False
+
+
+@pytest.mark.parametrize("failing_method", ("begin", "update", "end"))
+def test_synchronous_progress_errors_write_complete_terminal_failure_reports(
+    tmp_path: Path, failing_method: str
+) -> None:
+    paths = SequencePaths(tmp_path / failing_method)
+
+    class FailingProgress:
+        def begin(self, total: int) -> None:
+            if failing_method == "begin":
+                raise RuntimeError("progress begin failed")
+
+        def update(self, completed: int) -> None:
+            if failing_method == "update":
+                raise RuntimeError("progress update failed")
+
+        def end(self) -> None:
+            if failing_method == "end":
+                raise RuntimeError("progress end failed")
+
+    with pytest.raises(RuntimeError, match=f"progress {failing_method} failed"):
+        process_sequence(
+            paths,
+            frame_start=1,
+            frame_end=1,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(block_size=1),
+            image_io=MemoryImageIO(_inputs(paths, 1)),
+            progress=FailingProgress(),
+        )
+
+    report = _report(paths)
+    assert report["terminal_outcome"] == "FAILURE"
+    expected_count = 0 if failing_method == "begin" else 1
+    assert report["manifest_completed_prefix"]["count"] == expected_count
+    assert report["diagnostics_completed_prefix"]["count"] == expected_count
+    assert report["active_report_may_lag_manifest"] is False
+    assert report["failure"] == f"progress {failing_method} failed"
 
 
 def test_report_replacement_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

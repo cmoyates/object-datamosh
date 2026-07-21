@@ -2,50 +2,50 @@
   "benchmarks": {
     "after": {
       "atomic_report_writes": {
-        "extrapolated_147_frames_ns": 2048463375,
-        "maximum_ns": 15620166,
+        "extrapolated_147_frames_ns": 12875750,
+        "maximum_ns": 13129292,
         "measured_count": 3,
-        "median_ns": 13935125,
-        "minimum_ns": 13564500,
+        "median_ns": 12875750,
+        "minimum_ns": 12862792,
         "write_count": 31
       },
       "json_construction": {
-        "extrapolated_147_frames_ns": 2220612576,
-        "maximum_ns": 15129250,
+        "extrapolated_147_frames_ns": 15367875,
+        "maximum_ns": 15468833,
         "measured_count": 3,
-        "median_ns": 15106208,
-        "minimum_ns": 15087459
+        "median_ns": 15367875,
+        "minimum_ns": 15270375
       },
       "sequence_overhead": {
-        "extrapolated_147_frames_ns": 3353639625,
-        "maximum_ns": 25341833,
+        "extrapolated_147_frames_ns": 20701375,
+        "maximum_ns": 20883583,
         "measured_count": 3,
-        "median_ns": 22813875,
-        "minimum_ns": 22087667
+        "median_ns": 20701375,
+        "minimum_ns": 20556250
       }
     },
     "before": {
       "atomic_report_writes": {
-        "extrapolated_147_frames_ns": 20296914750,
-        "maximum_ns": 138599042,
+        "extrapolated_147_frames_ns": 122604250,
+        "maximum_ns": 153045416,
         "measured_count": 3,
-        "median_ns": 138074250,
-        "minimum_ns": 129431042,
+        "median_ns": 122604250,
+        "minimum_ns": 121440458,
         "write_count": 295
       },
       "json_construction": {
-        "extrapolated_147_frames_ns": 20647362750,
-        "maximum_ns": 141390167,
+        "extrapolated_147_frames_ns": 142057750,
+        "maximum_ns": 142332917,
         "measured_count": 3,
-        "median_ns": 140458250,
-        "minimum_ns": 140431625
+        "median_ns": 142057750,
+        "minimum_ns": 141924333
       },
       "sequence_overhead": {
-        "extrapolated_147_frames_ns": 29546087424,
-        "maximum_ns": 204677250,
+        "extrapolated_147_frames_ns": 194337458,
+        "maximum_ns": 195869375,
         "measured_count": 3,
-        "median_ns": 200993792,
-        "minimum_ns": 199507125
+        "median_ns": 194337458,
+        "minimum_ns": 191558041
       }
     }
   },

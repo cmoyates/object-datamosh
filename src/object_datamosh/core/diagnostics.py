@@ -167,6 +167,21 @@ class ProcessingDiagnostics:
             "diagnostics_availability": availability,
             "checkpoint_interval_frames": checkpoint_interval_frames,
             "active_report_may_lag_manifest": active_report_may_lag_manifest,
+            "report_lag": {
+                "manifest_prefix_observed_at_report_write": prefix,
+                "diagnostics_prefix_in_report": diagnostic_prefix,
+                "manifest_is_authoritative": True,
+                "policy": (
+                    "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames"
+                    if active_report_may_lag_manifest
+                    else "terminal_report_does_not_lag_manifest"
+                ),
+                "maximum_completed_frame_lag": (
+                    max(0, checkpoint_interval_frames - 1)
+                    if active_report_may_lag_manifest and checkpoint_interval_frames is not None
+                    else 0
+                ),
+            },
             "configuration": configuration,
             "settings_fingerprint": settings_fingerprint,
             "agreement": {

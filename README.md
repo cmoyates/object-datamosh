@@ -769,8 +769,8 @@ uv run python scripts/benchmark_diagnostics_reports.py --warmups 1 --measured 3 
 ```
 
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
-(89.49%). Median JSON construction fell from 140.46 ms to 15.11 ms, atomic-write batches from
-138.07 ms to 13.94 ms, and total synthetic report sequence overhead from 200.99 ms to 22.81 ms.
+(89.49%). Median JSON construction fell from 142.06 ms to 15.37 ms, atomic-write batches from
+122.60 ms to 12.88 ms, and total synthetic report sequence overhead from 194.34 ms to 20.70 ms.
 The benchmark uses temporary outputs and does not alter the unchanged per-frame recovery-manifest
 cadence. See
 [`docs/evidence/issue-74-diagnostics-checkpoint.json`](docs/evidence/issue-74-diagnostics-checkpoint.json).

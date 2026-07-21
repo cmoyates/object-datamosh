@@ -764,6 +764,13 @@ def process_sequence(
             raise
         raise frame_error_factory(frame_start, error) from error
 
+    def write_external_failure_report(error: Exception) -> None:
+        """Record orchestration failures that occur outside ``process_next_frame``."""
+        try:
+            session.write_terminal_report("FAILURE", failure=str(error))
+        except Exception as report_error:
+            error.add_note(f"Processing report also failed: {report_error}")
+
     progress_started = False
     try:
         # Synchronous callers historically restored Resume history before opening output progress.
@@ -783,6 +790,7 @@ def process_sequence(
             try:
                 progress.begin(remaining)
             except Exception as error:
+                write_external_failure_report(error)
                 if frame_error_factory is None:
                     raise
                 raise frame_error_factory(session.current_frame, error) from error
@@ -802,6 +810,7 @@ def process_sequence(
                 try:
                     progress.update(len(session.completed_frames))
                 except Exception as error:
+                    write_external_failure_report(error)
                     if frame_error_factory is None:
                         raise
                     raise frame_error_factory(frame_number, error) from error
@@ -822,6 +831,7 @@ def process_sequence(
         try:
             progress.end()
         except Exception as error:
+            write_external_failure_report(error)
             if frame_error_factory is None:
                 raise
             raise frame_error_factory(session.current_frame, error) from error
