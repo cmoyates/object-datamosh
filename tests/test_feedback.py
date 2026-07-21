@@ -44,6 +44,200 @@ def test_first_frame_initializes_clean_history() -> None:
     assert output is not beauty
 
 
+@pytest.mark.parametrize("persistence,refresh_probability", [(0.0, 0.0), (1.0, 1.0)])
+@pytest.mark.parametrize("fallback", list(InvalidHistoryFallback))
+@pytest.mark.parametrize("history_source", list(HistorySource))
+def test_empty_hard_frame_skips_motion_and_sampling(
+    history_source: HistorySource,
+    fallback: InvalidHistoryFallback,
+    persistence: float,
+    refresh_probability: float,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    height, width = 3, 5
+    beauty = _rgba(height, width, 0.25)
+    previous = FeedbackState(
+        history=_rgba(height, width, 1.0),
+        history_matte=np.ones((height, width), dtype=np.float32),
+        frame_number=1,
+    )
+
+    def unexpected_call(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("empty Hard frames must not prepare motion or sample history")
+
+    monkeypatch.setattr(feedback, "prepare_blocks", unexpected_call)
+    monkeypatch.setattr(feedback, "bilinear_sample", unexpected_call)
+
+    output, state, diagnostics = feedback.process_frame_with_diagnostics(
+        beauty=beauty,
+        motion=_motion(height, width),
+        matte=np.zeros((height, width), dtype=np.float32),
+        previous_state=previous,
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.HARD_LOCALIZED,
+            history_source=history_source,
+            invalid_history_fallback=fallback,
+            persistence=persistence,
+            refresh_probability=refresh_probability,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.zeros((height, width), dtype=np.float32))
+    assert state.frame_number == 2
+    assert diagnostics.reset is False
+    assert diagnostics.target_matte_pixels == 0
+    assert diagnostics.effect_matte_pixels == 0
+    assert diagnostics.primary_history_attempts == 0
+    assert diagnostics.historical_blend_pixels == 0
+    assert diagnostics.refresh_restored_pixels == 0
+    assert diagnostics.changed_output_pixels == 0
+
+
+@pytest.mark.parametrize("height,width", [(1, 1), (3, 5)])
+@pytest.mark.parametrize("history_source", list(HistorySource))
+def test_empty_trail_with_empty_valid_history_skips_motion_and_sampling(
+    height: int,
+    width: int,
+    history_source: HistorySource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    beauty = _rgba(height, width, 0.4)
+    previous = FeedbackState(
+        history=_rgba(height, width, 0.9),
+        history_matte=np.zeros((height, width), dtype=np.float32),
+        frame_number=6,
+    )
+
+    def unexpected_call(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("eligible empty Trail frames must not prepare motion or sample history")
+
+    monkeypatch.setattr(feedback, "prepare_blocks", unexpected_call)
+    monkeypatch.setattr(feedback, "bilinear_sample", unexpected_call)
+
+    output, state, diagnostics = feedback.process_frame_with_diagnostics(
+        beauty,
+        _motion(height, width),
+        np.zeros((height, width), dtype=np.float32),
+        previous,
+        frame_number=7,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=history_source,
+            persistence=0.0,
+            trail_decay=0.0,
+            refresh_probability=1.0,
+        ),
+    )
+
+    np.testing.assert_array_equal(output, beauty)
+    np.testing.assert_array_equal(state.history_matte, np.zeros((height, width), dtype=np.float32))
+    assert diagnostics.reset is False
+    assert diagnostics.effect_matte_coverage == 0.0
+    assert diagnostics.primary_history_attempts == 0
+    assert diagnostics.changed_output_mean_absolute == 0.0
+    assert diagnostics.changed_output_max_absolute == 0.0
+
+
+@pytest.mark.parametrize(
+    "prior_coverage",
+    [
+        np.array([[1.0]], dtype=np.float32),
+        np.array([[np.nan]], dtype=np.float32),
+        np.array([[-0.1]], dtype=np.float32),
+        np.array([[1.1]], dtype=np.float32),
+    ],
+)
+@pytest.mark.parametrize("history_source", list(HistorySource))
+def test_empty_trail_does_not_skip_nonempty_or_invalid_history_coverage(
+    prior_coverage: np.ndarray,
+    history_source: HistorySource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"prepare": 0, "sample": 0}
+    real_prepare = feedback.prepare_blocks
+    real_sample = feedback.bilinear_sample
+
+    def recording_prepare(*args: object, **kwargs: object) -> object:
+        calls["prepare"] += 1
+        return real_prepare(*args, **kwargs)  # type: ignore[arg-type]
+
+    def recording_sample(*args: object, **kwargs: object) -> object:
+        calls["sample"] += 1
+        return real_sample(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(feedback, "prepare_blocks", recording_prepare)
+    monkeypatch.setattr(feedback, "bilinear_sample", recording_sample)
+    beauty = _rgba(1, 1, 0.2)
+
+    output, state, diagnostics = feedback.process_frame_with_diagnostics(
+        beauty,
+        _motion(1, 1),
+        np.zeros((1, 1), dtype=np.float32),
+        FeedbackState(_rgba(1, 1, 0.8), prior_coverage, frame_number=1),
+        frame_number=2,
+        settings=FeedbackSettings(
+            mode=FeedbackMode.TRAIL,
+            history_source=history_source,
+            persistence=1.0,
+            trail_decay=1.0,
+            block_size=1,
+        ),
+    )
+
+    assert calls["prepare"] == 1
+    assert calls["sample"] > 0
+    if not np.all(np.isfinite(prior_coverage)) or np.any(
+        (prior_coverage < 0.0) | (prior_coverage > 1.0)
+    ):
+        np.testing.assert_array_equal(output, beauty)
+        np.testing.assert_array_equal(state.history_matte, np.zeros((1, 1), dtype=np.float32))
+        assert diagnostics.effect_matte_pixels == 0
+
+
+@pytest.mark.parametrize("frame_count", [30, 60])
+@pytest.mark.parametrize("mode", list(FeedbackMode))
+def test_full_frame_empty_preroll_keeps_latest_clean_history_for_target_entry(
+    frame_count: int, mode: FeedbackMode
+) -> None:
+    settings = FeedbackSettings(
+        mode=mode,
+        history_source=HistorySource.FULL_FRAME,
+        persistence=1.0,
+        trail_decay=1.0,
+        block_size=1,
+    )
+    empty = np.zeros((1, 1), dtype=np.float32)
+    state = None
+    latest = _rgba(1, 1, 0.0)
+    for frame_number in range(1, frame_count + 1):
+        latest = _rgba(1, 1, frame_number / 100.0)
+        _output, state = process_frame(
+            latest,
+            _motion(1, 1),
+            empty,
+            state,
+            frame_number,
+            settings,
+        )
+
+    entering = _rgba(1, 1, 0.0)
+    output, next_state = process_frame(
+        entering,
+        _motion(1, 1),
+        np.ones((1, 1), dtype=np.float32),
+        state,
+        frame_count + 1,
+        settings,
+    )
+
+    np.testing.assert_array_equal(output, latest)
+    np.testing.assert_array_equal(next_state.history, latest)
+    np.testing.assert_array_equal(next_state.history_matte, np.ones((1, 1), dtype=np.float32))
+
+
 def test_identity_motion_applies_persistence_inside_current_matte() -> None:
     beauty = _rgba(2, 2, 0.0)
     previous = FeedbackState(

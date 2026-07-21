@@ -123,6 +123,16 @@ def process_frame_with_diagnostics(
         raise TypeError("force_reset must be a boolean")
     _validate_inputs(beauty, motion, matte, previous_state)
     reset = previous_state is None or force_reset
+    empty_effect = False
+    if not reset and not np.any(matte > 0.0):
+        if settings.mode is FeedbackMode.HARD_LOCALIZED:
+            empty_effect = True
+        elif previous_state is not None:
+            prior_coverage = previous_state.history_matte
+            prior_coverage_valid = (
+                np.isfinite(prior_coverage) & (prior_coverage >= 0.0) & (prior_coverage <= 1.0)
+            )
+            empty_effect = bool(np.all(prior_coverage_valid) and not np.any(prior_coverage > 0.0))
     primary_attempt = np.zeros(matte.shape, dtype=bool)
     primary_valid = np.zeros(matte.shape, dtype=bool)
     fallback_attempt = np.zeros(matte.shape, dtype=bool)
@@ -130,7 +140,7 @@ def process_frame_with_diagnostics(
     blend = np.zeros((*matte.shape, 1), dtype=np.float32)
     refresh_pixels = 0
     refresh_blocks = 0
-    if reset:
+    if reset or empty_effect:
         output = beauty.copy()
         next_matte = matte
         localized_history = matte
