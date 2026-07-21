@@ -739,6 +739,30 @@ render. Memory use scales with pixel count because source, motion, matte, sampli
 arrays coexist during processing. Motion reduction, quantization, diffusion, and refresh selection
 remain compact block grids until `process_frame` expands them for pixel sampling and blending.
 
+### Reproducible Extreme benchmark
+
+Run the production-shaped 1920×1080 benchmark with the tested Blender executable:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py -- \
+  --warmups 1 --measured 3 --output docs/evidence/extreme-benchmark-baseline.json
+```
+
+The script creates deterministic float32 beauty, Vector, matte, and history arrays, writes its EXR
+fixtures under a temporary directory, uses `extreme_full_frame_feedback_settings()`, and exercises a
+three-frame strictly sequential sequence containing non-reset Full Frame Trail frames. Its JSON
+separates pure-core, individual EXR reads, processed EXR write, and complete sequential timings; it
+records environment metadata, warm-up and measured counts, median/minimum/maximum values, largest
+stages, and a median-based 147-frame extrapolation. Results are observational developer evidence,
+not a production threshold. The current baseline is committed at
+[`docs/evidence/extreme-benchmark-baseline.json`](docs/evidence/extreme-benchmark-baseline.json).
+
+Each processing report also has a schema-v1 `performance` section. It records nanosecond timings for
+beauty, Vector, and matte reads; core processing; processed EXR write; atomic manifest commit;
+diagnostics-report commit; and total frame time. `observational_only` is true, and timing history is
+bounded to the latest 96 frames. Timing data is excluded from semantic settings, fingerprints, and
+resume compatibility and does not change frame diagnostics or image output.
+
 ## Troubleshooting
 
 For an ineffective or unexpected Extreme result, preserve the manifest and processing report before
