@@ -17,20 +17,11 @@ issues were resolved and their pull requests merged to `main`. The durable outco
 | [#78](https://github.com/cmoyates/object-datamosh/issues/78) | **Rejected** reusable bilinear plans: two-sample work was 4.11% slower and the modest 2.79% complete-feedback gain did not justify an 85,017,600-byte plan or 98.77 MiB peak-RSS growth. The prototype was reverted. | [PR #88](https://github.com/cmoyates/object-datamosh/pull/88), [`issue-78-bilinear-plans.json`](evidence/issue-78-bilinear-plans.json) |
 | [#79](https://github.com/cmoyates/object-datamosh/issues/79) | Release-validated the integrated roadmap with same-harness workload, semantic, recovery, memory, and release-gate evidence. | [PR #89](https://github.com/cmoyates/object-datamosh/pull/89), [baseline](evidence/issue-79-workloads-baseline.json), [final](evidence/issue-79-workloads-final.json) |
 
-The cumulative canonical result from #79 is a pure-core median reduction from **2,070.206 ms to
-293.871 ms (85.80% / 7.04×)** and a complete-frame reduction from **2,143.568 ms to 791.130 ms
-(63.09% / 2.71×)**. The median-only 147-frame processing estimate is **116.296 s**, down from
-**315.104 s**. Final input reads remain the largest stage at **446.073 ms (56.4%)**, ahead of core
-processing at **301.337 ms (38.1%)** and output writing at **45.510 ms (5.8%)**. The measured next
-recommendation is therefore narrowly scoped CPU work on bundled EXR decode and copy/transfer, not
-output-writer or GPU work. The detailed method, limitations, stage tables, and unfavorable results
-remain below rather than being duplicated here.
-
-The roadmap preserved sequential frame recursion, bit-identical tested output/state/coverage and
-diagnostics, conservative resumed/invalid-history validation, atomic recovery-manifest commits per
-completed frame, NumPy `float32` core boundaries without `bpy`, Blender-main-thread API use, scene
-safety, and the no-new-runtime-dependency constraint. It introduced no GPU backend or frame-level
-parallelism and made no performance claim for the reporter's machine or for 3D rendering.
+The canonical cumulative measurements, 147-frame estimate, and machine-specific limitations are
+recorded once in [Scope and result](#scope-and-result). Roadmap-wide semantic, recovery,
+architecture, dependency, and scene-safety constraints are covered by the
+[correctness and release gate](#correctness-and-release-gate). The remaining-stage analysis and
+measured next direction are in [Bottleneck and recommendation](#bottleneck-and-recommendation).
 
 ## Scope and result
 
