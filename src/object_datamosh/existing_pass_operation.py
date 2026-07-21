@@ -44,6 +44,7 @@ class ExistingPassModalController:
         self._session: ProcessingSession | None = None
         self._cancel_requested = False
         self._finalized = False
+        self._initialization_report_error: Exception | None = None
         self._lifecycle = ModalOperationLifecycle(
             operator,
             runtime,
@@ -54,12 +55,23 @@ class ExistingPassModalController:
         """Install modal resources and publish the session's initial work boundary."""
         self._session = session
         total_work = session.frame_end - session.frame_start + 1
-        self._lifecycle.begin(
-            context,
-            frame_start=session.frame_start,
-            frame_end=session.frame_end,
-            total_work=total_work,
-        )
+        try:
+            self._lifecycle.begin(
+                context,
+                frame_start=session.frame_start,
+                frame_end=session.frame_end,
+                total_work=total_work,
+            )
+        except Exception as error:
+            # Lifecycle setup failure finalizes cleanup before returning control, so retain the
+            # local session long enough to persist terminal diagnostics at this boundary.
+            writer = getattr(session, "write_terminal_report", None)
+            if callable(writer):
+                try:
+                    writer("FAILURE", failure=str(error))
+                except Exception as report_error:
+                    self._initialization_report_error = report_error
+            raise
         recovery_frame = session.recovery_frame
         current_frame = session.current_frame if recovery_frame is None else recovery_frame
         if session.is_finished:
@@ -114,15 +126,31 @@ class ExistingPassModalController:
 
     def cancel(self) -> None:
         """Release resources when Blender cancels the operator externally."""
-        message = "Cancelled by Blender"
-        if not self.finalize(OperationPhase.CANCELLED, message):
-            self._operator.report({"ERROR"}, self._visible_status(message))
+        if self._finalized:
+            return
+        completed_frames = getattr(self._session, "completed_frames", ())
+        self._finish_cancelled(len(completed_frames))
 
     def fail_initialization(self, frame_number: int, error: Exception) -> None:
         """Publish an initialization error through the same lifecycle finalizer."""
         message = f"Processing failed during initialization at frame {frame_number}: {error}"
+        report_error = self._initialization_report_error
+        self._initialization_report_error = None
+        if report_error is None and self._session is not None:
+            report_error = self._write_terminal_report("FAILURE", failure=str(error))
+        if report_error is not None:
+            # Lifecycle setup can fail after it has already published and finalized its own status.
+            # Preserve that more specific message while making the report failure visible.
+            message = self._visible_status(message)
+            message += f"; diagnostics report write failed: {report_error}"
         self.finalize(OperationPhase.FAILED, message)
-        self._operator.report({"ERROR"}, self._visible_status(message))
+        if report_error is not None:
+            with suppress(Exception):
+                self._runtime.status = message
+            self._set_status(message)
+            self._operator.report({"ERROR"}, message)
+        else:
+            self._operator.report({"ERROR"}, self._visible_status(message))
 
     def finalize(self, phase: OperationPhase, status: str) -> bool:
         """Finalize idempotently and return whether cleanup reached the requested outcome."""

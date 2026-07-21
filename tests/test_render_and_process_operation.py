@@ -170,6 +170,17 @@ class FailingProcessingSession(ProcessingSession):
         raise RuntimeError("image write failed")
 
 
+class TerminalReportFailingProcessingSession(ProcessingSession):
+    def write_terminal_report(self, outcome: str, *, failure: str | None = None) -> None:
+        del outcome, failure
+        raise OSError("disk full")
+
+
+class ProcessingAndTerminalReportFailingSession(TerminalReportFailingProcessingSession):
+    def process_next_frame(self) -> None:
+        raise RuntimeError("image write failed")
+
+
 def test_combined_workflow_starts_in_initialization_with_no_completed_work() -> None:
     workflow = RenderAndProcessStateMachine(frame_start=3, frame_end=5)
 
@@ -798,4 +809,69 @@ def test_transition_failure_uses_shared_finalizer_and_reports_phase(tmp_path: Pa
     )
     assert window_manager.events.count(("timer_remove", window_manager.timer)) == 1
     assert window_manager.events.count(("progress_end", None)) == 1
+    assert operator.reports[-1] == ({"ERROR"}, runtime.status)
+
+
+def _start_combined_processing(
+    tmp_path: Path, processing: ProcessingSession
+) -> tuple[RenderAndProcessModalController, RuntimeState, Operator, WindowManager]:
+    raw_frames = (
+        FramePaths(3, tmp_path / "b3", tmp_path / "v3", tmp_path / "m3", tmp_path / "p3"),
+        FramePaths(4, tmp_path / "b4", tmp_path / "v4", tmp_path / "m4", tmp_path / "p4"),
+    )
+    runtime = RuntimeState()
+    operator = Operator()
+    window_manager = WindowManager()
+    adapter = RenderAdapter()
+    controller = RenderAndProcessModalController(
+        operator,
+        runtime,
+        SimpleNamespace(status="Ready"),
+        adapter=adapter,
+        create_processing=lambda _frames, _should_cancel: processing,
+    )
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        RenderSession(raw_frames),
+    )
+    timer = SimpleNamespace(type="TIMER", timer=window_manager.timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    controller.handle_event(timer)
+    adapter.event = RenderEvent.COMPLETED
+    controller.handle_event(timer)
+    return controller, runtime, operator, window_manager
+
+
+def test_combined_cancel_surfaces_terminal_report_persistence_failure(tmp_path: Path) -> None:
+    processing = TerminalReportFailingProcessingSession((tmp_path / "p3", tmp_path / "p4"))
+    controller, runtime, operator, _window_manager = _start_combined_processing(
+        tmp_path, processing
+    )
+
+    controller.cancel()
+
+    assert runtime.phase == "CANCELLED"
+    assert runtime.status == (
+        "Render and Process cancelled after 2 of 4 steps; diagnostics report write failed: "
+        "disk full"
+    )
+    assert operator.reports[-1] == ({"WARNING"}, runtime.status)
+
+
+def test_combined_processing_error_surfaces_terminal_report_persistence_failure(
+    tmp_path: Path,
+) -> None:
+    processing = ProcessingAndTerminalReportFailingSession((tmp_path / "p3", tmp_path / "p4"))
+    controller, runtime, operator, window_manager = _start_combined_processing(tmp_path, processing)
+
+    result = controller.handle_event(SimpleNamespace(type="TIMER", timer=window_manager.timer))
+
+    assert result == {"CANCELLED"}
+    assert runtime.phase == "FAILED"
+    assert runtime.status == (
+        "Render and Process failed during processing at frame 3: image write failed; "
+        "diagnostics report write failed: disk full"
+    )
     assert operator.reports[-1] == ({"ERROR"}, runtime.status)

@@ -292,3 +292,103 @@ def test_success_is_not_reported_when_lifecycle_cleanup_fails() -> None:
             "at frame 1: timer removal failed",
         )
     ]
+
+
+def test_external_cancel_surfaces_terminal_report_persistence_failure() -> None:
+    runtime = SimpleNamespace(
+        active=False,
+        cancel_requested=False,
+        phase="IDLE",
+        run_identity="",
+        current_frame=0,
+        frame_start=0,
+        frame_end=0,
+        completed_work=0,
+        total_work=0,
+        progress=0.0,
+        status="Ready",
+    )
+    settings = SimpleNamespace(status="Ready")
+
+    class Session:
+        frame_start = 1
+        frame_end = 2
+        current_frame = 1
+        recovery_frame = None
+        retained_frames: tuple[int, ...] = ()
+        completed_frames: tuple[str, ...] = ()
+        is_finished = False
+        configuration_name = "Full Frame / Trail"
+
+        def write_terminal_report(self, outcome: str, *, failure: str | None = None) -> None:
+            del outcome, failure
+            raise OSError("disk full")
+
+    operator = ReportingOperator()
+    window_manager = WindowManagerRecorder()
+    controller = ExistingPassModalController(operator, cast(Any, runtime), cast(Any, settings))
+    controller.start(
+        SimpleNamespace(window_manager=window_manager, window=object()),
+        cast(Any, Session()),
+    )
+
+    controller.cancel()
+
+    assert runtime.phase == "CANCELLED"
+    assert runtime.status == (
+        "Cancelled after 0 frame(s); diagnostics report write failed: disk full"
+    )
+    assert operator.reports[-1] == ({"WARNING"}, runtime.status)
+
+
+def test_initialization_failure_surfaces_terminal_report_persistence_failure() -> None:
+    runtime = SimpleNamespace(
+        active=False,
+        cancel_requested=False,
+        phase="IDLE",
+        run_identity="",
+        current_frame=0,
+        frame_start=0,
+        frame_end=0,
+        completed_work=0,
+        total_work=0,
+        progress=0.0,
+        status="Ready",
+    )
+    settings = SimpleNamespace(status="Ready")
+
+    class Session:
+        frame_start = 4
+        frame_end = 4
+        current_frame = 4
+        recovery_frame = None
+        retained_frames: tuple[int, ...] = ()
+        completed_frames: tuple[str, ...] = ()
+        is_finished = False
+        configuration_name = "Target Only / Hard Localized"
+
+        def write_terminal_report(self, outcome: str, *, failure: str | None = None) -> None:
+            assert outcome == "FAILURE"
+            assert failure == "timer unavailable"
+            raise OSError("disk full")
+
+    operator = ReportingOperator()
+    controller = ExistingPassModalController(operator, cast(Any, runtime), cast(Any, settings))
+    try:
+        controller.start(
+            SimpleNamespace(
+                window_manager=WindowManagerRecorder(fail_timer_add=True), window=object()
+            ),
+            cast(Any, Session()),
+        )
+    except RuntimeError as error:
+        controller.fail_initialization(4, error)
+    else:
+        raise AssertionError("timer setup failure did not propagate")
+
+    assert runtime.phase == "FAILED"
+    assert runtime.status == (
+        "Initialization failed at frame 4: timer unavailable; diagnostics report write failed: "
+        "disk full"
+    )
+    assert operator.reports[-1] == ({"ERROR"}, runtime.status)
