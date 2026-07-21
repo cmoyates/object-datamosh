@@ -42,9 +42,11 @@ from object_datamosh.core.presets import (  # noqa: E402
     extreme_full_frame_feedback_settings,
 )
 from object_datamosh.sequence_processing import (  # noqa: E402
+    ProcessingSession,
     SequenceRunMode,
     process_sequence,
     processing_report_path,
+    sequence_manifest_path,
 )
 
 WIDTH = 1920
@@ -141,6 +143,18 @@ def _semantic_result(result: Any) -> dict[str, object]:
     }
 
 
+def _recursive_semantics(
+    operation: Callable[[FeedbackState, int], Any], initial_state: FeedbackState
+) -> dict[str, object]:
+    """Record two chained transitions so frame 3 demonstrably consumes processed frame 2."""
+    second = operation(initial_state, 2)
+    third = operation(second[1], 3)
+    return {
+        "transitions": [_semantic_result(second), _semantic_result(third)],
+        "frame_3_consumes_frame_2_state": True,
+    }
+
+
 def _fixtures() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     rng = np.random.default_rng(SEED)
     beauty = rng.random((HEIGHT, WIDTH, 4), dtype=np.float32)
@@ -222,10 +236,10 @@ def _write_sequence(
     motion: np.ndarray,
     workload: Workload,
 ) -> None:
-    mattes = (workload.first_matte, workload.current_matte)
+    mattes = (workload.first_matte, workload.current_matte, workload.current_matte)
     for number, matte in enumerate(mattes, start=1):
         frame = paths.frame(number)
-        frame_beauty = beauty if number == 2 else workload.history
+        frame_beauty = workload.history if number == 1 else beauty
         matte_rgba = np.repeat(matte[..., None], 4, axis=2).astype(np.float32, copy=False)
         image_io.write_rgba(frame.beauty, frame_beauty)
         image_io.write_rgba(frame.vector, motion)
@@ -257,6 +271,72 @@ def _git_revision() -> str:
     return subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def _recovery_semantics(
+    root: Path,
+    image_io: BlenderImageIO,
+    beauty: np.ndarray,
+    motion: np.ndarray,
+    workload: Workload,
+) -> dict[str, object]:
+    """Compare an uninterrupted three-frame run with a manifest-backed resumed run."""
+    uninterrupted = SequencePaths(root / "recovery_uninterrupted")
+    resumed = SequencePaths(root / "recovery_resumed")
+    for paths in (uninterrupted, resumed):
+        _write_sequence(paths, image_io, beauty, motion, workload)
+
+    matte_provider = ObjectIndexMatteProvider()
+    process_sequence(
+        uninterrupted,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=matte_provider,
+        settings=workload.settings,
+        image_io=image_io,
+        overwrite=True,
+    )
+
+    interrupted = ProcessingSession.create(
+        resumed,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=matte_provider,
+        settings=workload.settings,
+        image_io=image_io,
+        overwrite=True,
+    )
+    interrupted.process_next_frame()
+    committed_after_interruption = json.loads(
+        sequence_manifest_path(resumed).read_text(encoding="utf-8")
+    )["completed_frames"]
+    process_sequence(
+        resumed,
+        frame_start=1,
+        frame_end=3,
+        matte_provider=matte_provider,
+        settings=workload.settings,
+        image_io=image_io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+
+    uninterrupted_hashes = [
+        _array_sha256(image_io.read_rgba(uninterrupted.frame(number).processed))
+        for number in range(1, 4)
+    ]
+    resumed_hashes = [
+        _array_sha256(image_io.read_rgba(resumed.frame(number).processed)) for number in range(1, 4)
+    ]
+    if resumed_hashes != uninterrupted_hashes:
+        raise AssertionError("resumed outputs differ from uninterrupted recursive outputs")
+    final_manifest = json.loads(sequence_manifest_path(resumed).read_text(encoding="utf-8"))
+    return {
+        "frames": 3,
+        "interrupted_after_completed_frames": committed_after_interruption,
+        "resumed_completed_frames": final_manifest["completed_frames"],
+        "processed_rgba_sha256_by_frame": resumed_hashes,
+        "matches_uninterrupted": True,
+    }
 
 
 def main() -> None:
@@ -363,7 +443,20 @@ def main() -> None:
                 }
                 continue
 
-            semantic_result = _semantic_result(pure_core())
+            def semantic_operation(
+                semantic_state: FeedbackState, frame_number: int, workload: Workload = workload
+            ) -> object:
+                return process_frame_with_diagnostics(
+                    beauty,
+                    motion,
+                    workload.current_matte,
+                    semantic_state,
+                    frame_number,
+                    workload.settings,
+                    force_reset=False,
+                )
+
+            semantic_result = _recursive_semantics(semantic_operation, state)
             pure_core_samples = _measure(pure_core, args.warmups, args.measured)
             # Prime overwrite/recovery paths once after their configured warm-ups. This run is
             # deliberately excluded from both elapsed and production-stage sample distributions.
@@ -391,6 +484,14 @@ def main() -> None:
                     end_to_end_samples, warmup_count=args.warmups, frames_per_sample=2
                 ),
             }
+
+        results["extreme_full_frame_trail"]["resume_recovery_semantics"] = _recovery_semantics(
+            temporary_root,
+            image_io,
+            beauty,
+            motion,
+            workloads[0],
+        )
 
     representative_arrays = (beauty, motion, target, history, target.copy())
     payload = {

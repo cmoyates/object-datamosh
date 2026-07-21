@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -132,11 +133,15 @@ def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None
     final = json.loads(Path("docs/evidence/issue-79-workloads-final.json").read_text())
 
     assert baseline["revision"]["commit"].startswith("0b19e06")
-    assert final["revision"]["commit"] == "ac356f8182ab6afc676553fccdb1303a7683c93a"
+    assert final["revision"]["commit"] == "ce519792143f790731ef11e068fd1b1dab37a227"
     assert baseline["fixture"] == final["fixture"]
     assert baseline["methodology"] == final["methodology"]
     assert baseline["environment"] == final["environment"]
-    assert baseline["comparability"]["harness_sha256"] == final["comparability"]["harness_sha256"]
+    harness_sha256 = hashlib.sha256(
+        Path("scripts/benchmark_release_workloads.py").read_bytes()
+    ).hexdigest()
+    assert baseline["comparability"]["harness_sha256"] == harness_sha256
+    assert final["comparability"]["harness_sha256"] == harness_sha256
     assert baseline["methodology"]["sequence_priming_runs_after_warmups"] == 1
     assert (
         baseline["memory"]["representative_live_array_bytes"]
@@ -155,13 +160,27 @@ def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None
             before_semantics = before["semantic_non_reset_frame"]
             after_semantics = after["semantic_non_reset_frame"]
             assert before_semantics == after_semantics
-            assert set(before_semantics) == {
+            assert before_semantics["frame_3_consumes_frame_2_state"] is True
+            assert len(before_semantics["transitions"]) == 2
+            frame_numbers = [
+                transition["next_frame_number"] for transition in before_semantics["transitions"]
+            ]
+            assert frame_numbers == [2, 3]
+            assert set(before_semantics["transitions"][0]) == {
                 "processed_rgba_sha256",
                 "next_history_rgba_sha256",
                 "next_history_matte_sha256",
                 "next_frame_number",
                 "diagnostics",
             }
+            if workload == "extreme_full_frame_trail":
+                before_recovery = before["resume_recovery_semantics"]
+                after_recovery = after["resume_recovery_semantics"]
+                assert before_recovery == after_recovery
+                assert before_recovery["frames"] == 3
+                assert before_recovery["interrupted_after_completed_frames"] == [1]
+                assert before_recovery["resumed_completed_frames"] == [1, 2, 3]
+                assert before_recovery["matches_uninterrupted"] is True
             stage_names = {
                 "beauty_read",
                 "vector_read",
