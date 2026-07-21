@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "object_datamosh"
-version = "0.3.0"
+version = "0.4.0"
 name = "Object Datamosh"
 tagline = "Create object-localized temporal feedback effects"
 maintainer = "cmoyates"

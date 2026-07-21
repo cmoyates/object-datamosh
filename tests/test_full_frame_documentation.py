@@ -8,7 +8,7 @@ from object_datamosh.core.presets import extreme_full_frame_feedback_settings
 ROOT = Path(__file__).parents[1]
 README = ROOT / "README.md"
 MIGRATION_GUIDE = ROOT / "docs" / "extreme-workflow-migration.md"
-RELEASE_NOTES = ROOT / "docs" / "release-notes-0.3.0.md"
+RELEASE_NOTES = ROOT / "docs" / "release-notes-0.4.0.md"
 EXTENSION_MANIFEST = ROOT / "src" / "object_datamosh" / "blender_manifest.toml"
 
 

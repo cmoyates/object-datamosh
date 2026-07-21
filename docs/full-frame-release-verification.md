@@ -53,7 +53,7 @@ The installation artifact is ignored build output and is not committed:
 - SHA-256: `3718a4414ed3b81d419359f96096cecb8b52be8083ce46c0e87257bd82c8e701`.
 
 The Blender extension manifest, repository project metadata, release notes, and lockfile editable
-package entry now agree on version `0.2.0`.
+package entry now agree on version `0.4.0`.
 
 ## Migration and compatibility cases verified
 
@@ -71,7 +71,7 @@ package entry now agree on version `0.2.0`.
 
 User-facing steps are in the [migration guide](extreme-workflow-migration.md). Orientation,
 provenance, fallback, Trail propagation, retuned preset values, and diagnostics are recorded in the
-[0.3.0 release notes](release-notes-0.3.0.md).
+[0.4.0 release notes](release-notes-0.4.0.md).
 
 ## Scope and remaining interactive limitations
 

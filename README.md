@@ -738,7 +738,7 @@ The integrated Full Frame commands, artifact, and remaining visual checks are re
 [Full Frame release verification](docs/full-frame-release-verification.md). Corrected workflow
 migration is documented in the [migration guide](docs/extreme-workflow-migration.md), and its
 orientation, provenance, fallback, Trail, preset, and diagnostics changes are summarized in the
-[0.3.0 release notes](docs/release-notes-0.3.0.md).
+[0.4.0 release notes](docs/release-notes-0.4.0.md).
 
 ## Performance expectations
 
