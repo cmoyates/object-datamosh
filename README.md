@@ -775,6 +775,20 @@ uv run python scripts/benchmark_diagnostics_reports.py --warmups 1 --measured 3 
   --output docs/evidence/issue-74-diagnostics-checkpoint.json
 ```
 
+The Full Frame clean-history sampling optimization can be reproduced with:
+
+```bash
+uv run python scripts/benchmark_full_frame_sampling.py --revision after \
+  --warmups 1 --measured 5 --output /tmp/issue75-after.json
+```
+
+The same-machine before/after evidence in
+[`docs/evidence/issue-75-full-frame-sampling.json`](docs/evidence/issue-75-full-frame-sampling.json)
+uses deterministic 1920×1080 float32 Extreme input. Median total core processing fell from
+713.05 ms to 332.16 ms (53.42%, 2.15×); processed RGBA, next state, effect coverage, and diagnostics
+were bit-identical. Stage figures are developer evidence, not CI timing gates or claims about other
+machines.
+
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
 (89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
 143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.

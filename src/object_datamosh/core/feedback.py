@@ -146,27 +146,26 @@ def process_frame_with_diagnostics(
         sample_y -= displacement[..., 1]
         if settings.history_source is HistorySource.FULL_FRAME:
             history_color_valid = np.all(np.isfinite(previous_state.history), axis=-1)
-            safe_history = np.where(history_color_valid[..., None], previous_state.history, 0.0)
-            warped_history, valid = bilinear_sample(safe_history, sample_x, sample_y)
-            warped_invalid, _ = bilinear_sample(
-                (~history_color_valid).astype(np.float32), sample_x, sample_y
-            )
-            covered = valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
+            clean_history = bool(np.all(history_color_valid))
+            if clean_history:
+                safe_history = previous_state.history
+                warped_history, covered = bilinear_sample(safe_history, sample_x, sample_y)
+            else:
+                safe_history = np.where(history_color_valid[..., None], previous_state.history, 0.0)
+                warped_history, valid = bilinear_sample(safe_history, sample_x, sample_y)
+                warped_invalid, _ = bilinear_sample(
+                    (~history_color_valid).astype(np.float32), sample_x, sample_y
+                )
+                covered = (
+                    valid & (warped_invalid == 0.0) & np.all(np.isfinite(warped_history), axis=-1)
+                )
             primary_covered = covered.copy()
             if settings.invalid_history_fallback is InvalidHistoryFallback.SAME_PIXEL_HISTORY:
-                screen_y, screen_x = np.indices(matte.shape, dtype=np.float32)
-                screen_history, screen_valid = bilinear_sample(safe_history, screen_x, screen_y)
-                screen_invalid, _ = bilinear_sample(
-                    (~history_color_valid).astype(np.float32), screen_x, screen_y
+                use_screen = ~covered & history_color_valid
+                warped_history = np.where(
+                    use_screen[..., None], previous_state.history, warped_history
                 )
-                screen_covered = (
-                    screen_valid
-                    & (screen_invalid == 0.0)
-                    & np.all(np.isfinite(screen_history), axis=-1)
-                )
-                use_screen = ~covered & screen_covered
-                warped_history = np.where(use_screen[..., None], screen_history, warped_history)
-                covered = covered | screen_covered
+                covered = covered | history_color_valid
             else:
                 use_screen = np.zeros(matte.shape, dtype=bool)
             warped_history = np.where(covered[..., None], warped_history, 0.0)
@@ -176,18 +175,27 @@ def process_frame_with_diagnostics(
                     & (previous_state.history_matte >= 0.0)
                     & (previous_state.history_matte <= 1.0)
                 )
-                safe_history_matte = np.where(
-                    history_matte_valid, previous_state.history_matte, 0.0
-                ).astype(np.float32, copy=False)
-                warped_matte, matte_sample_valid = bilinear_sample(
-                    safe_history_matte, sample_x, sample_y
-                )
-                warped_matte_invalid, _ = bilinear_sample(
-                    (~history_matte_valid).astype(np.float32), sample_x, sample_y
-                )
-                effect_sample_valid = (
-                    matte_sample_valid & (warped_matte_invalid == 0.0) & np.isfinite(warped_matte)
-                )
+                clean_history_matte = bool(np.all(history_matte_valid))
+                if clean_history_matte:
+                    safe_history_matte = previous_state.history_matte
+                    warped_matte, effect_sample_valid = bilinear_sample(
+                        safe_history_matte, sample_x, sample_y
+                    )
+                else:
+                    safe_history_matte = np.where(
+                        history_matte_valid, previous_state.history_matte, 0.0
+                    ).astype(np.float32, copy=False)
+                    warped_matte, matte_sample_valid = bilinear_sample(
+                        safe_history_matte, sample_x, sample_y
+                    )
+                    warped_matte_invalid, _ = bilinear_sample(
+                        (~history_matte_valid).astype(np.float32), sample_x, sample_y
+                    )
+                    effect_sample_valid = (
+                        matte_sample_valid
+                        & (warped_matte_invalid == 0.0)
+                        & np.isfinite(warped_matte)
+                    )
                 motion_mask = warped_matte * effect_sample_valid
                 screen_mask = safe_history_matte
                 propagated_mask = np.clip(

@@ -1,0 +1,160 @@
+{
+  "benchmarks": {
+    "after": {
+      "coordinate_grid_allocation": {
+        "extrapolated_147_frames_ns": 18375,
+        "maximum_ns": 459,
+        "measured_count": 5,
+        "median_ns": 125,
+        "minimum_ns": 83
+      },
+      "primary_history_sampling": {
+        "extrapolated_147_frames_ns": 28723071174,
+        "maximum_ns": 202625583,
+        "measured_count": 5,
+        "median_ns": 195395042,
+        "minimum_ns": 184468833
+      },
+      "same_pixel_fallback": {
+        "extrapolated_147_frames_ns": 1529326848,
+        "maximum_ns": 11165917,
+        "measured_count": 5,
+        "median_ns": 10403584,
+        "minimum_ns": 10193208
+      },
+      "total_core_frame": {
+        "extrapolated_147_frames_ns": 48827232027,
+        "maximum_ns": 373833333,
+        "measured_count": 5,
+        "median_ns": 332158041,
+        "minimum_ns": 322600917
+      },
+      "trail_mask_sampling": {
+        "extrapolated_147_frames_ns": 5499766125,
+        "maximum_ns": 39229750,
+        "measured_count": 5,
+        "median_ns": 37413375,
+        "minimum_ns": 37392709
+      }
+    },
+    "before": {
+      "coordinate_grid_allocation": {
+        "extrapolated_147_frames_ns": 31770375,
+        "maximum_ns": 922750,
+        "measured_count": 5,
+        "median_ns": 216125,
+        "minimum_ns": 207708
+      },
+      "primary_history_sampling": {
+        "extrapolated_147_frames_ns": 36400672875,
+        "maximum_ns": 251661917,
+        "measured_count": 5,
+        "median_ns": 247623625,
+        "minimum_ns": 222264125
+      },
+      "same_pixel_fallback": {
+        "extrapolated_147_frames_ns": 32835475701,
+        "maximum_ns": 237644291,
+        "measured_count": 5,
+        "median_ns": 223370583,
+        "minimum_ns": 211607500
+      },
+      "total_core_frame": {
+        "extrapolated_147_frames_ns": 104817670125,
+        "maximum_ns": 716491416,
+        "measured_count": 5,
+        "median_ns": 713045375,
+        "minimum_ns": 667094750
+      },
+      "trail_mask_sampling": {
+        "extrapolated_147_frames_ns": 10877528277,
+        "maximum_ns": 74384417,
+        "measured_count": 5,
+        "median_ns": 73996791,
+        "minimum_ns": 73702208
+      }
+    }
+  },
+  "commands": {
+    "after": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_full_frame_sampling.py --revision after --warmups 1 --measured 5 --output /tmp/issue75-after.json",
+    "before": "UV_FROZEN=1 uv run --frozen python scripts/benchmark_full_frame_sampling.py --revision before --warmups 1 --measured 5 --output /tmp/issue75-before.json"
+  },
+  "comparisons": {
+    "coordinate_grid_allocation": {
+      "median_reduction_percent": 99.94,
+      "speedup_multiple": 1729.0
+    },
+    "primary_history_sampling": {
+      "median_reduction_percent": 21.09,
+      "speedup_multiple": 1.27
+    },
+    "same_pixel_fallback": {
+      "median_reduction_percent": 95.34,
+      "speedup_multiple": 21.47
+    },
+    "total_core_frame": {
+      "median_reduction_percent": 53.42,
+      "speedup_multiple": 2.15
+    },
+    "trail_mask_sampling": {
+      "median_reduction_percent": 49.44,
+      "speedup_multiple": 1.98
+    }
+  },
+  "environment": {
+    "blender": "Blender 5.2.0 LTS",
+    "cpu": "Apple M3 Max",
+    "numpy": "2.5.1",
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.8"
+  },
+  "fixture": {
+    "deterministic_seed": 75075,
+    "dtype": "float32",
+    "preset": "extreme_full_frame_feedback_settings",
+    "shape": [
+      1080,
+      1920,
+      4
+    ]
+  },
+  "issue": 75,
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "measured_count": 5,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "warmup_count": 1
+  },
+  "notes": [
+    "Before and after were measured on separate worktrees on the same machine using identical deterministic inputs.",
+    "Stage microbenchmarks isolate the removed identity-grid/sample work; total_core_frame measures the public processing seam.",
+    "The coordinate-grid after measurement is the eliminated-operation no-op overhead.",
+    "Benchmarks are developer evidence and are not CI timing gates."
+  ],
+  "revisions": {
+    "after": "working tree for issue #75",
+    "before": "0d98fb67fffd9b24cdd32ac053541268d6a25511"
+  },
+  "schema_version": 1,
+  "semantic_comparison": {
+    "bit_equal": true,
+    "digests": {
+      "diagnostics": "cc8874a9160217b05b3d039a8de1c522bb7d282053f0350b52e7053f3f04137d",
+      "history": "4420192d96edb21c2a195a5f013cbad5390d6c1592fa466d4faa108be7ab2e75",
+      "history_matte": "e33c9b034cf3dbb4f5a2b3229cfd6a87abcda98344bf450a178cc5e6ef971c09",
+      "output": "4420192d96edb21c2a195a5f013cbad5390d6c1592fa466d4faa108be7ab2e75"
+    },
+    "maximum_absolute_error": 0.0,
+    "scope": [
+      "processed RGBA",
+      "next history",
+      "next effect coverage",
+      "FrameDiagnostics"
+    ]
+  }
+}
