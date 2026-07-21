@@ -2,117 +2,117 @@
   "benchmarks": {
     "before": {
       "full_feedback": {
-        "maximum_ns": 301048334,
+        "maximum_ns": 303824875,
         "measured_count": 5,
-        "median_ns": 291228083,
-        "minimum_ns": 286656125
+        "median_ns": 290052833,
+        "minimum_ns": 284063917
       },
       "memory": {
         "practical_allocation_proxy": {
           "coordinate_inputs_bytes": 16588800,
           "retained_plan_bytes": 0
         },
-        "process_peak_rss_mib": 820.921875
+        "process_peak_rss_mib": 846.671875
       },
       "stages": {
         "repeated_rgba": {
-          "maximum_ns": 146053958,
+          "maximum_ns": 154786208,
           "measured_count": 5,
-          "median_ns": 138207583,
-          "minimum_ns": 131522083
+          "median_ns": 143034125,
+          "minimum_ns": 121406959
         },
         "repeated_scalar": {
-          "maximum_ns": 41445833,
+          "maximum_ns": 39571791,
           "measured_count": 5,
-          "median_ns": 39615125,
-          "minimum_ns": 38950250
+          "median_ns": 39273791,
+          "minimum_ns": 38871125
         },
         "repeated_total": {
-          "maximum_ns": 186665958,
+          "maximum_ns": 192257208,
           "measured_count": 5,
-          "median_ns": 180218292,
-          "minimum_ns": 170891958
+          "median_ns": 175872458,
+          "minimum_ns": 159704291
         }
       }
     },
     "prototype": {
       "full_feedback": {
-        "maximum_ns": 304561916,
+        "maximum_ns": 323659833,
         "measured_count": 5,
-        "median_ns": 276443292,
-        "minimum_ns": 273654750
+        "median_ns": 309895583,
+        "minimum_ns": 276289917
       },
       "memory": {
         "practical_allocation_proxy": {
           "coordinate_inputs_bytes": 16588800,
           "retained_plan_bytes": 85017600
         },
-        "process_peak_rss_mib": 929.03125
+        "process_peak_rss_mib": 931.96875
       },
       "stages": {
         "plan_construction": {
-          "maximum_ns": 11719750,
+          "maximum_ns": 11337958,
           "measured_count": 5,
-          "median_ns": 11065708,
-          "minimum_ns": 10782500
+          "median_ns": 11039542,
+          "minimum_ns": 10732125
         },
         "planned_rgba": {
-          "maximum_ns": 156476958,
+          "maximum_ns": 168687375,
           "measured_count": 5,
-          "median_ns": 136537625,
-          "minimum_ns": 119500250
+          "median_ns": 156352000,
+          "minimum_ns": 150666541
         },
         "planned_scalar": {
-          "maximum_ns": 28782500,
+          "maximum_ns": 28381750,
           "measured_count": 5,
-          "median_ns": 28119125,
-          "minimum_ns": 27906250
+          "median_ns": 28166500,
+          "minimum_ns": 27854083
         },
         "planned_total": {
-          "maximum_ns": 183877875,
+          "maximum_ns": 220623291,
           "measured_count": 5,
-          "median_ns": 166668833,
-          "minimum_ns": 158901000
+          "median_ns": 211804458,
+          "minimum_ns": 173267541
         },
         "repeated_rgba": {
-          "maximum_ns": 162443042,
+          "maximum_ns": 169024416,
           "measured_count": 5,
-          "median_ns": 149276042,
-          "minimum_ns": 120225209
+          "median_ns": 151515750,
+          "minimum_ns": 128209375
         },
         "repeated_scalar": {
-          "maximum_ns": 39293833,
+          "maximum_ns": 40107584,
           "measured_count": 5,
-          "median_ns": 39161459,
-          "minimum_ns": 38833250
+          "median_ns": 39619708,
+          "minimum_ns": 38691125
         },
         "repeated_total": {
-          "maximum_ns": 213626208,
+          "maximum_ns": 220996500,
           "measured_count": 5,
-          "median_ns": 184091500,
-          "minimum_ns": 169239833
+          "median_ns": 203169334,
+          "minimum_ns": 190145084
         }
       }
     }
   },
   "comparison": {
     "complete_feedback": {
-      "after_median_ns": 276443292,
-      "before_median_ns": 291228083,
-      "reduction_percent": 5.0767051198149735,
-      "speedup": 1.0534821839699406
+      "after_median_ns": 309895583,
+      "before_median_ns": 290052833,
+      "reduction_percent": -6.8410812591511565,
+      "speedup": 0.9359695617216978
     },
-    "peak_rss_growth_mib": 108.109375,
+    "peak_rss_growth_mib": 85.296875,
     "repeated_vs_planned_two_samples": {
-      "after_median_ns": 166668833,
-      "before_median_ns": 180218292,
-      "reduction_percent": 7.5183594570966195,
-      "speedup": 1.0812956973185261
+      "after_median_ns": 211804458,
+      "before_median_ns": 175872458,
+      "reduction_percent": -20.43071462616392,
+      "speedup": 0.8303529569712834
     },
     "retained_plan_bytes": 85017600
   },
   "decision": "reject",
-  "decision_reason": "The plan reduced the complete 1080p Extreme feedback median by 5.08%, but required an 85,017,600-byte frame-local plan and increased measured process peak RSS by 108.11 MiB. The modest end-to-end gain does not justify that memory growth and additional production abstraction.",
+  "decision_reason": "The plan reduced the complete 1080p Extreme feedback median by -6.84%, but required an 85,017,600-byte frame-local plan and increased measured process peak RSS by 85.30 MiB. The modest end-to-end gain does not justify that memory growth and additional production abstraction.",
   "environment": {
     "blender": "5.2.0 LTS",
     "cpu": "Apple M3 Max",
@@ -159,14 +159,14 @@
   "revisions": {
     "before": {
       "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
-      "runner_blob": "a1a3958a53792ed55c20ed75defed868860de8e1",
-      "runner_sha": "1b696cf8c84d274cdcb08b0e8b0919d7055c924c",
+      "runner_blob": "a96aa0e23cea58f7cb022eac28c26e3bb7edbf33",
+      "runner_sha": "9aad7d44bed937958ec1294abaf3b39320ba3342",
       "sha": "b0f20d49cde073cc0d125121c36e23ec71218a47"
     },
     "prototype": {
       "feedback_blob": "b792af0d8aeeeddc3217e6be181147dcd6e2a7ff",
-      "runner_blob": "a1a3958a53792ed55c20ed75defed868860de8e1",
-      "runner_sha": "1b696cf8c84d274cdcb08b0e8b0919d7055c924c",
+      "runner_blob": "a96aa0e23cea58f7cb022eac28c26e3bb7edbf33",
+      "runner_sha": "9aad7d44bed937958ec1294abaf3b39320ba3342",
       "sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da"
     }
   },
