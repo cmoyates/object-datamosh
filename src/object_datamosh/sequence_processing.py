@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum
@@ -60,6 +61,29 @@ _MANIFEST_VERSION = 5
 _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 _REPORT_FILENAME = "ODM_processing_report.json"
+MAX_REPORTED_TIMING_FRAMES = 96
+
+
+@dataclass(slots=True)
+class _FrameTiming:
+    frame_number: int
+    reset: bool | None
+    started_ns: int
+    stages_ns: dict[str, int]
+    outcome: str = "RUNNING"
+    total_frame_ns: int | None = None
+
+    def payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "frame_number": self.frame_number,
+            "reset": self.reset,
+            "outcome": self.outcome,
+            "stage_order": list(self.stages_ns),
+            "stages_ns": dict(self.stages_ns),
+        }
+        if self.total_frame_ns is not None:
+            payload["total_frame_ns"] = self.total_frame_ns
+        return payload
 
 
 def sequence_manifest_path(paths: SequencePaths) -> Path:
@@ -136,6 +160,9 @@ class ProcessingSession:
     completed_frames: tuple[Path, ...]
     _completed_numbers: list[int]
     _frame_diagnostics: list[FrameDiagnostics]
+    _timer_ns: Callable[[], int]
+    _frame_timings: list[_FrameTiming]
+    _active_timing: _FrameTiming | None = None
     _state: FeedbackState | None = None
     _recovery_reset_frame: int | None = None
     _trail_recovery_frames: tuple[int, ...] = ()
@@ -162,6 +189,7 @@ class ProcessingSession:
         input_frames: tuple[FramePaths, ...] | None = None,
         extension_version: str | None = None,
         blender_version: str | None = None,
+        timer_ns: Callable[[], int] = time.perf_counter_ns,
     ) -> "ProcessingSession":
         """Initialize one sequence run without processing a frame."""
         if frame_start > frame_end:
@@ -319,6 +347,8 @@ class ProcessingSession:
             completed_frames=(),
             _completed_numbers=completed,
             _frame_diagnostics=[],
+            _timer_ns=timer_ns,
+            _frame_timings=[],
             _state=state,
             _recovery_reset_frame=recovery_reset_frame,
             _trail_recovery_frames=trail_recovery_frames,
@@ -326,6 +356,31 @@ class ProcessingSession:
         )
         session._write_report("SUCCESS" if session._is_finished else "RUNNING")
         return session
+
+    @property
+    def performance_timings(self) -> dict[str, object]:
+        """Return bounded observational timing metadata for reports and tests."""
+        detailed = self._frame_timings[-MAX_REPORTED_TIMING_FRAMES:]
+        stage_totals: dict[str, int] = {}
+        for timing in detailed:
+            for name, duration in timing.stages_ns.items():
+                stage_totals[name] = stage_totals.get(name, 0) + duration
+        largest = sorted(stage_totals.items(), key=lambda item: (-item[1], item[0]))
+        payload: dict[str, object] = {
+            "schema_version": 1,
+            "clock": "perf_counter_ns",
+            "unit": "nanoseconds",
+            "observational_only": True,
+            "history_limit": MAX_REPORTED_TIMING_FRAMES,
+            "frames": [timing.payload() for timing in detailed],
+            "frames_omitted": max(0, len(self._frame_timings) - len(detailed)),
+            "largest_stages": [
+                {"stage": name, "duration_ns": duration} for name, duration in largest
+            ],
+        }
+        if self._active_timing is not None:
+            payload["active_frame"] = self._active_timing.payload()
+        return payload
 
     @property
     def configuration_name(self) -> str:
@@ -399,7 +454,14 @@ class ProcessingSession:
             self._is_finished = True
             outcome = "CANCELLED" if isinstance(error, SequenceProcessingCancelled) else "FAILURE"
             try:
-                self._write_report(outcome, failure=None if outcome == "CANCELLED" else str(error))
+                if self._active_timing is not None:
+                    self._commit_frame_report(
+                        outcome, failure=None if outcome == "CANCELLED" else str(error)
+                    )
+                else:
+                    self._write_report(
+                        outcome, failure=None if outcome == "CANCELLED" else str(error)
+                    )
             except Exception as report_error:
                 error.add_note(f"Processing report also failed: {report_error}")
             raise
@@ -453,27 +515,51 @@ class ProcessingSession:
             if self.current_frame > self.frame_end:
                 self._is_finished = True
 
+    def _measure(self, name: str, operation: Callable[[], object]) -> object:
+        timing = self._active_timing
+        if timing is None:
+            raise RuntimeError("No active frame timing")
+        started = self._timer_ns()
+        result = operation()
+        timing.stages_ns[name] = self._timer_ns() - started
+        return result
+
     def _process_current_frame(self) -> None:
         frame_number = self.current_frame
         frame = self.paths.frame(frame_number)
+        self._active_timing = _FrameTiming(
+            frame_number=frame_number,
+            reset=None,
+            started_ns=self._timer_ns(),
+            stages_ns={},
+        )
         raw_frame = self.resolved_inputs[frame_number]
         matte_path = self.matte_provider.path_for_frame(frame_number, self.paths)
         if matte_path == frame.matte:
             matte_path = raw_frame.matte
         try:
-            beauty = self.image_io.read_rgba(raw_frame.beauty)
+            beauty = cast(
+                np.ndarray,
+                self._measure("beauty_read", lambda: self.image_io.read_rgba(raw_frame.beauty)),
+            )
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Missing beauty input for frame {frame_number}: {raw_frame.beauty}"
             ) from None
         try:
-            motion = self.image_io.read_rgba(raw_frame.vector)
+            motion = cast(
+                np.ndarray,
+                self._measure("vector_read", lambda: self.image_io.read_rgba(raw_frame.vector)),
+            )
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Missing vector input for frame {frame_number}: {raw_frame.vector}"
             ) from None
         try:
-            matte = self.image_io.read_mask(matte_path)
+            matte = cast(
+                np.ndarray,
+                self._measure("matte_read", lambda: self.image_io.read_mask(matte_path)),
+            )
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Missing matte input for frame {frame_number}: {matte_path}"
@@ -492,35 +578,51 @@ class ProcessingSession:
                 f"Resolution changed at frame {frame_number}: "
                 f"{self._state.history.shape[:2]} -> {beauty.shape[:2]}"
             )
-        output, self._state, frame_diagnostics = process_frame_with_diagnostics(
-            beauty,
-            motion,
-            matte,
-            None if resolution_changed else self._state,
-            frame_number,
-            self.settings,
-            force_reset=(
-                frame_number in (self.frame_start, self._recovery_reset_frame)
-                or frame_number in self.reset_frames
-                or resolution_changed
+        force_reset = (
+            frame_number in (self.frame_start, self._recovery_reset_frame)
+            or frame_number in self.reset_frames
+            or resolution_changed
+        )
+        if self._active_timing is not None:
+            self._active_timing.reset = force_reset
+        processing_result = cast(
+            tuple[np.ndarray, FeedbackState, FrameDiagnostics],
+            self._measure(
+                "core_processing",
+                lambda: process_frame_with_diagnostics(
+                    beauty,
+                    motion,
+                    matte,
+                    None if resolution_changed else self._state,
+                    frame_number,
+                    self.settings,
+                    force_reset=force_reset,
+                ),
             ),
         )
-        self.image_io.write_rgba(frame.processed, output)
+        output, self._state, frame_diagnostics = processing_result
+        self._measure(
+            "processed_exr_write",
+            lambda: self.image_io.write_rgba(frame.processed, output),
+        )
         logging.getLogger(__name__).info(
             "Wrote processed frame %d: %s", frame_number, frame.processed
         )
         committed_numbers = [*self._completed_numbers, frame_number]
-        _write_manifest(
-            self.manifest_path,
-            _new_manifest(
-                self.frame_start,
-                self.frame_end,
-                self.settings_fingerprint,
-                self.settings.history_source,
-                self.reset_frames,
-                self.resolution_change,
-                committed_numbers,
-                self.effective_settings,
+        self._measure(
+            "manifest_commit",
+            lambda: _write_manifest(
+                self.manifest_path,
+                _new_manifest(
+                    self.frame_start,
+                    self.frame_end,
+                    self.settings_fingerprint,
+                    self.settings.history_source,
+                    self.reset_frames,
+                    self.resolution_change,
+                    committed_numbers,
+                    self.effective_settings,
+                ),
             ),
         )
         # Publish completion only after the recovery manifest atomically commits the frame.
@@ -529,12 +631,32 @@ class ProcessingSession:
         self._frame_diagnostics.append(frame_diagnostics)
         if frame_number == self.frame_end:
             self._is_finished = True
-            self._write_report("SUCCESS")
+            self._commit_frame_report("SUCCESS")
             for warning in self.advisory_warnings:
                 logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
         else:
             self.current_frame += 1
-            self._write_report("RUNNING")
+            self._commit_frame_report("RUNNING")
+
+    def _commit_frame_report(
+        self,
+        outcome: Literal["SUCCESS", "CANCELLED", "FAILURE", "RUNNING"],
+        *,
+        failure: str | None = None,
+    ) -> None:
+        """Commit the report, then publish its observed duration in an atomic refresh."""
+        timing = self._active_timing
+        if timing is None:
+            self._write_report(outcome, failure=failure)
+            return
+        started = self._timer_ns()
+        self._write_report(outcome, failure=failure)
+        timing.stages_ns["diagnostics_report_commit"] = self._timer_ns() - started
+        timing.total_frame_ns = self._timer_ns() - timing.started_ns
+        timing.outcome = outcome
+        self._frame_timings.append(timing)
+        self._active_timing = None
+        self._write_report(outcome, failure=failure)
 
     def _write_report(
         self,
@@ -563,6 +685,7 @@ class ProcessingSession:
             warnings=self.advisory_warnings,
             failure=failure,
         )
+        payload["performance"] = self.performance_timings
         _write_json_atomic(self.report_path, payload, compact=True)
 
 
@@ -585,6 +708,7 @@ def process_sequence(
     frame_error_factory: Callable[[int, Exception], Exception] | None = None,
     extension_version: str | None = None,
     blender_version: str | None = None,
+    timer_ns: Callable[[], int] = time.perf_counter_ns,
 ) -> SequenceProcessingResult:
     """Process a sequence synchronously, optionally attributing failures to their frame."""
     try:
@@ -604,6 +728,7 @@ def process_sequence(
             input_frames=input_frames,
             extension_version=extension_version,
             blender_version=blender_version,
+            timer_ns=timer_ns,
         )
     except Exception as error:
         if frame_error_factory is None:
