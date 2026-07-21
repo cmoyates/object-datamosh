@@ -1,5 +1,28 @@
 # CPU performance roadmap release validation (#79)
 
+## Roadmap completion (#70)
+
+Roadmap [#70](https://github.com/cmoyates/object-datamosh/issues/70) is complete: all nine child
+issues were resolved and their pull requests merged to `main`. The durable outcome trail is:
+
+| Child | Merged outcome | Durable evidence |
+| --- | --- | --- |
+| [#71](https://github.com/cmoyates/object-datamosh/issues/71) | Added the reproducible Extreme benchmark and bounded observational stage timings. | [PR #80](https://github.com/cmoyates/object-datamosh/pull/80), [`extreme-benchmark-baseline.json`](evidence/extreme-benchmark-baseline.json) |
+| [#72](https://github.com/cmoyates/object-datamosh/issues/72) | Removed zero-refresh block scanning and vectorized nonzero refresh diagnostics. | [PR #82](https://github.com/cmoyates/object-datamosh/pull/82) |
+| [#73](https://github.com/cmoyates/object-datamosh/issues/73) | Vectorized ZIP predictor reversal while retaining bit-identical decode results. | [PR #83](https://github.com/cmoyates/object-datamosh/pull/83), [`issue-73-exr-predictor.json`](evidence/issue-73-exr-predictor.json) |
+| [#74](https://github.com/cmoyates/object-datamosh/issues/74) | Checkpointed diagnostics reports (295 to 31 writes in the 147-frame fixture) without changing per-frame recovery-manifest commits. | [PR #84](https://github.com/cmoyates/object-datamosh/pull/84), [`issue-74-diagnostics-checkpoint.json`](evidence/issue-74-diagnostics-checkpoint.json) |
+| [#75](https://github.com/cmoyates/object-datamosh/issues/75) | Avoided redundant clean-history copies/sampling and made same-pixel fallback direct while preserving contaminated-history handling. | [PR #85](https://github.com/cmoyates/object-datamosh/pull/85), [`issue-75-full-frame-sampling.json`](evidence/issue-75-full-frame-sampling.json) |
+| [#76](https://github.com/cmoyates/object-datamosh/issues/76) | Routed supported EXRs through the bundled decoder before Blender Images, retaining strict fallback and corruption behavior. | [PR #86](https://github.com/cmoyates/object-datamosh/pull/86), [`issue-76-custom-exr-routing.json`](evidence/issue-76-custom-exr-routing.json) |
+| [#77](https://github.com/cmoyates/object-datamosh/issues/77) | Skipped motion/history work only for proven empty-effect frames. | [PR #87](https://github.com/cmoyates/object-datamosh/pull/87), [`issue-77-empty-effect-frames.json`](evidence/issue-77-empty-effect-frames.json) |
+| [#78](https://github.com/cmoyates/object-datamosh/issues/78) | **Rejected** reusable bilinear plans: two-sample work was 4.11% slower and the modest 2.79% complete-feedback gain did not justify an 85,017,600-byte plan or 98.77 MiB peak-RSS growth. The prototype was reverted. | [PR #88](https://github.com/cmoyates/object-datamosh/pull/88), [`issue-78-bilinear-plans.json`](evidence/issue-78-bilinear-plans.json) |
+| [#79](https://github.com/cmoyates/object-datamosh/issues/79) | Release-validated the integrated roadmap with same-harness workload, semantic, recovery, memory, and release-gate evidence. | [PR #89](https://github.com/cmoyates/object-datamosh/pull/89), [baseline](evidence/issue-79-workloads-baseline.json), [final](evidence/issue-79-workloads-final.json) |
+
+The canonical cumulative measurements, 147-frame estimate, and machine-specific limitations are
+recorded once in [Scope and result](#scope-and-result). Roadmap-wide semantic, recovery,
+architecture, dependency, and scene-safety constraints are covered by the
+[correctness and release gate](#correctness-and-release-gate). The remaining-stage analysis and
+measured next direction are in [Bottleneck and recommendation](#bottleneck-and-recommendation).
+
 ## Scope and result
 
 This is the cumulative release record for roadmap #70. The verification-gap rerun compares the
