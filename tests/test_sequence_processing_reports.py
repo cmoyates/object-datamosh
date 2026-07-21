@@ -83,6 +83,101 @@ def test_success_report_agrees_with_manifest_and_contains_actual_frame_counters(
     assert report["frames"][1]["primary_history_attempts"] == 2
 
 
+@pytest.mark.parametrize(
+    ("completed_before_read", "expected_report_count"),
+    ((1, 0), (9, 0), (10, 10), (20, 20)),
+)
+def test_running_report_covers_short_runs_and_exact_and_multiple_checkpoints(
+    tmp_path: Path,
+    completed_before_read: int,
+    expected_report_count: int,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=21,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(_inputs(paths, 21)),
+    )
+
+    for _ in range(completed_before_read):
+        session.process_next_frame()
+
+    assert _report(paths)["manifest_completed_prefix"]["count"] == expected_report_count
+
+
+def test_running_report_checkpoints_every_ten_completed_frames(tmp_path: Path) -> None:
+    paths = SequencePaths(tmp_path)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=12,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(_inputs(paths, 12)),
+    )
+
+    for _ in range(9):
+        session.process_next_frame()
+
+    active_report = _report(paths)
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["completed_frames"] == list(range(1, 10))
+    assert active_report["manifest_completed_prefix"] == {
+        "count": 0,
+        "start": None,
+        "end": None,
+    }
+    assert active_report["diagnostics_completed_prefix"] == {
+        "count": 0,
+        "start": None,
+        "end": None,
+    }
+    assert active_report["active_report_may_lag_manifest"] is True
+    assert active_report["checkpoint_interval_frames"] == 10
+
+    session.process_next_frame()
+
+    checkpoint = _report(paths)
+    assert checkpoint["manifest_completed_prefix"] == {"count": 10, "start": 1, "end": 10}
+    assert checkpoint["diagnostics_completed_prefix"] == {
+        "count": 10,
+        "start": 1,
+        "end": 10,
+    }
+
+
+def test_first_actionable_near_no_op_warning_forces_an_early_checkpoint(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=5,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1, persistence=0.0),
+        image_io=MemoryImageIO(_inputs(paths, 5)),
+    )
+
+    session.process_next_frame()
+    session.process_next_frame()
+    assert _report(paths)["manifest_completed_prefix"]["count"] == 0
+
+    session.process_next_frame()
+
+    warning_report = _report(paths)
+    assert warning_report["manifest_completed_prefix"] == {"count": 3, "start": 1, "end": 3}
+    assert warning_report["diagnostics_completed_prefix"] == {
+        "count": 3,
+        "start": 1,
+        "end": 3,
+    }
+    assert warning_report["warnings"]
+
+
 def test_cancelled_and_failed_reports_preserve_only_completed_prefix(tmp_path: Path) -> None:
     cancelled_paths = SequencePaths(tmp_path / "cancelled")
     cancel_calls = 0
@@ -107,6 +202,9 @@ def test_cancelled_and_failed_reports_preserve_only_completed_prefix(tmp_path: P
     cancelled = _report(cancelled_paths)
     assert cancelled["terminal_outcome"] == "CANCELLED"
     assert cancelled["completed_prefix"] == {"count": 1, "start": 1, "end": 1}
+    assert cancelled["manifest_completed_prefix"] == cancelled["completed_prefix"]
+    assert cancelled["diagnostics_completed_prefix"] == cancelled["completed_prefix"]
+    assert cancelled["active_report_may_lag_manifest"] is False
 
     failed_paths = SequencePaths(tmp_path / "failed")
     failed_session = ProcessingSession.create(
@@ -155,6 +253,159 @@ def test_resume_without_an_older_report_marks_diagnostics_unavailable(tmp_path: 
     assert report["completed_prefix"] == {"count": 1, "start": 1, "end": 1}
     assert report["diagnostics_availability"] == "UNAVAILABLE"
     assert report["diagnostics_completed_prefix"] == {"count": 0, "start": None, "end": None}
+
+
+def test_resume_from_report_lag_preserves_exact_outputs_and_writes_complete_terminal_diagnostics(
+    tmp_path: Path,
+) -> None:
+    uninterrupted_paths = SequencePaths(tmp_path / "uninterrupted")
+    resumed_paths = SequencePaths(tmp_path / "resumed")
+    settings = FeedbackSettings(block_size=1, persistence=0.75)
+    uninterrupted_io = MemoryImageIO(_inputs(uninterrupted_paths, 12))
+    resumed_io = MemoryImageIO(_inputs(resumed_paths, 12))
+
+    process_sequence(
+        uninterrupted_paths,
+        frame_start=1,
+        frame_end=12,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=uninterrupted_io,
+    )
+    interrupted = ProcessingSession.create(
+        resumed_paths,
+        frame_start=1,
+        frame_end=12,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=resumed_io,
+    )
+    for _ in range(9):
+        interrupted.process_next_frame()
+    assert _report(resumed_paths)["manifest_completed_prefix"]["count"] == 0
+
+    resumed = ProcessingSession.create(
+        resumed_paths,
+        frame_start=1,
+        frame_end=12,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=settings,
+        image_io=resumed_io,
+        run_mode=SequenceRunMode.RESUME,
+    )
+    while not resumed.is_finished:
+        resumed.process_next_frame()
+
+    for number in range(1, 13):
+        np.testing.assert_array_equal(
+            resumed_io.images[resumed_paths.frame(number).processed],
+            uninterrupted_io.images[uninterrupted_paths.frame(number).processed],
+        )
+    report = _report(resumed_paths)
+    assert report["terminal_outcome"] == "SUCCESS"
+    assert report["manifest_completed_prefix"] == {"count": 12, "start": 1, "end": 12}
+    assert report["diagnostics_completed_prefix"] == {"count": 3, "start": 10, "end": 12}
+    assert report["diagnostics_availability"] == "PARTIAL"
+    assert [frame["frame_number"] for frame in report["frames"]] == [10, 11, 12]
+    assert report["active_report_may_lag_manifest"] is False
+
+
+def test_manifest_commits_atomically_after_every_frame_while_reports_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = SequencePaths(tmp_path)
+    manifest_snapshots: list[list[int]] = []
+    report_write_count = 0
+    original_replace = sequence_processing.os.replace
+
+    def observe_replace(source: str | Path, destination: str | Path) -> None:
+        nonlocal report_write_count
+        destination_path = Path(destination)
+        if destination_path == sequence_manifest_path(paths):
+            payload = json.loads(Path(source).read_text(encoding="utf-8"))
+            manifest_snapshots.append(payload["completed_frames"])
+        elif destination_path == processing_report_path(paths):
+            report_write_count += 1
+        original_replace(source, destination)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", observe_replace)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=12,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(_inputs(paths, 12)),
+    )
+    while not session.is_finished:
+        session.process_next_frame()
+
+    assert manifest_snapshots == [list(range(1, end + 1)) for end in range(0, 13)]
+    assert report_write_count == 5  # start, two checkpoint refreshes, two terminal refreshes
+
+
+def test_report_write_failure_keeps_completed_manifest_and_prior_atomic_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = SequencePaths(tmp_path)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=10,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(_inputs(paths, 10)),
+    )
+    initial = processing_report_path(paths).read_bytes()
+    for _ in range(9):
+        session.process_next_frame()
+    original_replace = sequence_processing.os.replace
+
+    def fail_report_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == processing_report_path(paths):
+            raise OSError("report replace failed")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", fail_report_replace)
+    with pytest.raises(OSError, match="report replace failed") as raised:
+        session.process_next_frame()
+
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["completed_frames"] == list(range(1, 11))
+    assert processing_report_path(paths).read_bytes() == initial
+    assert any("Processing report also failed" in note for note in raised.value.__notes__)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", original_replace)
+    session.write_terminal_report("FAILURE", failure="report checkpoint failed")
+    terminal = _report(paths)
+    assert terminal["manifest_completed_prefix"] == {"count": 10, "start": 1, "end": 10}
+    assert terminal["diagnostics_completed_prefix"] == terminal["manifest_completed_prefix"]
+    assert terminal["failure"] == "report checkpoint failed"
+
+
+def test_explicit_terminal_report_flushes_all_diagnostics_since_the_last_checkpoint(
+    tmp_path: Path,
+) -> None:
+    paths = SequencePaths(tmp_path)
+    session = ProcessingSession.create(
+        paths,
+        frame_start=1,
+        frame_end=9,
+        matte_provider=ObjectIndexMatteProvider(),
+        settings=FeedbackSettings(block_size=1),
+        image_io=MemoryImageIO(_inputs(paths, 9)),
+    )
+    for _ in range(8):
+        session.process_next_frame()
+
+    session.write_terminal_report("CANCELLED")
+
+    report = _report(paths)
+    assert report["terminal_outcome"] == "CANCELLED"
+    assert report["manifest_completed_prefix"] == {"count": 8, "start": 1, "end": 8}
+    assert report["diagnostics_completed_prefix"] == report["manifest_completed_prefix"]
+    assert len(report["frames"]) == 8
+    assert report["active_report_may_lag_manifest"] is False
 
 
 def test_report_replacement_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

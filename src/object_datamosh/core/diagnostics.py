@@ -133,6 +133,8 @@ class ProcessingDiagnostics:
         settings_fingerprint: str,
         warnings: tuple[str, ...] = (),
         failure: str | None = None,
+        checkpoint_interval_frames: int | None = None,
+        active_report_may_lag_manifest: bool = False,
     ) -> dict[str, object]:
         detailed = self.frames[-MAX_REPORTED_FRAMES:]
         prefix = {
@@ -157,9 +159,14 @@ class ProcessingDiagnostics:
             "manifest_schema_version": 5,
             "terminal_outcome": outcome,
             "frame_range": {"start": frame_start, "end": frame_end},
+            # ``completed_prefix`` remains as a compatibility alias. The explicit name keeps
+            # recovery truth distinct from observational diagnostics when an active report lags.
             "completed_prefix": prefix,
+            "manifest_completed_prefix": prefix,
             "diagnostics_completed_prefix": diagnostic_prefix,
             "diagnostics_availability": availability,
+            "checkpoint_interval_frames": checkpoint_interval_frames,
+            "active_report_may_lag_manifest": active_report_may_lag_manifest,
             "configuration": configuration,
             "settings_fingerprint": settings_fingerprint,
             "agreement": {

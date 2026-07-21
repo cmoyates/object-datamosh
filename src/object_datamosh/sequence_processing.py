@@ -62,6 +62,9 @@ _IMAGE_ORIENTATION = "display_top_left_v1"
 _MANIFEST_FILENAME = "ODM_sequence_manifest.json"
 _REPORT_FILENAME = "ODM_processing_report.json"
 MAX_REPORTED_TIMING_FRAMES = 96
+# Diagnostics are observational; recovery remains atomically committed every frame. Keeping this
+# cadence internal avoids changing artistic settings or resume fingerprints.
+_REPORT_CHECKPOINT_INTERVAL_FRAMES = 10
 
 
 @dataclass(slots=True)
@@ -169,6 +172,7 @@ class ProcessingSession:
     _trail_recovery_index: int = 0
     _is_finished: bool = False
     _terminal_error: Exception | None = None
+    _near_no_op_reported: bool = False
 
     @classmethod
     def create(
@@ -636,7 +640,30 @@ class ProcessingSession:
                 logging.getLogger(__name__).warning("%s; report=%s", warning, self.report_path)
         else:
             self.current_frame += 1
-            self._commit_frame_report("RUNNING")
+            assessment = assess_near_no_op(
+                ProcessingDiagnostics.from_frames(tuple(self._frame_diagnostics)), self.settings
+            )
+            warning_became_actionable = (
+                assessment.likely_near_no_op and not self._near_no_op_reported
+            )
+            reached_checkpoint = (
+                len(self._completed_numbers) % _REPORT_CHECKPOINT_INTERVAL_FRAMES == 0
+            )
+            if reached_checkpoint or warning_became_actionable:
+                self._commit_frame_report("RUNNING")
+                self._near_no_op_reported = self._near_no_op_reported or warning_became_actionable
+            else:
+                self._finish_frame_timing_without_report("RUNNING")
+
+    def _finish_frame_timing_without_report(self, outcome: Literal["RUNNING"]) -> None:
+        """Finalize timing for a frame whose observational report is intentionally deferred."""
+        timing = self._active_timing
+        if timing is None:
+            return
+        timing.total_frame_ns = self._timer_ns() - timing.started_ns
+        timing.outcome = outcome
+        self._frame_timings.append(timing)
+        self._active_timing = None
 
     def _commit_frame_report(
         self,
@@ -684,6 +711,8 @@ class ProcessingSession:
             settings_fingerprint=self.settings_fingerprint,
             warnings=self.advisory_warnings,
             failure=failure,
+            checkpoint_interval_frames=_REPORT_CHECKPOINT_INTERVAL_FRAMES,
+            active_report_may_lag_manifest=outcome == "RUNNING",
         )
         payload["performance"] = self.performance_timings
         _write_json_atomic(self.report_path, payload, compact=True)

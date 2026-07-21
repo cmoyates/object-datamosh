@@ -1,0 +1,81 @@
+{
+  "benchmarks": {
+    "after": {
+      "atomic_report_writes": {
+        "extrapolated_147_frames_ns": 2048463375,
+        "maximum_ns": 15620166,
+        "measured_count": 3,
+        "median_ns": 13935125,
+        "minimum_ns": 13564500,
+        "write_count": 31
+      },
+      "json_construction": {
+        "extrapolated_147_frames_ns": 2220612576,
+        "maximum_ns": 15129250,
+        "measured_count": 3,
+        "median_ns": 15106208,
+        "minimum_ns": 15087459
+      },
+      "sequence_overhead": {
+        "extrapolated_147_frames_ns": 3353639625,
+        "maximum_ns": 25341833,
+        "measured_count": 3,
+        "median_ns": 22813875,
+        "minimum_ns": 22087667
+      }
+    },
+    "before": {
+      "atomic_report_writes": {
+        "extrapolated_147_frames_ns": 20296914750,
+        "maximum_ns": 138599042,
+        "measured_count": 3,
+        "median_ns": 138074250,
+        "minimum_ns": 129431042,
+        "write_count": 295
+      },
+      "json_construction": {
+        "extrapolated_147_frames_ns": 20647362750,
+        "maximum_ns": 141390167,
+        "measured_count": 3,
+        "median_ns": 140458250,
+        "minimum_ns": 140431625
+      },
+      "sequence_overhead": {
+        "extrapolated_147_frames_ns": 29546087424,
+        "maximum_ns": 204677250,
+        "measured_count": 3,
+        "median_ns": 200993792,
+        "minimum_ns": 199507125
+      }
+    }
+  },
+  "decision": {
+    "after_write_count": 31,
+    "before_write_count": 295,
+    "recovery_manifest_cadence": "unchanged: one atomic commit per completed frame",
+    "report_write_reduction_percent": 89.49
+  },
+  "environment": {
+    "cpu": "arm",
+    "numpy": "2.5.1",
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.8"
+  },
+  "fixture": {
+    "bounded_detailed_frame_limit": 96,
+    "checkpoint_interval_frames": 10,
+    "frame_count": 147,
+    "resolution": [
+      1920,
+      1080
+    ]
+  },
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "measured_count": 3,
+    "statistics": "median with minimum and maximum",
+    "temporary_outputs": true,
+    "warmup_count": 1
+  },
+  "schema_version": 1
+}
