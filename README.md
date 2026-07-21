@@ -838,6 +838,31 @@ intentionally excludes EXR codec cost; full commands and distributions are in
 [`docs/evidence/issue-77-empty-effect-frames.json`](docs/evidence/issue-77-empty-effect-frames.json).
 These developer measurements are not timing gates or performance claims for another machine.
 
+The reusable-bilinear-plan prototype was benchmarked in clean detached worktrees with Blender:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup \
+  --python scripts/benchmark_bilinear_plans.py -- \
+  --revision before --source-root /tmp/odm-78-before --warmups 1 --measured 5 \
+  --output /tmp/issue78-before.json
+"$BLENDER_BIN" --background --factory-startup \
+  --python scripts/benchmark_bilinear_plans.py -- \
+  --revision after --source-root /tmp/odm-78-after --warmups 1 --measured 5 \
+  --output /tmp/issue78-after.json
+```
+
+On the recorded Apple M3 Max environment, reusing one frame-local plan for RGBA history and scalar
+Trail coverage reduced the two-sample median from 180.22 ms to 166.67 ms (7.52%, 1.08×), while the
+complete 1080p Extreme feedback median moved from 291.23 ms to 276.44 ms (5.08%, 1.05×). The plan
+retained 85,017,600 bytes, and measured process peak RSS grew by 108.11 MiB. Sampled RGBA, sampled
+scalar coverage, validity, feedback output, next state, effect coverage, and diagnostics were all
+bit-identical (maximum error 0). The roadmap decision is to reject the plan: the modest end-to-end
+gain does not justify the memory growth or production complexity, and no plan abstraction remains
+in the processing core. Full stage distributions, environment, provenance, allocation proxy, and
+decision are in
+[`docs/evidence/issue-78-bilinear-plans.json`](docs/evidence/issue-78-bilinear-plans.json).
+These developer measurements are not timing gates or performance claims for another machine.
+
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
 (89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
 143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.

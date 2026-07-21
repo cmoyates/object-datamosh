@@ -1,0 +1,191 @@
+{
+  "benchmarks": {
+    "before": {
+      "full_feedback": {
+        "maximum_ns": 301048334,
+        "measured_count": 5,
+        "median_ns": 291228083,
+        "minimum_ns": 286656125
+      },
+      "memory": {
+        "practical_allocation_proxy": {
+          "coordinate_inputs_bytes": 16588800,
+          "retained_plan_bytes": 0
+        },
+        "process_peak_rss_mib": 820.921875
+      },
+      "stages": {
+        "repeated_rgba": {
+          "maximum_ns": 146053958,
+          "measured_count": 5,
+          "median_ns": 138207583,
+          "minimum_ns": 131522083
+        },
+        "repeated_scalar": {
+          "maximum_ns": 41445833,
+          "measured_count": 5,
+          "median_ns": 39615125,
+          "minimum_ns": 38950250
+        },
+        "repeated_total": {
+          "maximum_ns": 186665958,
+          "measured_count": 5,
+          "median_ns": 180218292,
+          "minimum_ns": 170891958
+        }
+      }
+    },
+    "prototype": {
+      "full_feedback": {
+        "maximum_ns": 304561916,
+        "measured_count": 5,
+        "median_ns": 276443292,
+        "minimum_ns": 273654750
+      },
+      "memory": {
+        "practical_allocation_proxy": {
+          "coordinate_inputs_bytes": 16588800,
+          "retained_plan_bytes": 85017600
+        },
+        "process_peak_rss_mib": 929.03125
+      },
+      "stages": {
+        "plan_construction": {
+          "maximum_ns": 11719750,
+          "measured_count": 5,
+          "median_ns": 11065708,
+          "minimum_ns": 10782500
+        },
+        "planned_rgba": {
+          "maximum_ns": 156476958,
+          "measured_count": 5,
+          "median_ns": 136537625,
+          "minimum_ns": 119500250
+        },
+        "planned_scalar": {
+          "maximum_ns": 28782500,
+          "measured_count": 5,
+          "median_ns": 28119125,
+          "minimum_ns": 27906250
+        },
+        "planned_total": {
+          "maximum_ns": 183877875,
+          "measured_count": 5,
+          "median_ns": 166668833,
+          "minimum_ns": 158901000
+        },
+        "repeated_rgba": {
+          "maximum_ns": 162443042,
+          "measured_count": 5,
+          "median_ns": 149276042,
+          "minimum_ns": 120225209
+        },
+        "repeated_scalar": {
+          "maximum_ns": 39293833,
+          "measured_count": 5,
+          "median_ns": 39161459,
+          "minimum_ns": 38833250
+        },
+        "repeated_total": {
+          "maximum_ns": 213626208,
+          "measured_count": 5,
+          "median_ns": 184091500,
+          "minimum_ns": 169239833
+        }
+      }
+    }
+  },
+  "comparison": {
+    "complete_feedback": {
+      "after_median_ns": 276443292,
+      "before_median_ns": 291228083,
+      "reduction_percent": 5.0767051198149735,
+      "speedup": 1.0534821839699406
+    },
+    "peak_rss_growth_mib": 108.109375,
+    "repeated_vs_planned_two_samples": {
+      "after_median_ns": 166668833,
+      "before_median_ns": 180218292,
+      "reduction_percent": 7.5183594570966195,
+      "speedup": 1.0812956973185261
+    },
+    "retained_plan_bytes": 85017600
+  },
+  "decision": "reject",
+  "decision_reason": "The plan reduced the complete 1080p Extreme feedback median by 5.08%, but required an 85,017,600-byte frame-local plan and increased measured process peak RSS by 108.11 MiB. The modest end-to-end gain does not justify that memory growth and additional production abstraction.",
+  "environment": {
+    "blender": "5.2.0 LTS",
+    "cpu": "Apple M3 Max",
+    "numpy": "2.3.4",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "fixture": {
+    "deterministic_seed": 78078,
+    "dtype": "float32",
+    "planned_samples": [
+      "RGBA history",
+      "scalar Trail coverage"
+    ],
+    "preset": "extreme_full_frame_feedback_settings",
+    "shape": [
+      1080,
+      1920,
+      4
+    ]
+  },
+  "issue": 78,
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "measured_count": 5,
+    "note": "Developer evidence, not a CI timing gate or a claim about other hardware.",
+    "statistics": [
+      "minimum",
+      "median",
+      "maximum"
+    ],
+    "warmup_count": 1
+  },
+  "notes": [
+    "Each revision ran in a clean detached worktree under the same Blender executable.",
+    "One warm-up preceded five measured iterations for every independently measured stage.",
+    "The repeated baseline was measured in both runs; the cross-revision comparison uses the pinned base revision.",
+    "Planned total includes plan construction plus both planned samples; construction, RGBA, and scalar samples were also measured separately.",
+    "Peak RSS is process-wide; retained plan bytes are the exact NumPy nbytes allocation proxy.",
+    "Plans were frame-local and were not retained between frames.",
+    "Sampling outputs, sampling validity, feedback output, next state, effect coverage, and diagnostics had matching SHA-256 digests.",
+    "Developer evidence is not a CI timing gate or a performance claim about other hardware."
+  ],
+  "revisions": {
+    "before": {
+      "feedback_blob": "461e40863c1db167d1627b05e12cd366962a4b78",
+      "runner_blob": "a1a3958a53792ed55c20ed75defed868860de8e1",
+      "runner_sha": "1b696cf8c84d274cdcb08b0e8b0919d7055c924c",
+      "sha": "b0f20d49cde073cc0d125121c36e23ec71218a47"
+    },
+    "prototype": {
+      "feedback_blob": "b792af0d8aeeeddc3217e6be181147dcd6e2a7ff",
+      "runner_blob": "a1a3958a53792ed55c20ed75defed868860de8e1",
+      "runner_sha": "1b696cf8c84d274cdcb08b0e8b0919d7055c924c",
+      "sha": "796e8fda0c3fcd2e645138e3f5b0b7a8ab9a63da"
+    }
+  },
+  "schema_version": 1,
+  "semantic_comparison": {
+    "bit_equal": true,
+    "feedback_digests": {
+      "diagnostics": "f19fe1ee4f87b2033fb6dbede554bf9059e72cf21df870778907531ef646a5c2",
+      "history": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310",
+      "history_matte": "a6b430ee5bb63fc05b1571467e6f71ebd27c223180d2b2630341c7503850cf80",
+      "output": "b22f7af3f3b14b63d5b1718d9e5739219d37b48a0aedf29f8e4608a94ec33310"
+    },
+    "feedback_output_state_coverage_and_diagnostics_bit_equal": true,
+    "maximum_absolute_error": 0.0,
+    "sampling_digests": {
+      "rgba": "14f3bed8ac66e976e0dc9b63574c47dbf6f75c54398e5132c7501f30ca20ce62",
+      "scalar": "adb55eacbd673d0ecf99d71139b29b46372cda3a8368e83d5e28ea3d8085332d",
+      "validity": "f28ae0057ac6f0064d530a5cd73016cf5b89626d45854e5a6d5b5a024283c961"
+    },
+    "sampling_outputs_and_validity_bit_equal": true
+  }
+}
