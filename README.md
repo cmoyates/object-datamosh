@@ -254,9 +254,12 @@ Pure contracts live under `object_datamosh.core` and do not import `bpy`:
   filename pattern to escape the selected directory. The
   `CryptomatteMatteProvider` contract intentionally fails with a clear `NotImplementedError`:
   decoding remains experimental and is not part of the MVP.
-- **Image I/O:** `ImageSequenceIO` is the processing boundary. `BlenderImageIO` is its Blender
-  implementation and reads/writes full-float RGBA OpenEXR using temporary `ODM_` Image
-  data-blocks. Blender's `Image.pixels` buffer starts at the displayed bottom-left, so
+- **Image I/O:** `ImageSequenceIO` is the processing boundary. `BlenderImageIO` reads supported
+  scanline full-float RGBA ZIP/ZIPS OpenEXRs with the bundled NumPy/standard-library decoder before
+  creating any Blender data-block. Explicitly unsupported valid variants use a temporary tagged
+  `ODM_` Image fallback; malformed/truncated input and ordinary I/O errors retain their original
+  decoder or filesystem error instead of falling back. Writes continue to use a temporary owned
+  Image. Blender's `Image.pixels` buffer starts at the displayed bottom-left, so
   `BlenderImageIO` performs one vertical row conversion when entering or leaving that buffer.
   OpenEXR scanline Y starts at the displayed top, so the narrow NumPy/standard-library scanline ZIP
   reader maps compositor multilayer scanlines directly to canonical rows. No orientation transform
@@ -767,6 +770,15 @@ records environment metadata, warm-up and measured counts, median/minimum/maximu
 stages, and a median-based 147-frame extrapolation. Results are observational developer evidence,
 not a production threshold. The current baseline is committed at
 [`docs/evidence/extreme-benchmark-baseline.json`](docs/evidence/extreme-benchmark-baseline.json).
+
+The custom-reader-first routing comparison uses the same benchmark with two warm-ups and seven
+measurements. On Blender 5.2.0 LTS on arm64 macOS, removing the old Blender probe from the
+three-pass multilayer route reduced its median from 434.34 ms to 416.74 ms (4.05%, 1.042×), with
+zero temporary Images on the supported path and bit-identical ZIP/ZIPS fixtures. The evidence also
+records the unfavorable regular-EXR comparison: Blender's native Image decoder is much faster than
+the narrow NumPy decoder on this machine. See
+[`docs/evidence/issue-76-custom-exr-routing.json`](docs/evidence/issue-76-custom-exr-routing.json).
+These figures are developer evidence, not a claim about another machine.
 
 Benchmark the separate diagnostics checkpoint policy with:
 

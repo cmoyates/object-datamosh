@@ -1,0 +1,180 @@
+{
+  "caveat": "For regular EXRs on this machine, Blender Image decoding is much faster than the narrow NumPy decoder; the custom-first contract intentionally prioritizes eliminating temporary Images as specified. The benchmark records this regular_blender_image comparison without hiding it.",
+  "correctness": {
+    "blender_orientation_max_abs_error": 0.0,
+    "half_float_fallback_tolerance": 0.001,
+    "supported_zip_and_zips": "bit-for-bit equality on deterministic pure fixtures",
+    "temporary_image_count": {
+      "after_each_read": 0,
+      "supported": 0,
+      "unsupported_fallback_peak": 1
+    }
+  },
+  "decision": "custom-reader-first for bundled-decoder-supported EXRs; Blender fallback only for explicitly unsupported variants",
+  "environment": {
+    "blender": "5.2.0 LTS",
+    "cpu": "arm",
+    "numpy": "2.3.4",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "exr_reads": {
+    "blender_data_block_overhead_ns": {
+      "all_three": 17600166,
+      "beauty": 5064000,
+      "matte": 4822625,
+      "vector": 2823625
+    },
+    "blender_probe_first": {
+      "all_three": {
+        "extrapolated_147_frames_ns": 63848102451,
+        "maximum_ns": 441873167,
+        "measured_count": 7,
+        "median_ns": 434340833,
+        "minimum_ns": 425884417
+      },
+      "beauty": {
+        "extrapolated_147_frames_ns": 26006750049,
+        "maximum_ns": 180504167,
+        "measured_count": 7,
+        "median_ns": 176916667,
+        "minimum_ns": 175711042
+      },
+      "matte": {
+        "extrapolated_147_frames_ns": 18046565250,
+        "maximum_ns": 123529958,
+        "measured_count": 7,
+        "median_ns": 122765750,
+        "minimum_ns": 116001333
+      },
+      "vector": {
+        "extrapolated_147_frames_ns": 20171670750,
+        "maximum_ns": 138004000,
+        "measured_count": 7,
+        "median_ns": 137222250,
+        "minimum_ns": 135182584
+      }
+    },
+    "bundled_decode": {
+      "all_three": {
+        "bytes_per_sample": 99532800,
+        "bytes_per_second": 234588886,
+        "extrapolated_147_frames_ns": 62370054348,
+        "maximum_ns": 430354584,
+        "measured_count": 7,
+        "median_ns": 424286084,
+        "minimum_ns": 420157959
+      },
+      "beauty": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 194375133,
+        "extrapolated_147_frames_ns": 25091209500,
+        "maximum_ns": 174491167,
+        "measured_count": 7,
+        "median_ns": 170688500,
+        "minimum_ns": 170274166
+      },
+      "matte": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 282278270,
+        "extrapolated_147_frames_ns": 17277657201,
+        "maximum_ns": 119919667,
+        "measured_count": 7,
+        "median_ns": 117535083,
+        "minimum_ns": 110465750
+      },
+      "vector": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 248937487,
+        "extrapolated_147_frames_ns": 19591694451,
+        "maximum_ns": 135924417,
+        "measured_count": 7,
+        "median_ns": 133276833,
+        "minimum_ns": 131984667
+      }
+    },
+    "custom_reader_first": {
+      "all_three": {
+        "extrapolated_147_frames_ns": 61260878049,
+        "maximum_ns": 423553625,
+        "measured_count": 7,
+        "median_ns": 416740667,
+        "minimum_ns": 416033000
+      },
+      "beauty": {
+        "extrapolated_147_frames_ns": 25262342049,
+        "maximum_ns": 172910916,
+        "measured_count": 7,
+        "median_ns": 171852667,
+        "minimum_ns": 170868916
+      },
+      "matte": {
+        "extrapolated_147_frames_ns": 17337639375,
+        "maximum_ns": 123811000,
+        "measured_count": 7,
+        "median_ns": 117943125,
+        "minimum_ns": 113085333
+      },
+      "vector": {
+        "extrapolated_147_frames_ns": 19756597875,
+        "maximum_ns": 138685292,
+        "measured_count": 7,
+        "median_ns": 134398625,
+        "minimum_ns": 132996292
+      }
+    },
+    "regular_blender_image": {
+      "beauty": {
+        "extrapolated_147_frames_ns": 1267562625,
+        "maximum_ns": 9376958,
+        "measured_count": 7,
+        "median_ns": 8622875,
+        "minimum_ns": 8287708
+      },
+      "matte": {
+        "extrapolated_147_frames_ns": 587136375,
+        "maximum_ns": 4544167,
+        "measured_count": 7,
+        "median_ns": 3994125,
+        "minimum_ns": 3748916
+      },
+      "vector": {
+        "extrapolated_147_frames_ns": 565178250,
+        "maximum_ns": 4337792,
+        "measured_count": 7,
+        "median_ns": 3844750,
+        "minimum_ns": 3562167
+      }
+    },
+    "temporary_data_block_count": {
+      "blender_probe_first": 1,
+      "custom_reader_first": 0,
+      "regular_blender_image": 1
+    }
+  },
+  "issue": 76,
+  "methodology": {
+    "after_route": "bundled capability validation and decode without a Blender Image",
+    "before_route": "Blender Image load/reload probe followed by bundled decode of compositor multilayer EXRs, matching the previous route",
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "fixture": "deterministic 1920x1080 float32 RGBA ZIP compositor multilayer beauty, Vector, and matte generated in a temporary directory",
+    "measured_count": 7,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "threshold": null,
+    "warmup_count": 2
+  },
+  "schema_version": 1,
+  "three_pass_improvement": {
+    "after_median_ns": 416740667,
+    "before_median_ns": 434340833,
+    "extrapolated_147_frame_savings_ns": 2587224402,
+    "percent": 4.052,
+    "saved_median_ns": 17600166,
+    "speedup": 1.0422
+  }
+}

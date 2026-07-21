@@ -7,6 +7,7 @@ narrowly ignored by the repository's external static checker.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -15,7 +16,7 @@ import bpy
 import numpy as np
 
 from .core.contracts import FloatImage, FloatMask
-from .core.exr import read_full_float_rgba
+from .core.exr import UnsupportedOpenEXRError, read_full_float_rgba
 from .core.ownership import OWNERSHIP_TAG, owned_name
 
 
@@ -48,15 +49,26 @@ class BlenderImageIO:
         _validate_exr_path(image_path)
 
         logging.getLogger(__name__).info("Reading RGBA OpenEXR image: %s", image_path)
+        try:
+            return read_full_float_rgba(image_path)
+        except UnsupportedOpenEXRError as error:
+            logging.getLogger(__name__).debug(
+                "Bundled EXR reader does not support %s; using Blender fallback: %s",
+                image_path,
+                error,
+            )
+            return self._read_with_blender(image_path)
+
+    def _read_with_blender(self, image_path: Path) -> FloatImage:
+        """Read a valid but unsupported EXR through a temporary owned Blender Image."""
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("Blender Image fallback must run on Blender's main thread")
         image = bpy.data.images.load(str(image_path), check_existing=False)
         try:
-            # Ask Blender to populate regular EXR metadata before using the multilayer fallback.
             image.reload()
             width, height = image.size
             image.name = owned_name(image.name)
             image[OWNERSHIP_TAG] = True
-            if image.channels == 0 and image.type == "MULTILAYER":
-                return read_full_float_rgba(image_path)
             if image.channels != 4:
                 raise ValueError(
                     f"Expected an RGBA image at {image_path}, found {image.channels} channels"

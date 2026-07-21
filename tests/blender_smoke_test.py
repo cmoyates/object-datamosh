@@ -33,6 +33,7 @@ from blender_processing_modal_smoke import run_processing_modal_scenarios  # noq
 from blender_raw_render_modal_smoke import run_raw_render_modal_scenarios  # noqa: E402
 
 import object_datamosh  # noqa: E402
+import object_datamosh.blender_image_io as blender_image_io_module  # noqa: E402
 from object_datamosh.blender_image_io import (  # noqa: E402
     BlenderImageIO,
     blender_pixels_to_canonical,
@@ -42,8 +43,8 @@ from object_datamosh.compositor_setup import (  # noqa: E402
     restore_object_index_passes,
     setup_object_index_passes,
 )
-from object_datamosh.core.contracts import FeedbackSettings  # noqa: E402
-from object_datamosh.core.exr import read_full_float_rgba  # noqa: E402
+from object_datamosh.core.contracts import FeedbackSettings, FloatImage  # noqa: E402
+from object_datamosh.core.exr import InvalidOpenEXRError, read_full_float_rgba  # noqa: E402
 from object_datamosh.core.feedback import process_frame  # noqa: E402
 from object_datamosh.core.mattes import ObjectIndexMatteProvider  # noqa: E402
 from object_datamosh.core.paths import SequencePaths  # noqa: E402
@@ -169,14 +170,26 @@ def run_multilayer_orientation_smoke(expected: np.ndarray, image_io: BlenderImag
             scene.frame_set(1)
             bpy.ops.render.render(scene=scene.name)
             decoded: dict[str, np.ndarray] = {}
-            for pass_name, pixels in passes.items():
-                path = root / f"ODM_{pass_name}_0001.exr"
-                assert path.is_file()
-                decoded[pass_name] = read_full_float_rgba(path)
-                np.testing.assert_array_equal(decoded[pass_name], pixels)
-            np.testing.assert_array_equal(
-                image_io.read_mask(root / "ODM_matte_0001.exr"), expected[..., 0]
-            )
+            original_fallback = BlenderImageIO._read_with_blender
+
+            def unexpected_fallback(self: BlenderImageIO, image_path: Path) -> FloatImage:
+                message = f"supported multilayer EXR used Blender fallback: {image_path}"
+                raise AssertionError(message)
+
+            BlenderImageIO._read_with_blender = unexpected_fallback
+            try:
+                for pass_name, pixels in passes.items():
+                    path = root / f"ODM_{pass_name}_0001.exr"
+                    assert path.is_file()
+                    decoded[pass_name] = image_io.read_rgba(path)
+                    assert decoded[pass_name].dtype == np.float32
+                    assert decoded[pass_name].flags.c_contiguous
+                    np.testing.assert_array_equal(decoded[pass_name], pixels)
+                np.testing.assert_array_equal(
+                    image_io.read_mask(root / "ODM_matte_0001.exr"), expected[..., 0]
+                )
+            finally:
+                BlenderImageIO._read_with_blender = original_fallback
             # Every asymmetric marker occupies the same X/Y in beauty, Vector, and matte.
             np.testing.assert_array_equal(decoded["beauty"][..., 0], decoded["matte"][..., 0])
             np.testing.assert_array_equal(decoded["beauty"][..., 2], decoded["vector"][..., 0])
@@ -1167,7 +1180,84 @@ def main() -> None:
         assert "requires an .exr path" in str(error)
     else:
         raise AssertionError("BlenderImageIO accepted a non-EXR input path")
-    actual = image_io.read_rgba(image_path)
+    original_blender_fallback = BlenderImageIO._read_with_blender
+
+    def unexpected_blender_fallback(self: BlenderImageIO, image_path: Path) -> FloatImage:
+        raise AssertionError(f"supported EXR unexpectedly used Blender fallback: {image_path}")
+
+    BlenderImageIO._read_with_blender = unexpected_blender_fallback
+    try:
+        actual = image_io.read_rgba(image_path)
+    finally:
+        BlenderImageIO._read_with_blender = original_blender_fallback
+    fallback_images_before = len(bpy.data.images)
+    previous_route_actual = image_io._read_with_blender(image_path)
+    np.testing.assert_array_equal(actual, previous_route_actual)
+    assert len(bpy.data.images) == fallback_images_before
+
+    corrupt_path = Path(bpy.app.tempdir) / "ODM_corrupt_supported.exr"
+    corrupt_path.write_bytes(image_path.read_bytes()[:-1])
+    BlenderImageIO._read_with_blender = unexpected_blender_fallback
+    try:
+        try:
+            image_io.read_rgba(corrupt_path)
+        except InvalidOpenEXRError:
+            pass
+        else:
+            raise AssertionError("corrupt supported EXR did not retain its decoder error")
+    finally:
+        BlenderImageIO._read_with_blender = original_blender_fallback
+
+    half_path = Path(bpy.app.tempdir) / "ODM_unsupported_half.exr"
+    half_image = bpy.data.images.new(
+        "ODM_Unsupported_Half",
+        width=expected.shape[1],
+        height=expected.shape[0],
+        alpha=True,
+        float_buffer=True,
+    )
+    try:
+        cast(Any, half_image.colorspace_settings).name = "Linear Rec.709"
+        cast(Any, half_image.pixels).foreach_set(canonical_to_blender_pixels(expected))
+        half_image.filepath_raw = str(half_path)
+        half_image.file_format = "OPEN_EXR"
+        image_settings.file_format = "OPEN_EXR"
+        image_settings.color_depth = "16"
+        image_settings.color_mode = "RGBA"
+        image_settings.exr_codec = "ZIP"
+        half_image.save_render(str(half_path), scene=scene)
+    finally:
+        bpy.data.images.remove(half_image)
+        (
+            image_settings.file_format,
+            image_settings.color_mode,
+            image_settings.color_depth,
+            image_settings.exr_codec,
+        ) = render_settings_before
+    fallback_images_before = len(bpy.data.images)
+    half_actual = image_io.read_rgba(half_path)
+    assert half_actual.dtype == np.float32
+    assert half_actual.flags.c_contiguous
+    np.testing.assert_allclose(half_actual, expected, atol=1e-3)
+    assert len(bpy.data.images) == fallback_images_before
+
+    original_conversion = blender_image_io_module.blender_pixels_to_canonical
+
+    def fail_after_fallback_load(_pixels: np.ndarray, *, width: int, height: int) -> FloatImage:
+        raise RuntimeError(f"forced fallback conversion failure for {width}x{height}")
+
+    blender_image_io_module.blender_pixels_to_canonical = fail_after_fallback_load
+    try:
+        try:
+            image_io._read_with_blender(half_path)
+        except RuntimeError as error:
+            assert "forced fallback conversion failure" in str(error)
+        else:
+            raise AssertionError("forced Blender fallback error did not propagate")
+    finally:
+        blender_image_io_module.blender_pixels_to_canonical = original_conversion
+    assert len(bpy.data.images) == fallback_images_before
+
     external_image_path = Path(bpy.app.tempdir) / "external_matte.exr"
     shutil.copyfile(image_path, external_image_path)
     assert np.allclose(image_io.read_rgba(external_image_path), expected, atol=1e-6)
