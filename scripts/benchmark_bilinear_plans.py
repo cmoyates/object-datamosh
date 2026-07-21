@@ -156,7 +156,7 @@ def main() -> None:
     history = rng.random((HEIGHT, WIDTH, 4), dtype=np.float32).astype(np.float32, copy=False)
     history_matte = rng.random((HEIGHT, WIDTH), dtype=np.float32).astype(np.float32, copy=False)
     matte = rng.random((HEIGHT, WIDTH), dtype=np.float32).astype(np.float32, copy=False)
-    motion = rng.uniform(-2.0, 2.0, (HEIGHT, WIDTH, 2)).astype(np.float32)
+    motion = rng.uniform(-2.0, 2.0, (HEIGHT, WIDTH, 4)).astype(np.float32)
     sample_y, sample_x = np.indices((HEIGHT, WIDTH), dtype=np.float32)
     sample_x += motion[..., 0]
     sample_y += motion[..., 1]
