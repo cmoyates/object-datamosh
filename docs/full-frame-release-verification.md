@@ -71,7 +71,7 @@ package entry now agree on version `0.2.0`.
 
 User-facing steps are in the [migration guide](extreme-workflow-migration.md). Orientation,
 provenance, fallback, Trail propagation, retuned preset values, and diagnostics are recorded in the
-[0.2.0 release notes](release-notes-0.2.0.md).
+[0.3.0 release notes](release-notes-0.3.0.md).
 
 ## Scope and remaining interactive limitations
 
