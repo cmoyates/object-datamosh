@@ -405,10 +405,13 @@ finite scene-linear RGB change versus current beauty. Totals exclude reset frame
 is limited to the latest 96 frames and contains no image data. The recovery manifest still commits
 after every completed frame, while an active diagnostics report checkpoints every 10 output frames
 and may therefore lag that manifest. The report names `manifest_completed_prefix` separately from
-`diagnostics_completed_prefix` and records the checkpoint interval and lag policy. Session start,
-first actionable near-no-op evidence, success, cancellation, and processing failure always write a
-report; every terminal report includes all in-memory completed diagnostics. If an older run has no
-report, diagnostics are unavailable; do not infer or fabricate them from its processed EXRs.
+`diagnostics_completed_prefix` and records the checkpoint interval, the diagnostics gap observed at
+report write, and the maximum active checkpoint lag. Session start, first actionable near-no-op
+evidence, success, cancellation, and processing failure always write a report; every terminal report
+includes all in-memory completed diagnostics. Diagnostics from a prior session are not reconstructed
+on resume: the report marks that historical gap as partial or unavailable and does not claim terminal
+agreement with the manifest. If an older run has no report, do not infer or fabricate diagnostics
+from its processed EXRs.
 
 A report warning is advisory and never blocks output. Efficacy assessment begins only after two
 non-reset frames with non-empty target mattes. A likely near-no-op requires both actual historical
@@ -769,14 +772,20 @@ uv run python scripts/benchmark_diagnostics_reports.py --warmups 1 --measured 3 
 ```
 
 The committed same-machine synthetic 147-frame result reduced atomic report writes from 295 to 31
-(89.49%). Median JSON construction fell from 142.06 ms to 15.37 ms, atomic-write batches from
-122.60 ms to 12.88 ms, and total synthetic report sequence overhead from 194.34 ms to 20.70 ms.
+(89.49%). Median JSON construction fell from 147.05 ms to 15.48 ms, atomic-write batches from
+143.77 ms to 13.09 ms, and total synthetic report sequence overhead from 199.88 ms to 20.69 ms.
 The benchmark uses temporary outputs and does not alter the unchanged per-frame recovery-manifest
 cadence. See
 [`docs/evidence/issue-74-diagnostics-checkpoint.json`](docs/evidence/issue-74-diagnostics-checkpoint.json).
-The PERF-1 benchmark was also rerun with the same command above, changing only the output to
-`docs/evidence/issue-74-extreme-rerun.json`. On the same machine and methodology as the committed
-PERF-1 baseline (one warm-up, three measurements), median complete sequential processing was
+The PERF-1 benchmark was also rerun with the production-shaped Blender command:
+
+```bash
+"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py -- \
+  --warmups 1 --measured 3 --output docs/evidence/issue-74-extreme-rerun.json
+```
+
+On the same machine and methodology as the committed PERF-1 baseline (one warm-up, three
+measurements), median complete sequential processing was
 1.433 s for its three-frame fixture versus 4.271 s in the original baseline (66.45% cumulative
 improvement across the performance roadmap). This short run is a rerunability check, not an isolated
 measurement of checkpointing; the 147-frame synthetic benchmark above isolates report cadence.

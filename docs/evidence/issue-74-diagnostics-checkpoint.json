@@ -2,50 +2,50 @@
   "benchmarks": {
     "after": {
       "atomic_report_writes": {
-        "extrapolated_147_frames_ns": 12875750,
-        "maximum_ns": 13129292,
+        "extrapolated_147_frames_ns": 13085542,
+        "maximum_ns": 13169625,
         "measured_count": 3,
-        "median_ns": 12875750,
-        "minimum_ns": 12862792,
+        "median_ns": 13085542,
+        "minimum_ns": 12974375,
         "write_count": 31
       },
       "json_construction": {
-        "extrapolated_147_frames_ns": 15367875,
-        "maximum_ns": 15468833,
+        "extrapolated_147_frames_ns": 15475667,
+        "maximum_ns": 15559625,
         "measured_count": 3,
-        "median_ns": 15367875,
-        "minimum_ns": 15270375
+        "median_ns": 15475667,
+        "minimum_ns": 15393500
       },
       "sequence_overhead": {
-        "extrapolated_147_frames_ns": 20701375,
-        "maximum_ns": 20883583,
+        "extrapolated_147_frames_ns": 20686875,
+        "maximum_ns": 20790417,
         "measured_count": 3,
-        "median_ns": 20701375,
-        "minimum_ns": 20556250
+        "median_ns": 20686875,
+        "minimum_ns": 20539583
       }
     },
     "before": {
       "atomic_report_writes": {
-        "extrapolated_147_frames_ns": 122604250,
-        "maximum_ns": 153045416,
+        "extrapolated_147_frames_ns": 143767958,
+        "maximum_ns": 157722125,
         "measured_count": 3,
-        "median_ns": 122604250,
-        "minimum_ns": 121440458,
+        "median_ns": 143767958,
+        "minimum_ns": 139075125,
         "write_count": 295
       },
       "json_construction": {
-        "extrapolated_147_frames_ns": 142057750,
-        "maximum_ns": 142332917,
+        "extrapolated_147_frames_ns": 147046500,
+        "maximum_ns": 147997625,
         "measured_count": 3,
-        "median_ns": 142057750,
-        "minimum_ns": 141924333
+        "median_ns": 147046500,
+        "minimum_ns": 145291500
       },
       "sequence_overhead": {
-        "extrapolated_147_frames_ns": 194337458,
-        "maximum_ns": 195869375,
+        "extrapolated_147_frames_ns": 199877209,
+        "maximum_ns": 234775791,
         "measured_count": 3,
-        "median_ns": 194337458,
-        "minimum_ns": 191558041
+        "median_ns": 199877209,
+        "minimum_ns": 195218208
       }
     }
   },
@@ -56,6 +56,7 @@
     "report_write_reduction_percent": 89.49
   },
   "environment": {
+    "blender": "5.2.0 LTS",
     "cpu": "arm",
     "numpy": "2.5.1",
     "os": "macOS-26.5.1-arm64-arm-64bit",
@@ -63,6 +64,26 @@
   },
   "fixture": {
     "bounded_detailed_frame_limit": 96,
+    "canonical_extreme_settings": {
+      "block_size": 32,
+      "diffusion": 6.0,
+      "flip_x": false,
+      "flip_y": false,
+      "history_source": "FULL_FRAME",
+      "invalid_history_fallback": "SAME_PIXEL_HISTORY",
+      "matte_source": "OBJECT_INDEX",
+      "mode": "TRAIL",
+      "motion_channels": "RG",
+      "motion_clamp": 64.0,
+      "motion_gain": 1.0,
+      "motion_quantization": 8.0,
+      "persistence": 1.0,
+      "refresh_probability": 0.0,
+      "reverse_motion": false,
+      "seed": 0,
+      "trail_decay": 0.995,
+      "trail_motion_mix": 0.1
+    },
     "checkpoint_interval_frames": 10,
     "frame_count": 147,
     "resolution": [

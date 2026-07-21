@@ -146,6 +146,7 @@ def test_running_report_checkpoints_every_ten_completed_frames(tmp_path: Path) -
         "diagnostics_prefix_in_report": {"count": 0, "start": None, "end": None},
         "manifest_is_authoritative": True,
         "policy": "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames",
+        "completed_frame_lag_at_report_write": 0,
         "maximum_completed_frame_lag": 9,
     }
 
@@ -235,28 +236,33 @@ def test_cancelled_and_failed_reports_preserve_only_completed_prefix(tmp_path: P
     failed = _report(failed_paths)
     assert failed["terminal_outcome"] == "FAILURE"
     assert failed["completed_prefix"] == {"count": 1, "start": 1, "end": 1}
+    assert failed["manifest_completed_prefix"] == failed["completed_prefix"]
+    assert failed["diagnostics_completed_prefix"] == failed["completed_prefix"]
+    assert failed["active_report_may_lag_manifest"] is False
+    assert [frame["frame_number"] for frame in failed["frames"]] == [1]
     assert "Missing beauty input for frame 2" in failed["failure"]
 
 
 def test_resume_without_an_older_report_marks_diagnostics_unavailable(tmp_path: Path) -> None:
     paths = SequencePaths(tmp_path)
     settings = FeedbackSettings()
-    image_io = MemoryImageIO(_inputs(paths, 2))
+    image_io = MemoryImageIO(_inputs(paths, 21))
     first_session = ProcessingSession.create(
         paths,
         frame_start=1,
-        frame_end=2,
+        frame_end=21,
         matte_provider=ObjectIndexMatteProvider(),
         settings=settings,
         image_io=image_io,
     )
-    first_session.process_next_frame()
+    for _ in range(20):
+        first_session.process_next_frame()
     processing_report_path(paths).unlink()
 
     ProcessingSession.create(
         paths,
         frame_start=1,
-        frame_end=2,
+        frame_end=21,
         matte_provider=ObjectIndexMatteProvider(),
         settings=settings,
         image_io=image_io,
@@ -264,9 +270,14 @@ def test_resume_without_an_older_report_marks_diagnostics_unavailable(tmp_path: 
     )
 
     report = _report(paths)
-    assert report["completed_prefix"] == {"count": 1, "start": 1, "end": 1}
+    assert report["completed_prefix"] == {"count": 20, "start": 1, "end": 20}
     assert report["diagnostics_availability"] == "UNAVAILABLE"
     assert report["diagnostics_completed_prefix"] == {"count": 0, "start": None, "end": None}
+    assert report["report_lag"]["completed_frame_lag_at_report_write"] == 20
+    assert report["report_lag"]["maximum_completed_frame_lag"] == 29
+    assert report["report_lag"]["policy"] == (
+        "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
+    )
 
 
 def test_resume_from_report_lag_preserves_exact_outputs_and_writes_complete_terminal_diagnostics(
@@ -322,6 +333,11 @@ def test_resume_from_report_lag_preserves_exact_outputs_and_writes_complete_term
     assert report["diagnostics_availability"] == "PARTIAL"
     assert [frame["frame_number"] for frame in report["frames"]] == [10, 11, 12]
     assert report["active_report_may_lag_manifest"] is False
+    assert report["report_lag"]["completed_frame_lag_at_report_write"] == 9
+    assert report["report_lag"]["maximum_completed_frame_lag"] == 9
+    assert report["report_lag"]["policy"] == (
+        "terminal_report_contains_all_in_memory_diagnostics_but_prior_resume_diagnostics_are_unavailable"
+    )
 
 
 def test_manifest_commits_atomically_after_every_frame_while_reports_checkpoint(
@@ -356,6 +372,33 @@ def test_manifest_commits_atomically_after_every_frame_while_reports_checkpoint(
 
     assert manifest_snapshots == [list(range(1, end + 1)) for end in range(0, 13)]
     assert report_write_count == 5  # start, two checkpoint refreshes, two terminal refreshes
+
+
+def test_initial_report_write_failure_leaves_the_atomic_empty_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = SequencePaths(tmp_path)
+    original_replace = sequence_processing.os.replace
+
+    def fail_initial_report(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == processing_report_path(paths):
+            raise OSError("initial report replace failed")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(sequence_processing.os, "replace", fail_initial_report)
+    with pytest.raises(OSError, match="initial report replace failed"):
+        ProcessingSession.create(
+            paths,
+            frame_start=1,
+            frame_end=2,
+            matte_provider=ObjectIndexMatteProvider(),
+            settings=FeedbackSettings(),
+            image_io=MemoryImageIO(_inputs(paths, 2)),
+        )
+
+    manifest = json.loads(sequence_manifest_path(paths).read_text(encoding="utf-8"))
+    assert manifest["completed_frames"] == []
+    assert not processing_report_path(paths).exists()
 
 
 def test_report_write_failure_keeps_completed_manifest_and_prior_atomic_report(

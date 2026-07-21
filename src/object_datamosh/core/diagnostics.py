@@ -154,6 +154,25 @@ class ProcessingDiagnostics:
             availability = "UNAVAILABLE"
         else:
             availability = "PARTIAL"
+        missing_completed_diagnostics = max(0, len(completed_frames) - len(diagnostic_frames))
+        checkpoint_lag = (
+            max(0, checkpoint_interval_frames - 1)
+            if active_report_may_lag_manifest and checkpoint_interval_frames is not None
+            else 0
+        )
+        if missing_completed_diagnostics:
+            lag_policy = (
+                "active_report_may_checkpoint_lag_manifest_and_prior_resume_diagnostics_are_unavailable"
+                if active_report_may_lag_manifest
+                else (
+                    "terminal_report_contains_all_in_memory_diagnostics_but_"
+                    "prior_resume_diagnostics_are_unavailable"
+                )
+            )
+        elif active_report_may_lag_manifest:
+            lag_policy = "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames"
+        else:
+            lag_policy = "terminal_report_does_not_lag_manifest"
         return {
             "schema_version": 1,
             "manifest_schema_version": 5,
@@ -171,16 +190,12 @@ class ProcessingDiagnostics:
                 "manifest_prefix_observed_at_report_write": prefix,
                 "diagnostics_prefix_in_report": diagnostic_prefix,
                 "manifest_is_authoritative": True,
-                "policy": (
-                    "active_report_may_lag_by_up_to_checkpoint_interval_minus_one_frames"
-                    if active_report_may_lag_manifest
-                    else "terminal_report_does_not_lag_manifest"
-                ),
-                "maximum_completed_frame_lag": (
-                    max(0, checkpoint_interval_frames - 1)
-                    if active_report_may_lag_manifest and checkpoint_interval_frames is not None
-                    else 0
-                ),
+                "policy": lag_policy,
+                "completed_frame_lag_at_report_write": missing_completed_diagnostics,
+                # During an active run, this persisted report may remain in place until the next
+                # checkpoint. Historical gaps after resume and prospective checkpoint lag are
+                # additive; terminal reports have no prospective checkpoint lag.
+                "maximum_completed_frame_lag": missing_completed_diagnostics + checkpoint_lag,
             },
             "configuration": configuration,
             "settings_fingerprint": settings_fingerprint,

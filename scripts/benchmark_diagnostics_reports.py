@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import subprocess
 import sys
 import tempfile
 import time
 from collections.abc import Callable
+from dataclasses import fields
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +28,7 @@ from object_datamosh.core.diagnostics import (  # noqa: E402
     FrameDiagnostics,
     ProcessingDiagnostics,
 )
+from object_datamosh.core.presets import extreme_full_frame_feedback_settings  # noqa: E402
 from object_datamosh.sequence_processing import _write_json_atomic  # noqa: E402
 
 FRAME_COUNT = 147
@@ -43,6 +48,33 @@ def _parse_args() -> argparse.Namespace:
     if args.warmups < 1 or args.measured < 1:
         parser.error("--warmups and --measured must both be positive")
     return args
+
+
+def _blender_version() -> str:
+    blender_bin = os.environ.get("BLENDER_BIN")
+    if not blender_bin:
+        return "unavailable (BLENDER_BIN not set)"
+    try:
+        result = subprocess.run(
+            [blender_bin, "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable (BLENDER_BIN query failed)"
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line.removeprefix("Blender ") or "unavailable (empty version output)"
+
+
+def _canonical_preset() -> dict[str, object]:
+    settings = extreme_full_frame_feedback_settings()
+    return {
+        field.name: value.value if isinstance(value, Enum) else value
+        for field in fields(settings)
+        if (value := getattr(settings, field.name)) is not None
+    }
 
 
 def _frame(number: int) -> FrameDiagnostics:
@@ -165,6 +197,7 @@ def main() -> None:
             "resolution": [1920, 1080],
             "checkpoint_interval_frames": CHECKPOINT_INTERVAL,
             "bounded_detailed_frame_limit": 96,
+            "canonical_extreme_settings": _canonical_preset(),
         },
         "methodology": {
             "warmup_count": args.warmups,
@@ -176,6 +209,7 @@ def main() -> None:
         "environment": {
             "python": platform.python_version(),
             "numpy": np.__version__,
+            "blender": _blender_version(),
             "os": platform.platform(),
             "cpu": platform.processor() or platform.machine() or "unavailable",
         },
