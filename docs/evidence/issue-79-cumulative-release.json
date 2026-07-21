@@ -1,0 +1,424 @@
+{
+  "benchmarks": {
+    "block_preparation": {
+      "extrapolated_147_frames_ns": 2568549375,
+      "maximum_ns": 18727125,
+      "measured_count": 3,
+      "median_ns": 17473125,
+      "minimum_ns": 16886709
+    },
+    "bundled_exr_decodes": {
+      "all_three": {
+        "bytes_per_sample": 99532800,
+        "bytes_per_second": 233722223,
+        "extrapolated_147_frames_ns": 62601328125,
+        "maximum_ns": 428817250,
+        "measured_count": 3,
+        "median_ns": 425859375,
+        "minimum_ns": 421952500
+      },
+      "beauty": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 191516774,
+        "extrapolated_147_frames_ns": 25465692000,
+        "maximum_ns": 174326791,
+        "measured_count": 3,
+        "median_ns": 173236000,
+        "minimum_ns": 172704000
+      },
+      "matte": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 263322820,
+        "extrapolated_147_frames_ns": 18521399652,
+        "maximum_ns": 127361875,
+        "measured_count": 3,
+        "median_ns": 125995916,
+        "minimum_ns": 122796584
+      },
+      "vector": {
+        "bytes_per_sample": 33177600,
+        "bytes_per_second": 244831529,
+        "extrapolated_147_frames_ns": 19920257826,
+        "maximum_ns": 138957583,
+        "measured_count": 3,
+        "median_ns": 135511958,
+        "minimum_ns": 133997208
+      }
+    },
+    "complete_sequential_processing": {
+      "extrapolated_147_frames_ns": 99975426866,
+      "maximum_ns": 2067644250,
+      "measured_count": 3,
+      "median_ns": 2040314834,
+      "minimum_ns": 2032243000
+    },
+    "exr_reads": {
+      "blender_data_block_overhead_ns": {
+        "all_three": 19733416,
+        "beauty": 10224167,
+        "matte": 2402041,
+        "vector": 7966083
+      },
+      "blender_probe_first": {
+        "all_three": {
+          "extrapolated_147_frames_ns": 65146234902,
+          "maximum_ns": 451554292,
+          "measured_count": 3,
+          "median_ns": 443171666,
+          "minimum_ns": 442037083
+        },
+        "beauty": {
+          "extrapolated_147_frames_ns": 26492284875,
+          "maximum_ns": 181654375,
+          "measured_count": 3,
+          "median_ns": 180219625,
+          "minimum_ns": 176427042
+        },
+        "matte": {
+          "extrapolated_147_frames_ns": 18211070451,
+          "maximum_ns": 126098209,
+          "measured_count": 3,
+          "median_ns": 123884833,
+          "minimum_ns": 122203458
+        },
+        "vector": {
+          "extrapolated_147_frames_ns": 20602417500,
+          "maximum_ns": 140567541,
+          "measured_count": 3,
+          "median_ns": 140152500,
+          "minimum_ns": 139773708
+        }
+      },
+      "custom_reader_first": {
+        "all_three": {
+          "extrapolated_147_frames_ns": 62245422750,
+          "maximum_ns": 430613083,
+          "measured_count": 3,
+          "median_ns": 423438250,
+          "minimum_ns": 422952666
+        },
+        "beauty": {
+          "extrapolated_147_frames_ns": 24989332326,
+          "maximum_ns": 170306917,
+          "measured_count": 3,
+          "median_ns": 169995458,
+          "minimum_ns": 169027083
+        },
+        "matte": {
+          "extrapolated_147_frames_ns": 17857970424,
+          "maximum_ns": 129530708,
+          "measured_count": 3,
+          "median_ns": 121482792,
+          "minimum_ns": 121119875
+        },
+        "vector": {
+          "extrapolated_147_frames_ns": 19431403299,
+          "maximum_ns": 134954792,
+          "measured_count": 3,
+          "median_ns": 132186417,
+          "minimum_ns": 131777583
+        }
+      },
+      "regular_blender_image": {
+        "beauty": {
+          "extrapolated_147_frames_ns": 1268401848,
+          "maximum_ns": 9359667,
+          "measured_count": 3,
+          "median_ns": 8628584,
+          "minimum_ns": 8309000
+        },
+        "matte": {
+          "extrapolated_147_frames_ns": 576864750,
+          "maximum_ns": 4099833,
+          "measured_count": 3,
+          "median_ns": 3924250,
+          "minimum_ns": 3907916
+        },
+        "vector": {
+          "extrapolated_147_frames_ns": 537076701,
+          "maximum_ns": 3662333,
+          "measured_count": 3,
+          "median_ns": 3653583,
+          "minimum_ns": 3345875
+        }
+      },
+      "temporary_data_block_count": {
+        "blender_probe_first": 1,
+        "custom_reader_first": 0,
+        "regular_blender_image": 1
+      }
+    },
+    "processed_exr_write": {
+      "extrapolated_147_frames_ns": 5504868201,
+      "maximum_ns": 51057375,
+      "measured_count": 3,
+      "median_ns": 37448083,
+      "minimum_ns": 37270291
+    },
+    "pure_core_non_reset_frame": {
+      "extrapolated_147_frames_ns": 43425319098,
+      "maximum_ns": 299505750,
+      "measured_count": 3,
+      "median_ns": 295410334,
+      "minimum_ns": 289898084
+    },
+    "refresh_diagnostics": {
+      "extrapolated_147_frames_ns": 132465375,
+      "maximum_ns": 923708,
+      "measured_count": 3,
+      "median_ns": 901125,
+      "minimum_ns": 885500
+    },
+    "release_stage_timings": {
+      "beauty_read": {
+        "extrapolated_147_frames_ns": 25121108712,
+        "maximum_ns": 174456125,
+        "measured_count": 6,
+        "median_ns": 170891896,
+        "minimum_ns": 168526291
+      },
+      "complete_frame": {
+        "extrapolated_147_frames_ns": 111417415788,
+        "maximum_ns": 770856875,
+        "measured_count": 6,
+        "median_ns": 757941604,
+        "minimum_ns": 744313167
+      },
+      "core_processing": {
+        "extrapolated_147_frames_ns": 43225858326,
+        "maximum_ns": 301743708,
+        "measured_count": 6,
+        "median_ns": 294053458,
+        "minimum_ns": 281999834
+      },
+      "diagnostics_report_commit": {
+        "extrapolated_147_frames_ns": 56803299,
+        "maximum_ns": 402917,
+        "measured_count": 3,
+        "median_ns": 386417,
+        "minimum_ns": 383042
+      },
+      "manifest_commit": {
+        "extrapolated_147_frames_ns": 63727440,
+        "maximum_ns": 489833,
+        "measured_count": 6,
+        "median_ns": 433520,
+        "minimum_ns": 403000
+      },
+      "matte_read": {
+        "extrapolated_147_frames_ns": 18110301951,
+        "maximum_ns": 124366958,
+        "measured_count": 6,
+        "median_ns": 123199333,
+        "minimum_ns": 117031167
+      },
+      "processed_exr_write": {
+        "extrapolated_147_frames_ns": 4939671576,
+        "maximum_ns": 51270375,
+        "measured_count": 6,
+        "median_ns": 33603208,
+        "minimum_ns": 31481792
+      },
+      "total_input_read": {
+        "extrapolated_147_frames_ns": 62798696793,
+        "maximum_ns": 434624042,
+        "measured_count": 6,
+        "median_ns": 427202019,
+        "minimum_ns": 420432334
+      },
+      "vector_read": {
+        "extrapolated_147_frames_ns": 19679820951,
+        "maximum_ns": 136715667,
+        "measured_count": 6,
+        "median_ns": 133876333,
+        "minimum_ns": 132091292
+      }
+    },
+    "zip_predictor_reversal": {
+      "bytes_per_sample": 491520,
+      "bytes_per_second": 413186805,
+      "extrapolated_147_frames_ns": 174868701,
+      "maximum_ns": 1213584,
+      "measured_count": 3,
+      "median_ns": 1189583,
+      "minimum_ns": 1189208
+    }
+  },
+  "environment": {
+    "blender": "5.2.0 LTS",
+    "cpu": "arm",
+    "numpy": "2.3.4",
+    "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "fixture": {
+    "channels": "RGBA",
+    "deterministic_seed": 71071,
+    "dtype": "float32",
+    "height": 1080,
+    "preset": "extreme_full_frame_feedback_settings",
+    "sequence_frames": 3,
+    "width": 1920
+  },
+  "largest_measured_stages": [
+    {
+      "median_ns": 680104944,
+      "stage": "complete_sequential_processing_per_frame"
+    },
+    {
+      "median_ns": 295410334,
+      "stage": "pure_core_non_reset_frame"
+    },
+    {
+      "median_ns": 169995458,
+      "stage": "beauty_read"
+    },
+    {
+      "median_ns": 132186417,
+      "stage": "vector_read"
+    },
+    {
+      "median_ns": 121482792,
+      "stage": "matte_read"
+    },
+    {
+      "median_ns": 37448083,
+      "stage": "processed_exr_write"
+    },
+    {
+      "median_ns": 17473125,
+      "stage": "block_preparation"
+    },
+    {
+      "median_ns": 901125,
+      "stage": "refresh_diagnostics"
+    }
+  ],
+  "latest_processing_report_performance": {
+    "clock": "perf_counter_ns",
+    "frames": [
+      {
+        "frame_number": 1,
+        "outcome": "RUNNING",
+        "reset": true,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 169032333,
+          "core_processing": 47530709,
+          "manifest_commit": 434792,
+          "matte_read": 123669667,
+          "processed_exr_write": 31104459,
+          "vector_read": 132309459
+        },
+        "total_frame_ns": 504179375
+      },
+      {
+        "frame_number": 2,
+        "outcome": "RUNNING",
+        "reset": false,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 170271208,
+          "core_processing": 294943500,
+          "manifest_commit": 436375,
+          "matte_read": 121878875,
+          "processed_exr_write": 32146750,
+          "vector_read": 134040125
+        },
+        "total_frame_ns": 753820333
+      },
+      {
+        "frame_number": 3,
+        "outcome": "SUCCESS",
+        "reset": false,
+        "stage_order": [
+          "beauty_read",
+          "vector_read",
+          "matte_read",
+          "core_processing",
+          "processed_exr_write",
+          "manifest_commit",
+          "diagnostics_report_commit"
+        ],
+        "stages_ns": {
+          "beauty_read": 168526291,
+          "core_processing": 301743708,
+          "diagnostics_report_commit": 402917,
+          "manifest_commit": 489833,
+          "matte_read": 124366958,
+          "processed_exr_write": 32898791,
+          "vector_read": 133550791
+        },
+        "total_frame_ns": 762062875
+      }
+    ],
+    "frames_omitted": 0,
+    "history_limit": 96,
+    "largest_stages": [
+      {
+        "duration_ns": 644217917,
+        "stage": "core_processing"
+      },
+      {
+        "duration_ns": 507829832,
+        "stage": "beauty_read"
+      },
+      {
+        "duration_ns": 399900375,
+        "stage": "vector_read"
+      },
+      {
+        "duration_ns": 369915500,
+        "stage": "matte_read"
+      },
+      {
+        "duration_ns": 96150000,
+        "stage": "processed_exr_write"
+      },
+      {
+        "duration_ns": 1361000,
+        "stage": "manifest_commit"
+      },
+      {
+        "duration_ns": 402917,
+        "stage": "diagnostics_report_commit"
+      }
+    ],
+    "observational_only": true,
+    "schema_version": 1,
+    "unit": "nanoseconds"
+  },
+  "memory": {
+    "measurement_scope": "benchmark process peak RSS after all measured workloads",
+    "process_peak_rss_bytes": 1200308224,
+    "representative_input_and_state_bytes": 116121600
+  },
+  "methodology": {
+    "clock": "perf_counter_ns",
+    "extrapolation_frames": 147,
+    "measured_count": 3,
+    "statistics": [
+      "median",
+      "minimum",
+      "maximum"
+    ],
+    "threshold": null,
+    "warmup_count": 1
+  },
+  "schema_version": 1,
+  "semantic_result": "timing instrumentation is observational; correctness is gated by tests"
+}

@@ -1,7 +1,8 @@
+import hashlib
 import json
 from pathlib import Path
 
-from object_datamosh.benchmarking import summarize_samples
+from object_datamosh.benchmarking import summarize_processing_reports, summarize_samples
 
 
 def test_benchmark_summary_records_distribution_and_147_frame_extrapolation() -> None:
@@ -13,6 +14,76 @@ def test_benchmark_summary_records_distribution_and_147_frame_extrapolation() ->
         "median_ns": 2_000_000_000,
         "maximum_ns": 3_000_000_000,
         "extrapolated_147_frames_ns": 294_000_000_000,
+    }
+
+
+def test_processing_report_summary_covers_release_stages_and_non_reset_frames() -> None:
+    reports = (
+        {
+            "frames": [
+                {
+                    "reset": True,
+                    "stages_ns": {
+                        "beauty_read": 1,
+                        "vector_read": 2,
+                        "matte_read": 3,
+                        "core_processing": 4,
+                        "processed_exr_write": 5,
+                        "manifest_commit": 6,
+                        "diagnostics_report_commit": 7,
+                    },
+                    "total_frame_ns": 28,
+                },
+                {
+                    "reset": False,
+                    "stages_ns": {
+                        "beauty_read": 10,
+                        "vector_read": 20,
+                        "matte_read": 30,
+                        "core_processing": 40,
+                        "processed_exr_write": 50,
+                        "manifest_commit": 60,
+                    },
+                    "total_frame_ns": 280,
+                },
+            ]
+        },
+        {
+            "frames": [
+                {
+                    "reset": False,
+                    "stages_ns": {
+                        "beauty_read": 12,
+                        "vector_read": 22,
+                        "matte_read": 32,
+                        "core_processing": 42,
+                        "processed_exr_write": 52,
+                        "manifest_commit": 62,
+                        "diagnostics_report_commit": 72,
+                    },
+                    "total_frame_ns": 294,
+                }
+            ]
+        },
+    )
+
+    result = summarize_processing_reports(reports)
+
+    assert result["beauty_read"]["median_ns"] == 11
+    assert result["total_input_read"]["minimum_ns"] == 60
+    assert result["total_input_read"]["maximum_ns"] == 66
+    assert result["complete_frame"]["median_ns"] == 287
+    assert result["complete_frame"]["measured_count"] == 2
+    assert set(result) == {
+        "beauty_read",
+        "vector_read",
+        "matte_read",
+        "total_input_read",
+        "core_processing",
+        "processed_exr_write",
+        "manifest_commit",
+        "diagnostics_report_commit",
+        "complete_frame",
     }
 
 
@@ -33,12 +104,120 @@ def test_committed_benchmark_contract_uses_1080p_extreme_and_temporary_exrs() ->
     assert '"temporary_data_block_count"' in script
     assert '"all_three"' in script
     assert '"bytes_per_second"' in script
+    assert '"release_stage_timings"' in script
+    assert '"memory"' in script
+    assert "summarize_processing_reports" in script
     assert 'output.format.file_format = "OPEN_EXR_MULTILAYER"' in script
     assert 'read_full_float_rgba(read_fixtures["beauty"])' in script
+    release_script = Path("scripts/benchmark_release_workloads.py").read_text(encoding="utf-8")
+    for workload in (
+        "extreme_full_frame_trail",
+        "extreme_hard",
+        "target_only",
+        "background_only_pre_roll",
+        "nonzero_refresh",
+        "invalid_resumed_history",
+    ):
+        assert workload in release_script
+    assert "expected_rejection_end_to_end" in release_script
+    assert "harness_sha256" in release_script
+    assert "process_peak_rss_bytes" in release_script
     benchmark_command = (
         '"$BLENDER_BIN" --background --factory-startup --python scripts/benchmark_extreme.py'
     )
     assert benchmark_command in readme
+
+
+def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None:
+    baseline = json.loads(Path("docs/evidence/issue-79-workloads-baseline.json").read_text())
+    final = json.loads(Path("docs/evidence/issue-79-workloads-final.json").read_text())
+
+    assert baseline["revision"]["commit"].startswith("0b19e06")
+    assert final["revision"]["commit"] == "ce519792143f790731ef11e068fd1b1dab37a227"
+    assert baseline["fixture"] == final["fixture"]
+    assert baseline["methodology"] == final["methodology"]
+    assert baseline["environment"] == final["environment"]
+    harness_sha256 = hashlib.sha256(
+        Path("scripts/benchmark_release_workloads.py").read_bytes()
+    ).hexdigest()
+    assert baseline["comparability"]["harness_sha256"] == harness_sha256
+    assert final["comparability"]["harness_sha256"] == harness_sha256
+    assert baseline["methodology"]["sequence_priming_runs_after_warmups"] == 1
+    assert (
+        baseline["memory"]["representative_live_array_bytes"]
+        == final["memory"]["representative_live_array_bytes"]
+    )
+    assert baseline["memory"]["process_peak_rss_bytes"] > 0
+    assert final["memory"]["process_peak_rss_bytes"] > 0
+
+    for workload in baseline["fixture"]["workload_order"]:
+        before = baseline["workloads"][workload]
+        after = final["workloads"][workload]
+        assert before["definition"] == after["definition"]
+        if workload == "invalid_resumed_history":
+            result_names = ("expected_rejection_end_to_end",)
+        else:
+            before_semantics = before["semantic_non_reset_frame"]
+            after_semantics = after["semantic_non_reset_frame"]
+            assert before_semantics == after_semantics
+            assert before_semantics["frame_3_consumes_frame_2_state"] is True
+            assert len(before_semantics["transitions"]) == 2
+            frame_numbers = [
+                transition["next_frame_number"] for transition in before_semantics["transitions"]
+            ]
+            assert frame_numbers == [2, 3]
+            assert set(before_semantics["transitions"][0]) == {
+                "processed_rgba_sha256",
+                "next_history_rgba_sha256",
+                "next_history_matte_sha256",
+                "next_frame_number",
+                "diagnostics",
+            }
+            if workload == "extreme_full_frame_trail":
+                before_recovery = before["resume_recovery_semantics"]
+                after_recovery = after["resume_recovery_semantics"]
+                assert before_recovery == after_recovery
+                assert before_recovery["frames"] == 3
+                assert before_recovery["interrupted_after_completed_frames"] == [1]
+                assert before_recovery["resumed_completed_frames"] == [1, 2, 3]
+                assert before_recovery["matches_uninterrupted"] is True
+            stage_names = {
+                "beauty_read",
+                "vector_read",
+                "matte_read",
+                "total_input_read",
+                "core_processing",
+                "processed_exr_write",
+                "manifest_commit",
+                "diagnostics_report_commit",
+                "complete_frame",
+            }
+            assert set(before["exr_io_and_release_stages_non_reset_frame"]) == stage_names
+            assert set(after["exr_io_and_release_stages_non_reset_frame"]) == stage_names
+            for stage_name in stage_names:
+                for evidence in (before, after):
+                    stage = evidence["exr_io_and_release_stages_non_reset_frame"][stage_name]
+                    assert stage["warmup_count"] == 1
+                    assert stage["measured_count"] == 3
+                    assert len(stage["samples_ns"]) == stage["measured_count"]
+                    assert stage["minimum_ns"] == min(stage["samples_ns"])
+                    assert stage["maximum_ns"] == max(stage["samples_ns"])
+                    assert stage["minimum_ns"] <= stage["median_ns"] <= stage["maximum_ns"]
+                    assert stage["extrapolated_147_frames_ns"] > 0
+            result_names = (
+                "pure_core_non_reset_frame",
+                "end_to_end_two_frame_sequence",
+            )
+        for result_name in result_names:
+            for evidence in (before, after):
+                result = evidence[result_name]
+                assert result["warmup_count"] == 1
+                assert result["measured_count"] == 3
+                assert len(result["samples_ns"]) == result["measured_count"]
+                assert result["minimum_ns"] == min(result["samples_ns"])
+                assert result["maximum_ns"] == max(result["samples_ns"])
+                assert result["minimum_ns"] <= result["median_ns"] <= result["maximum_ns"]
+                assert result["extrapolated_147_frames_ns"] > 0
 
 
 def test_issue_73_evidence_reports_decode_throughput_before_and_after() -> None:

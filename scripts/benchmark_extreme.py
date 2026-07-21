@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import resource
 import sys
 import tempfile
 import time
@@ -20,7 +21,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from object_datamosh.benchmarking import summarize_samples  # noqa: E402
+from object_datamosh.benchmarking import (  # noqa: E402
+    summarize_processing_reports,
+    summarize_samples,
+)
 from object_datamosh.blender_image_io import BlenderImageIO  # noqa: E402
 from object_datamosh.core.block_preparation import prepare_blocks  # noqa: E402
 from object_datamosh.core.contracts import FeedbackState  # noqa: E402
@@ -82,6 +86,11 @@ def _measure(operation: Callable[[], object], warmups: int, measured: int) -> tu
         operation()
         samples.append(time.perf_counter_ns() - started)
     return tuple(samples)
+
+
+def _peak_rss_bytes() -> int:
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(peak if sys.platform == "darwin" else peak * 1024)
 
 
 def _summarize_throughput(samples: tuple[int, ...], bytes_per_sample: int) -> dict[str, int]:
@@ -346,7 +355,13 @@ def main() -> None:
             )
 
         end_to_end_samples = _measure(complete_sequence, args.warmups, args.measured)
-        processing_report = json.loads(processing_report_path(paths).read_text(encoding="utf-8"))
+        # Each overwrite run replaces the report, so collect additional measured reports explicitly.
+        processing_reports: list[dict[str, Any]] = []
+        for _ in range(args.measured):
+            complete_sequence()
+            processing_reports.append(
+                json.loads(processing_report_path(paths).read_text(encoding="utf-8"))["performance"]
+            )
 
     decoded_rgba_bytes = WIDTH * HEIGHT * 4 * np.dtype(np.float32).itemsize
     bundled_decode_bytes = {
@@ -392,6 +407,7 @@ def main() -> None:
         "complete_sequential_processing": summarize_samples(
             end_to_end_samples, frames_per_sample=SEQUENCE_FRAMES
         ),
+        "release_stage_timings": summarize_processing_reports(processing_reports),
     }
     comparable = {
         "block_preparation": benchmarks["block_preparation"]["median_ns"],
@@ -430,7 +446,14 @@ def main() -> None:
         "largest_measured_stages": [
             {"stage": name, "median_ns": duration} for name, duration in largest
         ],
-        "latest_processing_report_performance": processing_report["performance"],
+        "latest_processing_report_performance": processing_reports[-1],
+        "memory": {
+            "representative_input_and_state_bytes": sum(
+                array.nbytes for array in (beauty, motion, matte, history, state.history_matte)
+            ),
+            "process_peak_rss_bytes": _peak_rss_bytes(),
+            "measurement_scope": "benchmark process peak RSS after all measured workloads",
+        },
         "semantic_result": "timing instrumentation is observational; correctness is gated by tests",
     }
     serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
