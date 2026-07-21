@@ -770,6 +770,9 @@ records environment metadata, warm-up and measured counts, median/minimum/maximu
 stages, and a median-based 147-frame extrapolation. Results are observational developer evidence,
 not a production threshold. The current baseline is committed at
 [`docs/evidence/extreme-benchmark-baseline.json`](docs/evidence/extreme-benchmark-baseline.json).
+The cumulative PERF-1-to-release comparison, complete stage table, memory evidence, release gates,
+and measured next-roadmap recommendation are recorded in
+[`docs/cpu-performance-release-validation.md`](docs/cpu-performance-release-validation.md).
 
 The custom-reader-first routing comparison uses the same benchmark with two warm-ups and seven
 measurements. On Blender 5.2.0 LTS on arm64 macOS, removing the old Blender probe from the
