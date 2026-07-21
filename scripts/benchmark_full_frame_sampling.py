@@ -212,6 +212,8 @@ def _compare_results(before_path: Path, after_path: Path, output_path: Path | No
             raise ValueError(f"{revision} result does not identify the required feedback.py blob")
     if before.get("fixture") != after.get("fixture"):
         raise ValueError("comparison inputs must use identical fixtures")
+    if before.get("environment") != after.get("environment"):
+        raise ValueError("comparison inputs must come from the same environment")
     before_digests = before["semantic_digest"]
     after_digests = after["semantic_digest"]
     bit_equal = before_digests == after_digests
@@ -242,10 +244,12 @@ def main() -> None:
     settings = extreme_full_frame_feedback_settings()
     sample_y, sample_x = np.indices(matte.shape, dtype=np.float32)
     clean_valid = np.ones(matte.shape, dtype=bool)
-    representative_primary_covered = clean_valid.copy()
-    representative_primary_covered[:, ::8] = False
-    representative_warped_history = state.history.copy()
-    representative_warped_history[~representative_primary_covered] = 0.0
+    before_safe_history = np.where(clean_valid[..., None], state.history, 0.0)
+    fallback_sample_x = sample_x.copy()
+    fallback_sample_x[:, ::8] = -1.0
+    representative_warped_history, representative_primary_covered = bilinear_sample(
+        state.history, fallback_sample_x, sample_y
+    )
 
     def before_primary() -> object:
         valid = np.all(np.isfinite(state.history), axis=-1)
@@ -262,7 +266,7 @@ def main() -> None:
     def before_fallback() -> object:
         screen_y, screen_x = np.indices(matte.shape, dtype=np.float32)
         return (
-            bilinear_sample(state.history, screen_x, screen_y),
+            bilinear_sample(before_safe_history, screen_x, screen_y),
             bilinear_sample((~clean_valid).astype(np.float32), screen_x, screen_y),
         )
 
@@ -290,6 +294,18 @@ def main() -> None:
         )
         return bool(np.all(valid)), bilinear_sample(state.history_matte, sample_x, sample_y)
 
+    benchmark_state = state
+    benchmark_frame = 2
+
+    def total_core_frame() -> object:
+        nonlocal benchmark_frame, benchmark_state
+        result = process_frame_with_diagnostics(
+            beauty, motion, matte, benchmark_state, benchmark_frame, settings, force_reset=False
+        )
+        benchmark_state = result[1]
+        benchmark_frame += 1
+        return result
+
     before = args.revision == "before"
     operations: dict[str, Callable[[], object]] = {
         "coordinate_grid_allocation": (
@@ -298,16 +314,23 @@ def main() -> None:
         "primary_history_sampling": before_primary if before else after_primary,
         "same_pixel_fallback": before_fallback if before else after_fallback,
         "trail_mask_sampling": before_trail if before else after_trail,
-        "total_core_frame": lambda: process_frame_with_diagnostics(
-            beauty, motion, matte, state, 2, settings, force_reset=False
-        ),
+        "total_core_frame": total_core_frame,
     }
     benchmarks = {
         name: _measure(operation, warmups, measured) for name, operation in operations.items()
     }
-    output, next_state, diagnostics = process_frame_with_diagnostics(
-        beauty, motion, matte, state, 2, settings, force_reset=False
-    )
+    semantic_state = state
+    for semantic_frame in range(2, 6):
+        output, semantic_state, diagnostics = process_frame_with_diagnostics(
+            beauty,
+            motion,
+            matte,
+            semantic_state,
+            semantic_frame,
+            settings,
+            force_reset=False,
+        )
+    next_state = semantic_state
     payload: dict[str, Any] = {
         "schema_version": 1,
         "revision": args.revision,

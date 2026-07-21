@@ -14,7 +14,9 @@ def test_full_frame_sampling_benchmark_records_required_before_after_evidence() 
     assert "--source-root" in script
     assert "feedback.py blob" in script
     assert "~representative_primary_covered & clean_valid" in script
+    assert "state.history, fallback_sample_x, sample_y" in script
     assert "state.history, representative_warped_history" in script
+    assert "benchmark_state = result[1]" in script
     assert evidence["schema_version"] == 1
     assert evidence["fixture"]["shape"] == [1080, 1920, 4]
     assert evidence["fixture"]["preset"] == "extreme_full_frame_feedback_settings"
@@ -86,6 +88,7 @@ def test_full_frame_sampling_benchmark_compares_exact_semantic_digests(
                     "feedback_blob": "839dc8e98c4987309eae8330d85f2e4cc20fda93",
                 },
                 "fixture": fixture,
+                "environment": {"cpu": "test"},
                 "semantic_digest": digests,
             }
         )
@@ -99,6 +102,7 @@ def test_full_frame_sampling_benchmark_compares_exact_semantic_digests(
                     "feedback_blob": "1db7511dbba9922aa651a17fb3b6afe223f99807",
                 },
                 "fixture": fixture,
+                "environment": {"cpu": "test"},
                 "semantic_digest": digests,
             }
         )

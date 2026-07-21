@@ -2,76 +2,76 @@
   "benchmarks": {
     "after": {
       "coordinate_grid_allocation": {
-        "extrapolated_147_frames_ns": 12201,
-        "maximum_ns": 833,
+        "extrapolated_147_frames_ns": 12348,
+        "maximum_ns": 667,
         "measured_count": 5,
-        "median_ns": 83,
-        "minimum_ns": 83
+        "median_ns": 84,
+        "minimum_ns": 42
       },
       "primary_history_sampling": {
-        "extrapolated_147_frames_ns": 29754943848,
-        "maximum_ns": 215810917,
+        "extrapolated_147_frames_ns": 25853055375,
+        "maximum_ns": 208471041,
         "measured_count": 5,
-        "median_ns": 202414584,
-        "minimum_ns": 158758291
+        "median_ns": 175871125,
+        "minimum_ns": 156312792
       },
       "same_pixel_fallback": {
-        "extrapolated_147_frames_ns": 1612896348,
-        "maximum_ns": 11339167,
+        "extrapolated_147_frames_ns": 1705175451,
+        "maximum_ns": 11673792,
         "measured_count": 5,
-        "median_ns": 10972084,
-        "minimum_ns": 10664167
+        "median_ns": 11599833,
+        "minimum_ns": 10704625
       },
       "total_core_frame": {
-        "extrapolated_147_frames_ns": 48748483098,
-        "maximum_ns": 365291584,
+        "extrapolated_147_frames_ns": 49798167174,
+        "maximum_ns": 357195792,
         "measured_count": 5,
-        "median_ns": 331622334,
-        "minimum_ns": 313874541
+        "median_ns": 338763042,
+        "minimum_ns": 311828292
       },
       "trail_mask_sampling": {
-        "extrapolated_147_frames_ns": 5591916750,
-        "maximum_ns": 38958083,
+        "extrapolated_147_frames_ns": 5508359451,
+        "maximum_ns": 42332250,
         "measured_count": 5,
-        "median_ns": 38040250,
-        "minimum_ns": 37330958
+        "median_ns": 37471833,
+        "minimum_ns": 36580917
       }
     },
     "before": {
       "coordinate_grid_allocation": {
-        "extrapolated_147_frames_ns": 24579723,
-        "maximum_ns": 686500,
+        "extrapolated_147_frames_ns": 26539527,
+        "maximum_ns": 193750,
         "measured_count": 5,
-        "median_ns": 167209,
-        "minimum_ns": 164625
+        "median_ns": 180541,
+        "minimum_ns": 171125
       },
       "primary_history_sampling": {
-        "extrapolated_147_frames_ns": 34545067473,
-        "maximum_ns": 258397875,
+        "extrapolated_147_frames_ns": 35478174375,
+        "maximum_ns": 255627250,
         "measured_count": 5,
-        "median_ns": 235000459,
-        "minimum_ns": 223081459
+        "median_ns": 241348125,
+        "minimum_ns": 230750750
       },
       "same_pixel_fallback": {
-        "extrapolated_147_frames_ns": 31061020326,
-        "maximum_ns": 227630041,
+        "extrapolated_147_frames_ns": 31670182299,
+        "maximum_ns": 244046750,
         "measured_count": 5,
-        "median_ns": 211299458,
-        "minimum_ns": 202655709
+        "median_ns": 215443417,
+        "minimum_ns": 186418917
       },
       "total_core_frame": {
-        "extrapolated_147_frames_ns": 98807783277,
-        "maximum_ns": 682278791,
+        "extrapolated_147_frames_ns": 97805586375,
+        "maximum_ns": 702955834,
         "measured_count": 5,
-        "median_ns": 672161791,
-        "minimum_ns": 662749000
+        "median_ns": 665344125,
+        "minimum_ns": 633964667
       },
       "trail_mask_sampling": {
-        "extrapolated_147_frames_ns": 11027131500,
-        "maximum_ns": 77915583,
+        "extrapolated_147_frames_ns": 10923998652,
+        "maximum_ns": 76269083,
         "measured_count": 5,
-        "median_ns": 75014500,
-        "minimum_ns": 73509458
+        "median_ns": 74312916,
+        "minimum_ns": 73291167
       }
     }
   },
@@ -83,23 +83,23 @@
   "comparisons": {
     "coordinate_grid_allocation": {
       "median_reduction_percent": 99.95,
-      "speedup_multiple": 2014.57
+      "speedup_multiple": 2149.3
     },
     "primary_history_sampling": {
-      "median_reduction_percent": 13.87,
-      "speedup_multiple": 1.16
+      "median_reduction_percent": 27.13,
+      "speedup_multiple": 1.37
     },
     "same_pixel_fallback": {
-      "median_reduction_percent": 94.81,
-      "speedup_multiple": 19.26
+      "median_reduction_percent": 94.62,
+      "speedup_multiple": 18.57
     },
     "total_core_frame": {
-      "median_reduction_percent": 50.66,
-      "speedup_multiple": 2.03
+      "median_reduction_percent": 49.08,
+      "speedup_multiple": 1.96
     },
     "trail_mask_sampling": {
-      "median_reduction_percent": 49.29,
-      "speedup_multiple": 1.97
+      "median_reduction_percent": 49.58,
+      "speedup_multiple": 1.98
     }
   },
   "environment": {
@@ -135,8 +135,9 @@
     "Before and after were measured on separate worktrees on the same machine using identical deterministic inputs.",
     "Stage microbenchmarks isolate the removed identity-grid/sample work; total_core_frame measures the public processing seam imported from the requested source worktree.",
     "The runner rejects dirty source worktrees and requires the exact recorded commit SHA plus matching committed and on-disk feedback.py Git blobs before measuring.",
-    "The comparison mode reproducibly verifies exact output, state coverage, and diagnostics digests from the two benchmark runs.",
-    "The same-pixel fallback microbenchmark uses clean history with every eighth primary-sample column marked invalid and measures the implemented direct-history np.where operands.",
+    "The comparison mode requires identical environment metadata and reproducibly verifies exact output, state coverage, and diagnostics digests across four recursive frames from the two benchmark runs.",
+    "Each measured total-core invocation advances the returned FeedbackState and frame number, preserving sequential recursive history across warm-ups and samples.",
+    "The same-pixel fallback microbenchmark derives warped history and coverage through bilinear_sample with every eighth sample column out of bounds, then measures the implementation's actual before/after operands.",
     "The coordinate-grid after measurement is the eliminated-operation no-op overhead.",
     "Benchmarks are developer evidence and are not CI timing gates."
   ],

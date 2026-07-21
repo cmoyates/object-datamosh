@@ -798,7 +798,7 @@ uv run python scripts/benchmark_full_frame_sampling.py \
 The same-machine before/after evidence in
 [`docs/evidence/issue-75-full-frame-sampling.json`](docs/evidence/issue-75-full-frame-sampling.json)
 uses deterministic 1920×1080 float32 Extreme input. Median total core processing fell from
-672.16 ms to 331.62 ms (50.66%, 2.03×); processed RGBA, next state, effect coverage, and diagnostics
+665.34 ms to 338.76 ms (49.08%, 1.96×); processed RGBA, next state, effect coverage, and diagnostics
 were bit-identical. Stage figures are developer evidence, not CI timing gates or claims about other
 machines.
 
