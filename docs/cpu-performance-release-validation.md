@@ -4,18 +4,19 @@
 
 This is the cumulative release record for roadmap #70. The verification-gap rerun compares the
 original PERF-1 revision (`0b19e06bb690227b3a3f0711dbb1acf1e91d5563`) with integrated production
-code at `5ca5134a8a82b1cf413dae7a3c9b6224e281769a` on the same machine. Both runs used the exact same
+code at `ac356f8182ab6afc676553fccdb1303a7683c93a` on the same machine. Both runs used the exact same
 benchmark script bytes (SHA-256
-`862577a7a12ef31d3f3caf045902d0c7bbff4f9e6b2c5bf7ac2dabedd1761576`), workload order, generated
-1920×1080 float32 inputs, one warm-up per operation, and three measured samples. The JSON retains
+`a8361b01d1a7506bddfbef860683ee170bd0115af0c9252a107f07f9adde6113`), workload order, generated
+1920×1080 float32 inputs, one warm-up per operation, one excluded sequence-path priming run, and
+three measured samples. The JSON retains
 each raw nanosecond sample as well as its count, median, range, and 147-frame extrapolation. This
 supersedes the less-comparable workload coverage in the earlier release run.
 
-For the canonical Extreme Full Frame + Trail non-reset frame, pure core fell from **1,988.777 ms**
-to **304.567 ms** (**84.69% reduction / 6.53× speedup**) and measured complete-frame time fell from
-**2,065.286 ms** to **760.567 ms** (**63.17% reduction / 2.72× speedup**). The latter gives a
-median-only 147-frame processing estimate of **111.803 s (1.86 min)**, down from **303.597 s
-(5.06 min)**. This is synthetic processing evidence on this machine, not a prediction for the
+For the canonical Extreme Full Frame + Trail non-reset frame, pure core fell from **2,162.123 ms**
+to **300.185 ms** (**86.12% reduction / 7.20× speedup**) and measured complete-frame time fell from
+**2,260.238 ms** to **759.081 ms** (**66.42% reduction / 2.98× speedup**). The latter gives a
+median-only 147-frame processing estimate of **111.585 s (1.86 min)**, down from **332.255 s
+(5.54 min)**. This is synthetic processing evidence on this machine, not a prediction for the
 reporter's machine and not 3D render time.
 
 Committed raw evidence:
@@ -30,8 +31,11 @@ Committed raw evidence:
 The benchmark creates deterministic EXRs in a temporary directory and uses production
 `BlenderImageIO`, `process_frame_with_diagnostics`, and `process_sequence` paths. Each successful
 workload has a standalone pure-core non-reset measurement, a complete two-frame sequence
-measurement, and every release stage from the non-reset frame. The two-frame end-to-end range is
-reported as directly observed; the 147-frame values stored in the JSON normalize its median by two.
+measurement, an exact output/state/coverage/diagnostics semantic signature, and every release stage
+from the non-reset frame. Sequence measurements use one configured warm-up followed by one excluded
+priming run of overwrite/recovery paths; each reported distribution then contains three samples. The
+two-frame end-to-end range is reported as directly observed; the 147-frame values stored in the JSON
+normalize its median by two.
 For a long recursive sequence, the non-reset complete-frame estimate above is more representative
 because only the first frame resets.
 
@@ -59,7 +63,7 @@ cd <integrated-worktree>
 | Blender | 5.2.0 LTS, build `fbe6228777e7` |
 | Python / NumPy | 3.13.13 / 2.3.4 |
 | Fixture | 1920×1080 float32 RGBA, deterministic seed 71071 |
-| Statistics | 1 warm-up per operation; 3 samples; minimum / median / maximum |
+| Statistics | 1 warm-up per operation; 1 excluded sequence priming run; 3 samples; minimum / median / maximum |
 
 ## Workload evidence
 
@@ -71,12 +75,12 @@ before core processing or output writing, so fabricated stage values would be mi
 
 | Workload (pure core, except expected rejection) | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Extreme Full Frame + Trail | 1975.505 / 1988.777 / 2023.444 | 284.870 / 304.567 / 346.234 |
-| Extreme Hard | 1890.542 / 1891.655 / 1920.536 | 235.134 / 236.410 / 288.330 |
-| Target Only compatibility | 5943.924 / 5959.974 / 5961.721 | 323.308 / 413.902 / 440.594 |
-| background-only pre-roll | 1982.878 / 1986.179 / 2005.183 | 280.861 / 281.119 / 281.361 |
-| nonzero refresh | 1966.880 / 2029.364 / 2030.989 | 282.671 / 285.550 / 289.188 |
-| invalid resumed history (expected rejection) | 21.363 / 21.824 / 24.300 | 437.773 / 442.091 / 443.050 |
+| Extreme Full Frame + Trail | 2140.253 / 2162.123 / 2197.581 | 287.787 / 300.185 / 303.714 |
+| Extreme Hard | 2062.114 / 2127.737 / 2134.358 | 239.842 / 240.249 / 244.164 |
+| Target Only compatibility | 6525.387 / 6570.425 / 6652.797 | 322.296 / 338.342 / 340.102 |
+| background-only pre-roll | 2025.470 / 2058.465 / 2087.290 | 282.667 / 301.699 / 302.601 |
+| nonzero refresh | 2029.406 / 2065.255 / 2067.994 | 291.723 / 292.844 / 295.739 |
+| invalid resumed history (expected rejection) | 20.387 / 20.713 / 20.898 | 463.491 / 463.734 / 468.486 |
 
 The invalid-resume rejection is slower in final code because the production bundled EXR reader
 decodes and validates the malformed history before rejecting its resolution. It still rejects before
@@ -84,15 +88,17 @@ frame processing, as required; this unfavorable result is not hidden.
 
 | Successful workload (complete two-frame end to end) | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Extreme Full Frame + Trail | 2148.538 / 2181.231 / 2185.372 | 1238.480 / 1259.821 / 1315.469 |
-| Extreme Hard | 2068.264 / 2093.077 / 2167.729 | 1183.394 / 1190.962 / 1218.057 |
-| Target Only compatibility | 6080.004 / 6130.840 / 6171.782 | 1265.765 / 1315.879 / 1342.449 |
-| background-only pre-roll | 2172.970 / 2188.646 / 2202.867 | 1209.077 / 1241.567 / 1346.580 |
-| nonzero refresh | 2160.992 / 2188.518 / 2220.146 | 1228.939 / 1247.323 / 1251.490 |
+| Extreme Full Frame + Trail | 2351.863 / 2376.469 / 2435.570 | 1241.921 / 1253.590 / 1291.731 |
+| Extreme Hard | 2198.397 / 2279.153 / 2281.205 | 1205.300 / 1208.794 / 1228.601 |
+| Target Only compatibility | 6476.177 / 6630.443 / 6639.819 | 1282.132 / 1305.143 / 1314.857 |
+| background-only pre-roll | 2230.274 / 2251.248 / 2251.517 | 1265.958 / 1297.404 / 1325.650 |
+| nonzero refresh | 2177.022 / 2198.105 / 2210.952 | 1259.200 / 1264.364 / 1275.284 |
 
 The exact workload definitions are committed in both JSON files. All `FeedbackSettings` fields,
 target pixel counts, frame count, fixture metadata, workload order, environment, and harness hash
-are equal across revisions.
+are equal across revisions. The committed semantic signatures prove exact equality for processed
+RGBA, next history RGBA, next effect-coverage matte, frame number, and every diagnostic counter for
+each successful workload (maximum numerical error **0**).
 Background-only pre-roll has zero target pixels on frame 1 and the normal target on frame 2;
 nonzero refresh uses probability `0.25` and seed `73079`; Target Only uses compatibility defaults.
 
@@ -106,80 +112,80 @@ production stages and small orchestration overhead.
 
 | Stage | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Beauty read | 7.684 / 7.746 / 7.967 | 166.892 / 167.152 / 167.348 |
-| Vector read | 3.140 / 3.237 / 3.392 | 130.022 / 130.756 / 132.876 |
-| Matte read | 3.733 / 3.898 / 4.013 | 119.392 / 119.648 / 122.367 |
-| Total input read | 14.716 / 14.837 / 15.257 | 417.018 / 417.300 / 422.135 |
-| Core processing | 1994.454 / 2008.522 / 2023.320 | 289.856 / 293.356 / 307.589 |
-| Processed EXR write | 31.071 / 32.547 / 55.161 | 31.266 / 34.712 / 87.446 |
-| Recovery-manifest commit | 0.380 / 0.392 / 0.443 | 0.388 / 0.419 / 0.478 |
-| Diagnostics-report commit | 0.371 / 0.373 / 0.379 | 0.360 / 0.370 / 0.403 |
-| Complete frame | 2055.665 / 2065.286 / 2071.467 | 744.080 / 760.567 / 798.684 |
+| Beauty read | 8.700 / 8.890 / 9.353 | 169.157 / 171.886 / 172.146 |
+| Vector read | 3.524 / 3.555 / 3.795 | 131.716 / 132.113 / 132.557 |
+| Matte read | 3.889 / 4.069 / 4.089 | 112.325 / 114.690 / 118.088 |
+| Total input read | 16.145 / 16.774 / 16.946 | 416.187 / 416.405 / 422.087 |
+| Core processing | 2152.477 / 2188.362 / 2241.077 | 296.536 / 305.566 / 334.075 |
+| Processed EXR write | 54.539 / 55.751 / 61.810 | 28.087 / 31.050 / 36.201 |
+| Recovery-manifest commit | 0.471 / 0.474 / 0.541 | 0.418 / 0.424 / 0.474 |
+| Diagnostics-report commit | 0.388 / 0.441 / 0.564 | 0.371 / 0.398 / 0.405 |
+| Complete frame | 2226.126 / 2260.238 / 2320.662 | 741.757 / 759.081 / 788.084 |
 
 ### Extreme Hard
 
 | Stage | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Beauty read | 7.593 / 7.782 / 7.966 | 167.401 / 168.364 / 171.808 |
-| Vector read | 3.473 / 3.523 / 3.566 | 129.630 / 130.347 / 130.469 |
-| Matte read | 3.752 / 3.776 / 4.145 | 115.498 / 115.557 / 118.827 |
-| Total input read | 14.818 / 15.081 / 15.677 | 414.331 / 415.858 / 417.711 |
-| Core processing | 1888.439 / 1912.262 / 1976.525 | 236.200 / 247.949 / 268.954 |
-| Processed EXR write | 49.953 / 53.013 / 54.669 | 29.935 / 30.269 / 31.793 |
-| Recovery-manifest commit | 0.383 / 0.411 / 0.452 | 0.397 / 0.441 / 0.503 |
-| Diagnostics-report commit | 0.369 / 0.380 / 0.384 | 0.378 / 0.386 / 0.395 |
-| Complete frame | 1954.110 / 1981.174 / 2047.734 | 684.822 / 693.115 / 717.804 |
+| Beauty read | 8.132 / 8.444 / 8.536 | 170.887 / 171.598 / 172.936 |
+| Vector read | 3.518 / 3.539 / 4.005 | 131.955 / 133.589 / 138.220 |
+| Matte read | 3.858 / 4.184 / 4.206 | 116.288 / 117.529 / 120.436 |
+| Total input read | 15.995 / 16.146 / 16.281 | 420.371 / 421.476 / 431.592 |
+| Core processing | 2049.338 / 2125.969 / 2136.495 | 248.744 / 255.257 / 263.762 |
+| Processed EXR write | 29.866 / 31.285 / 32.308 | 29.894 / 30.535 / 31.798 |
+| Recovery-manifest commit | 0.425 / 0.435 / 0.498 | 0.381 / 0.407 / 0.421 |
+| Diagnostics-report commit | 0.388 / 0.414 / 0.422 | 0.386 / 0.409 / 3.339 |
+| Complete frame | 2097.849 / 2172.874 / 2185.784 | 705.858 / 707.007 / 726.144 |
 
 ### Target Only compatibility
 
 | Stage | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Beauty read | 9.567 / 10.514 / 10.685 | 167.494 / 170.401 / 176.733 |
-| Vector read | 3.499 / 3.506 / 3.868 | 129.997 / 132.846 / 133.300 |
-| Matte read | 3.893 / 3.897 / 3.932 | 121.422 / 121.786 / 124.322 |
-| Total input read | 16.958 / 17.916 / 18.485 | 422.216 / 424.721 / 431.365 |
-| Core processing | 5916.240 / 5960.188 / 6005.197 | 319.048 / 355.591 / 357.863 |
-| Processed EXR write | 32.927 / 33.110 / 50.364 | 28.482 / 29.082 / 36.002 |
-| Recovery-manifest commit | 0.419 / 0.451 / 0.570 | 0.377 / 0.399 / 0.400 |
-| Diagnostics-report commit | 0.392 / 0.404 / 0.455 | 0.370 / 0.374 / 0.386 |
-| Complete frame | 5985.440 / 6011.405 / 6057.488 | 770.593 / 817.143 / 819.183 |
+| Beauty read | 8.214 / 8.902 / 9.289 | 170.770 / 171.263 / 174.193 |
+| Vector read | 3.746 / 3.996 / 4.118 | 131.964 / 133.744 / 135.053 |
+| Matte read | 4.285 / 4.328 / 4.951 | 114.924 / 119.942 / 122.410 |
+| Total input read | 16.538 / 16.933 / 18.358 | 422.677 / 422.861 / 428.726 |
+| Core processing | 6310.471 / 6434.918 / 6465.572 | 326.288 / 347.173 / 350.325 |
+| Processed EXR write | 35.131 / 45.360 / 47.140 | 31.011 / 32.061 / 32.192 |
+| Recovery-manifest commit | 0.445 / 0.591 / 0.634 | 0.396 / 0.397 / 0.453 |
+| Diagnostics-report commit | 0.416 / 0.446 / 0.469 | 0.397 / 0.428 / 0.437 |
+| Complete frame | 6363.277 / 6499.581 / 6530.836 | 782.066 / 806.215 / 807.794 |
 
 ### background-only pre-roll
 
 | Stage | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Beauty read | 8.763 / 9.757 / 10.615 | 166.380 / 168.411 / 169.286 |
-| Vector read | 3.387 / 3.589 / 4.291 | 129.881 / 131.602 / 134.907 |
-| Matte read | 4.044 / 4.123 / 4.495 | 121.086 / 122.414 / 123.894 |
-| Total input read | 16.193 / 17.468 / 19.401 | 419.378 / 423.302 / 425.181 |
-| Core processing | 1984.504 / 2027.317 / 2054.905 | 280.378 / 313.243 / 339.038 |
-| Processed EXR write | 31.091 / 32.208 / 54.876 | 31.215 / 33.015 / 57.117 |
-| Recovery-manifest commit | 0.391 / 0.399 / 0.422 | 0.399 / 0.402 / 0.418 |
-| Diagnostics-report commit | 0.356 / 0.362 / 0.392 | 0.381 / 0.392 / 3.350 |
-| Complete frame | 2056.387 / 2076.731 / 2107.377 | 738.740 / 766.504 / 822.196 |
+| Beauty read | 9.209 / 9.275 / 9.924 | 169.539 / 171.013 / 172.046 |
+| Vector read | 3.432 / 3.610 / 3.694 | 132.159 / 132.630 / 137.024 |
+| Matte read | 3.845 / 4.049 / 4.176 | 117.950 / 118.021 / 121.369 |
+| Total input read | 16.748 / 16.756 / 17.709 | 420.190 / 424.540 / 427.020 |
+| Core processing | 2037.297 / 2061.816 / 2061.831 | 299.682 / 300.336 / 320.124 |
+| Processed EXR write | 50.924 / 53.669 / 56.677 | 29.902 / 53.769 / 115.289 |
+| Recovery-manifest commit | 0.377 / 0.389 / 0.411 | 0.405 / 0.406 / 0.497 |
+| Diagnostics-report commit | 0.387 / 0.401 / 0.535 | 0.398 / 0.437 / 0.439 |
+| Complete frame | 2112.533 / 2130.520 / 2133.091 | 777.932 / 778.925 / 836.836 |
 
 ### nonzero refresh
 
 | Stage | PERF-1 (ms) | Final (ms) |
 | --- | ---: | ---: |
-| Beauty read | 9.656 / 9.895 / 10.599 | 166.369 / 166.762 / 167.299 |
-| Vector read | 3.458 / 3.494 / 3.733 | 129.922 / 130.592 / 132.165 |
-| Matte read | 3.864 / 4.027 / 4.077 | 119.779 / 121.429 / 122.884 |
-| Total input read | 17.141 / 17.491 / 18.170 | 418.114 / 418.313 / 420.775 |
-| Core processing | 1969.514 / 1981.297 / 2033.472 | 285.748 / 297.629 / 301.324 |
-| Processed EXR write | 48.803 / 53.409 / 70.099 | 28.456 / 28.867 / 29.322 |
-| Recovery-manifest commit | 0.387 / 0.550 / 1.809 | 0.381 / 0.392 / 0.399 |
-| Diagnostics-report commit | 0.341 / 0.386 / 0.411 | 0.372 / 0.378 / 0.382 |
-| Complete frame | 2041.074 / 2070.360 / 2102.049 | 735.821 / 745.912 / 749.340 |
+| Beauty read | 7.793 / 8.071 / 8.102 | 169.853 / 171.170 / 175.562 |
+| Vector read | 3.387 / 3.448 / 3.631 | 133.605 / 134.635 / 136.552 |
+| Matte read | 3.682 / 3.841 / 3.910 | 118.236 / 118.312 / 120.724 |
+| Total input read | 14.923 / 15.299 / 15.643 | 424.041 / 424.182 / 430.426 |
+| Core processing | 2033.828 / 2059.458 / 2070.355 | 291.623 / 293.441 / 295.505 |
+| Processed EXR write | 29.132 / 29.436 / 30.298 | 31.955 / 36.167 / 48.425 |
+| Recovery-manifest commit | 0.392 / 0.407 / 0.427 | 0.377 / 0.418 / 0.421 |
+| Diagnostics-report commit | 0.347 / 0.358 / 0.411 | 0.375 / 0.409 / 0.431 |
+| Complete frame | 2079.519 / 2104.648 / 2116.775 | 750.512 / 756.579 / 771.360 |
 
 ## Memory evidence and limits
 
 Both committed evidence files contain the same representative live-array definition: beauty RGBA,
 Vector RGBA, matte, history RGBA, and history matte, all 1920×1080 float32. That footprint is
 **116,121,600 bytes (110.74 MiB)** at both revisions. In isolated Blender benchmark processes,
-`resource.getrusage(RUSAGE_SELF).ru_maxrss` recorded a process peak of **1,009,270,784 bytes
-(962.52 MiB)** at PERF-1 and **994,787,328 bytes (948.70 MiB)** final:
-**-1.44% (-13.81 MiB)**.
+`resource.getrusage(RUSAGE_SELF).ru_maxrss` recorded a process peak of **1,027,948,544 bytes
+(980.33 MiB)** at PERF-1 and **1,006,010,368 bytes (959.41 MiB)** final:
+**-2.13% (-20.92 MiB)**.
 
 This is auditable and directly comparable because the harness hash, machine, operation order, fixture,
 and process scope match. It is still a process-wide high-water mark, not a per-stage allocation
@@ -190,8 +196,9 @@ implementation-dependent.
 
 ## Correctness and release gate
 
-The deterministic roadmap fixtures and full regression suite remain bit-for-bit equal (maximum
-numerical error **0**). Coverage includes Full Frame + Trail, Extreme Hard, Target Only,
+The same-harness cumulative semantic signatures and deterministic roadmap fixtures remain
+bit-for-bit equal (maximum numerical error **0**). Coverage includes Full Frame + Trail, Extreme
+Hard, Target Only,
 background-only pre-roll, nonzero deterministic refresh, resume/recovery and malformed history,
 partial edge blocks, output/state/coverage and diagnostics equivalence, Blender orientation,
 temporary image/data cleanup, and every roadmap benchmark contract. The actual Blender smoke
@@ -213,8 +220,8 @@ mkdir -p dist
 
 ## Bottleneck and recommendation
 
-For final Extreme Full Frame + Trail medians, input reads consume **417.300 ms (54.9%)**, core
-processing **293.356 ms (38.6%)**, and output writing **34.712 ms (4.6%)** of the **760.567 ms**
+For final Extreme Full Frame + Trail medians, input reads consume **416.405 ms (54.9%)**, core
+processing **305.566 ms (40.3%)**, and output writing **31.050 ms (4.1%)** of the **759.081 ms**
 complete frame. Manifest and diagnostics commits together are below 1 ms. The read regression is
 real: PERF-1 used Blender loading for simple generated EXRs, while final production routing uses the
 bundled decoder and transfer path. The exact same generated fixtures and production calls are used

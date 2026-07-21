@@ -132,11 +132,12 @@ def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None
     final = json.loads(Path("docs/evidence/issue-79-workloads-final.json").read_text())
 
     assert baseline["revision"]["commit"].startswith("0b19e06")
-    assert final["revision"]["commit"].startswith("5ca5134")
+    assert final["revision"]["commit"] == "ac356f8182ab6afc676553fccdb1303a7683c93a"
     assert baseline["fixture"] == final["fixture"]
     assert baseline["methodology"] == final["methodology"]
     assert baseline["environment"] == final["environment"]
     assert baseline["comparability"]["harness_sha256"] == final["comparability"]["harness_sha256"]
+    assert baseline["methodology"]["sequence_priming_runs_after_warmups"] == 1
     assert (
         baseline["memory"]["representative_live_array_bytes"]
         == final["memory"]["representative_live_array_bytes"]
@@ -151,6 +152,16 @@ def test_issue_79_release_evidence_is_directly_comparable_and_complete() -> None
         if workload == "invalid_resumed_history":
             result_names = ("expected_rejection_end_to_end",)
         else:
+            before_semantics = before["semantic_non_reset_frame"]
+            after_semantics = after["semantic_non_reset_frame"]
+            assert before_semantics == after_semantics
+            assert set(before_semantics) == {
+                "processed_rgba_sha256",
+                "next_history_rgba_sha256",
+                "next_history_matte_sha256",
+                "next_frame_number",
+                "diagnostics",
+            }
             stage_names = {
                 "beauty_read",
                 "vector_read",

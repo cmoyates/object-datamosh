@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +119,26 @@ def _measure(operation: Callable[[], object], warmups: int, measured: int) -> tu
 def _peak_rss_bytes() -> int:
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return int(peak if sys.platform == "darwin" else peak * 1024)
+
+
+def _array_sha256(array: np.ndarray) -> str:
+    """Hash an array's exact typed shape and C-order bytes for cross-revision comparison."""
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(array.shape).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _semantic_result(result: Any) -> dict[str, object]:
+    output, state, diagnostics = result
+    return {
+        "processed_rgba_sha256": _array_sha256(output),
+        "next_history_rgba_sha256": _array_sha256(state.history),
+        "next_history_matte_sha256": _array_sha256(state.history_matte),
+        "next_frame_number": state.frame_number,
+        "diagnostics": asdict(diagnostics),
+    }
 
 
 def _fixtures() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -343,7 +363,10 @@ def main() -> None:
                 }
                 continue
 
+            semantic_result = _semantic_result(pure_core())
             pure_core_samples = _measure(pure_core, args.warmups, args.measured)
+            # Prime overwrite/recovery paths once after their configured warm-ups. This run is
+            # deliberately excluded from both elapsed and production-stage sample distributions.
             _measure(complete_sequence, args.warmups, 1)
             end_to_end_samples: list[int] = []
             reports: list[dict[str, Any]] = []
@@ -359,6 +382,7 @@ def main() -> None:
             results[workload.key] = {
                 "label": workload.label,
                 "definition": definition,
+                "semantic_non_reset_frame": semantic_result,
                 "pure_core_non_reset_frame": _summary(pure_core_samples, warmup_count=args.warmups),
                 "exr_io_and_release_stages_non_reset_frame": _stage_summary(
                     reports, warmup_count=args.warmups
@@ -384,6 +408,7 @@ def main() -> None:
             "harness": "scripts/benchmark_release_workloads.py",
             "clock": "perf_counter_ns",
             "warmup_count_per_operation": args.warmups,
+            "sequence_priming_runs_after_warmups": 1,
             "measured_count_per_operation": args.measured,
             "statistics": ["minimum", "median", "maximum"],
             "extrapolation_frames": EXTRAPOLATION_FRAMES,
