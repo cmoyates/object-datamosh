@@ -1,5 +1,37 @@
 # CPU performance roadmap release validation (#79)
 
+## Roadmap completion (#70)
+
+Roadmap [#70](https://github.com/cmoyates/object-datamosh/issues/70) is complete: all nine child
+issues were resolved and their pull requests merged to `main`. The durable outcome trail is:
+
+| Child | Merged outcome | Durable evidence |
+| --- | --- | --- |
+| [#71](https://github.com/cmoyates/object-datamosh/issues/71) | Added the reproducible Extreme benchmark and bounded observational stage timings. | [PR #80](https://github.com/cmoyates/object-datamosh/pull/80), [`extreme-benchmark-baseline.json`](evidence/extreme-benchmark-baseline.json) |
+| [#72](https://github.com/cmoyates/object-datamosh/issues/72) | Removed zero-refresh block scanning and vectorized nonzero refresh diagnostics. | [PR #82](https://github.com/cmoyates/object-datamosh/pull/82) |
+| [#73](https://github.com/cmoyates/object-datamosh/issues/73) | Vectorized ZIP predictor reversal while retaining bit-identical decode results. | [PR #83](https://github.com/cmoyates/object-datamosh/pull/83), [`issue-73-exr-predictor.json`](evidence/issue-73-exr-predictor.json) |
+| [#74](https://github.com/cmoyates/object-datamosh/issues/74) | Checkpointed diagnostics reports (295 to 31 writes in the 147-frame fixture) without changing per-frame recovery-manifest commits. | [PR #84](https://github.com/cmoyates/object-datamosh/pull/84), [`issue-74-diagnostics-checkpoint.json`](evidence/issue-74-diagnostics-checkpoint.json) |
+| [#75](https://github.com/cmoyates/object-datamosh/issues/75) | Avoided redundant clean-history copies/sampling and made same-pixel fallback direct while preserving contaminated-history handling. | [PR #85](https://github.com/cmoyates/object-datamosh/pull/85), [`issue-75-full-frame-sampling.json`](evidence/issue-75-full-frame-sampling.json) |
+| [#76](https://github.com/cmoyates/object-datamosh/issues/76) | Routed supported EXRs through the bundled decoder before Blender Images, retaining strict fallback and corruption behavior. | [PR #86](https://github.com/cmoyates/object-datamosh/pull/86), [`issue-76-custom-exr-routing.json`](evidence/issue-76-custom-exr-routing.json) |
+| [#77](https://github.com/cmoyates/object-datamosh/issues/77) | Skipped motion/history work only for proven empty-effect frames. | [PR #87](https://github.com/cmoyates/object-datamosh/pull/87), [`issue-77-empty-effect-frames.json`](evidence/issue-77-empty-effect-frames.json) |
+| [#78](https://github.com/cmoyates/object-datamosh/issues/78) | **Rejected** reusable bilinear plans: two-sample work was 4.11% slower and the modest 2.79% complete-feedback gain did not justify an 85,017,600-byte plan or 98.77 MiB peak-RSS growth. The prototype was reverted. | [PR #88](https://github.com/cmoyates/object-datamosh/pull/88), [`issue-78-bilinear-plans.json`](evidence/issue-78-bilinear-plans.json) |
+| [#79](https://github.com/cmoyates/object-datamosh/issues/79) | Release-validated the integrated roadmap with same-harness workload, semantic, recovery, memory, and release-gate evidence. | [PR #89](https://github.com/cmoyates/object-datamosh/pull/89), [baseline](evidence/issue-79-workloads-baseline.json), [final](evidence/issue-79-workloads-final.json) |
+
+The cumulative canonical result from #79 is a pure-core median reduction from **2,070.206 ms to
+293.871 ms (85.80% / 7.04×)** and a complete-frame reduction from **2,143.568 ms to 791.130 ms
+(63.09% / 2.71×)**. The median-only 147-frame processing estimate is **116.296 s**, down from
+**315.104 s**. Final input reads remain the largest stage at **446.073 ms (56.4%)**, ahead of core
+processing at **301.337 ms (38.1%)** and output writing at **45.510 ms (5.8%)**. The measured next
+recommendation is therefore narrowly scoped CPU work on bundled EXR decode and copy/transfer, not
+output-writer or GPU work. The detailed method, limitations, stage tables, and unfavorable results
+remain below rather than being duplicated here.
+
+The roadmap preserved sequential frame recursion, bit-identical tested output/state/coverage and
+diagnostics, conservative resumed/invalid-history validation, atomic recovery-manifest commits per
+completed frame, NumPy `float32` core boundaries without `bpy`, Blender-main-thread API use, scene
+safety, and the no-new-runtime-dependency constraint. It introduced no GPU backend or frame-level
+parallelism and made no performance claim for the reporter's machine or for 3D rendering.
+
 ## Scope and result
 
 This is the cumulative release record for roadmap #70. The verification-gap rerun compares the
